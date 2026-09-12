@@ -72,6 +72,13 @@ Ele reporta quantos frames rodaram, quantos objetos e processos estao vivos e
 quantas vezes cada processo foi chamado. O processo do p_link pausado deve
 terminar com zero chamadas.
 
+## Tempo de video
+
+A camada VI do host nao dorme. Um retrace acontece quando o jogo bloqueia em
+`VIWaitForRetrace` ou quando o laco do host chama
+`melee_host_video_advance_retrace`. Escolha um dos dois como fonte do tempo;
+usar os dois no mesmo laco faz o contador de retrace avancar em dobro.
+
 ## Inspecao de HSD
 
 Um arquivo HSD individual pode ser validado sem fazer relocacao in-place:

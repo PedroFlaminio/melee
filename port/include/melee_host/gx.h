@@ -100,6 +100,264 @@ void melee_host_gx_apply_material(size_t first, size_t count,
                                   const mh_u8 diffuse[4],
                                   mh_u32 texture_image, mh_u32 render_mode);
 
+/* ---------------------------------------------------------------------------
+ * GX pipeline state.
+ *
+ * The host models the state the GX API exposes, not the Flipper hardware.
+ * Every GX state-setting entry point records into the block below, and
+ * the renderer and tests read it back through these accessors.  Enumerated
+ * values are carried as plain integers so this ABI stays free of the Dolphin
+ * GX headers.
+ * ------------------------------------------------------------------------- */
+
+enum {
+    MELEE_HOST_GX_MAX_TEXMAP = 8,
+    MELEE_HOST_GX_MAX_TEXCOORD = 8,
+    MELEE_HOST_GX_MAX_TEVSTAGE = 16,
+    MELEE_HOST_GX_MAX_CHANNEL = 4,
+    MELEE_HOST_GX_MAX_LIGHT = 8,
+    MELEE_HOST_GX_MATRIX_ROWS = 64,
+    MELEE_HOST_GX_MAX_TLUT = 20,
+    MELEE_HOST_GX_MAX_TEVREG = 4,
+    MELEE_HOST_GX_MAX_KCOLOR = 4,
+    MELEE_HOST_GX_FOG_ADJ_ENTRIES = 10,
+};
+
+typedef struct MeleeHostGxPixelState {
+    bool z_compare_enable;
+    bool z_update_enable;
+    mh_u32 z_func;
+    bool z_before_texture;
+    mh_u32 z_texture_op;
+    mh_u32 z_texture_format;
+    mh_u32 z_texture_bias;
+    mh_u32 blend_mode;
+    mh_u32 blend_src_factor;
+    mh_u32 blend_dst_factor;
+    mh_u32 blend_logic_op;
+    bool color_update_enable;
+    bool alpha_update_enable;
+    mh_u32 alpha_compare_0;
+    mh_u32 alpha_compare_1;
+    mh_u32 alpha_op;
+    mh_u8 alpha_ref_0;
+    mh_u8 alpha_ref_1;
+    mh_u32 cull_mode;
+    mh_u32 scissor_left;
+    mh_u32 scissor_top;
+    mh_u32 scissor_width;
+    mh_u32 scissor_height;
+    /* Counts GXPixModeSync calls, which the game uses to fence EFB reads. */
+    mh_u32 pixel_sync_count;
+    bool dither_enabled;
+    bool destination_alpha_enabled;
+    mh_u8 destination_alpha;
+    mh_u32 pixel_format;
+    mh_u32 depth_format;
+    mh_u8 line_width;
+    mh_u32 line_texture_offsets;
+    mh_u8 point_size;
+    mh_u32 point_texture_offsets;
+    bool field_mode;
+    bool half_aspect_ratio;
+} MeleeHostGxPixelState;
+
+typedef struct MeleeHostGxTransformState {
+    mh_f32 viewport_left;
+    mh_f32 viewport_top;
+    mh_f32 viewport_width;
+    mh_f32 viewport_height;
+    mh_f32 viewport_near;
+    mh_f32 viewport_far;
+    mh_u32 viewport_field;
+    /* Projection is kept in the six-float GX form: the type followed by the
+     * five values GXGetProjectionv reports back. */
+    mh_u32 projection_type;
+    mh_f32 projection[6];
+    mh_u32 current_matrix;
+} MeleeHostGxTransformState;
+
+typedef struct MeleeHostGxTevStage {
+    /* The mode GXSetTevOp last applied, or the sentinel below when the stage
+     * was configured through the individual input and output calls. */
+    mh_u32 mode;
+    mh_u32 texcoord;
+    mh_u32 texmap;
+    mh_u32 color_channel;
+    mh_u32 color_input[4];
+    mh_u32 alpha_input[4];
+    mh_u32 color_op;
+    mh_u32 color_bias;
+    mh_u32 color_scale;
+    mh_u32 color_out_reg;
+    bool color_clamp;
+    mh_u32 alpha_op;
+    mh_u32 alpha_bias;
+    mh_u32 alpha_scale;
+    mh_u32 alpha_out_reg;
+    bool alpha_clamp;
+    mh_u32 konst_color_select;
+    mh_u32 konst_alpha_select;
+    mh_u32 raster_swap;
+    mh_u32 texture_swap;
+} MeleeHostGxTevStage;
+
+enum { MELEE_HOST_GX_TEV_MODE_CUSTOM = 0xFFFFFFFFU };
+
+typedef struct MeleeHostGxTexCoordGen {
+    mh_u32 function;
+    mh_u32 source;
+    mh_u32 matrix;
+    bool normalize;
+    mh_u32 post_matrix;
+} MeleeHostGxTexCoordGen;
+
+typedef struct MeleeHostGxTevState {
+    mh_u8 stage_count;
+    mh_u8 texcoord_gen_count;
+    mh_u8 channel_count;
+    MeleeHostGxTevStage stages[MELEE_HOST_GX_MAX_TEVSTAGE];
+    MeleeHostGxTexCoordGen texcoord_gens[MELEE_HOST_GX_MAX_TEXCOORD];
+    /* TEV output registers are signed 10-bit per component, so the wider
+     * GXSetTevColorS10 values survive here without clamping. */
+    mh_s16 registers[MELEE_HOST_GX_MAX_TEVREG][4];
+    mh_u8 konst_colors[MELEE_HOST_GX_MAX_KCOLOR][4];
+} MeleeHostGxTevState;
+
+typedef struct MeleeHostGxChannelControl {
+    bool lighting_enabled;
+    mh_u32 ambient_source;
+    mh_u32 material_source;
+    mh_u32 light_mask;
+    mh_u32 diffuse_function;
+    mh_u32 attenuation_function;
+    mh_u8 ambient_color[4];
+    mh_u8 material_color[4];
+} MeleeHostGxChannelControl;
+
+typedef struct MeleeHostGxTextureDesc {
+    bool bound;
+    bool color_indexed;
+    mh_u16 width;
+    mh_u16 height;
+    mh_u32 format;
+    mh_u32 wrap_s;
+    mh_u32 wrap_t;
+    bool mipmap;
+    mh_u32 tlut_name;
+    mh_u32 min_filter;
+    mh_u32 mag_filter;
+    mh_f32 min_lod;
+    mh_f32 max_lod;
+    mh_f32 lod_bias;
+    mh_u32 max_anisotropy;
+    bool bias_clamp;
+    bool edge_lod;
+    const void* image;
+} MeleeHostGxTextureDesc;
+
+typedef struct MeleeHostGxTlutDesc {
+    bool loaded;
+    mh_u32 format;
+    mh_u16 entry_count;
+    const void* entries;
+} MeleeHostGxTlutDesc;
+
+typedef struct MeleeHostGxLightDesc {
+    bool loaded;
+    mh_u8 color[4];
+    mh_f32 position[3];
+    mh_f32 direction[3];
+    mh_f32 angle_attenuation[3];
+    mh_f32 distance_attenuation[3];
+} MeleeHostGxLightDesc;
+
+typedef struct MeleeHostGxFogState {
+    mh_u32 type;
+    mh_f32 start_z;
+    mh_f32 end_z;
+    mh_f32 near_z;
+    mh_f32 far_z;
+    mh_u8 color[4];
+    bool range_adjust_enabled;
+    mh_u16 range_adjust_center;
+    mh_u16 range_adjust_table[MELEE_HOST_GX_FOG_ADJ_ENTRIES];
+    /* The range-adjustment table the host builds is neutral: the real SDK
+     * derives it from the projection, and that derivation is not modelled
+     * yet.  A reader that needs true range adjustment must check this. */
+    bool range_adjust_modelled;
+} MeleeHostGxFogState;
+
+typedef struct MeleeHostGxDisplayCopyState {
+    mh_u16 source_left;
+    mh_u16 source_top;
+    mh_u16 source_width;
+    mh_u16 source_height;
+    mh_u16 destination_width;
+    mh_u16 destination_height;
+    mh_f32 vertical_scale;
+    mh_u32 gamma;
+    mh_u32 clamp;
+    bool antialiasing;
+    bool vertical_filter;
+    mh_u8 sample_pattern[12][2];
+    mh_u8 filter_weights[7];
+    mh_u8 clear_color[4];
+    mh_u32 clear_depth;
+    mh_u32 copy_count;
+    const void* last_destination;
+    bool last_clear;
+} MeleeHostGxDisplayCopyState;
+
+typedef struct MeleeHostGxDrawSyncState {
+    /* The host has no asynchronous graphics processor, so a draw-done fence
+     * stays pending until something drains it: GXWaitDrawDone, GXDrawDone, or
+     * the host frame loop calling melee_host_gx_drain_draw_done.  On hardware
+     * the callback can also arrive from interrupt context without a wait,
+     * which the host deliberately does not reproduce. */
+    bool pending;
+    mh_u32 fence_count;
+    mh_u32 wait_count;
+    mh_u32 callback_count;
+} MeleeHostGxDrawSyncState;
+
+typedef struct MeleeHostGxCopyState {
+    mh_u16 source_left;
+    mh_u16 source_top;
+    mh_u16 source_width;
+    mh_u16 source_height;
+    mh_u16 destination_width;
+    mh_u16 destination_height;
+    mh_u32 destination_format;
+    bool destination_mipmap;
+    /* GXCopyTex cannot produce pixels without a framebuffer, so the host
+     * records the request instead of writing to the destination. */
+    mh_u32 copy_count;
+    const void* last_destination;
+    bool last_clear;
+    mh_u32 texture_invalidate_count;
+} MeleeHostGxCopyState;
+
+void melee_host_gx_state_reset(void);
+void melee_host_gx_pixel_state(MeleeHostGxPixelState* output);
+void melee_host_gx_transform_state(MeleeHostGxTransformState* output);
+void melee_host_gx_tev_state(MeleeHostGxTevState* output);
+bool melee_host_gx_channel_control(mh_u32 channel,
+                                   MeleeHostGxChannelControl* output);
+bool melee_host_gx_bound_texture(mh_u32 texmap,
+                                 MeleeHostGxTextureDesc* output);
+bool melee_host_gx_loaded_tlut(mh_u32 tlut_name, MeleeHostGxTlutDesc* output);
+bool melee_host_gx_light(mh_u32 light_index, MeleeHostGxLightDesc* output);
+void melee_host_gx_fog_state(MeleeHostGxFogState* output);
+void melee_host_gx_copy_state(MeleeHostGxCopyState* output);
+void melee_host_gx_display_copy_state(MeleeHostGxDisplayCopyState* output);
+void melee_host_gx_draw_sync_state(MeleeHostGxDrawSyncState* output);
+/* Delivers a pending draw-done callback from the host frame loop.  Returns
+ * true when a fence was outstanding and its callback ran. */
+bool melee_host_gx_drain_draw_done(void);
+/* Reads a 3x4 matrix out of GX matrix memory at the given row id. */
+bool melee_host_gx_matrix(mh_u32 row_id, MeleeHostGxAffineTransform* output);
+
 #ifdef __cplusplus
 }
 #endif

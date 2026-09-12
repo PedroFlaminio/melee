@@ -141,6 +141,41 @@ Atualizado em 12 de setembro de 2026.
   para objetos de cena, sem expor structs de layout PPC ao host.
 - [x] Diagnostico `melee-pc --diagnose-scene-runtime [FRAMES]` executando o
   escalonador original por N frames.
+- [x] Conjunto paired-single portavel completo para a camada grafica:
+  `PSMTXInverse`, `PSMTXInvXpose`, `PSMTXTranspose`, `PSMTXMultVec`,
+  `PSMTXMultVecSR`, `PSMTXMultVecArray`, `PSMTXRotAxisRad` e `PSVECAdd`, todos
+  seguros para destino aliasado como o codigo original exige.
+- [x] `spline.c` original compilado nativamente, substituindo a facade
+  artesanal `hsd_spline.c`. `splGetSplinePoint` e `splArcLengthPoint` passam a
+  vir do codigo decompilado.
+- [x] Matrizes de projecao e vista portaveis: `MTXFrustum`, `MTXPerspective`,
+  `MTXOrtho`, `C_MTXLookAt` e `MTXRotRad`.
+- [x] Subset de estado GX host em `port/src/gx/state_recorder.cpp`: o host
+  modela o estado que a API GX descreve, nao os registradores do Flipper.
+  Cobre profundidade, blend, alpha compare, culling, scissor, viewport,
+  projecao, memoria de matrizes, estagios TEV completos (entradas, operacoes,
+  konstantes, swap e registradores S10), texgen, canais de iluminacao com
+  cores de ambiente e material, objetos de textura e TLUT, luzes com
+  atenuacao angular e por distancia, fog e copias de EFB.
+- [x] Os objetos opacos da SDK (`GXTexObj`, `GXTlutObj`, `GXLightObj`) guardam
+  seu conteudo dentro do proprio blob, com ponteiros de 64 bits divididos em
+  dois campos de 32 bits em vez de truncados, e movidos por copia explicita
+  para nao depender de type punning.
+- [x] Copia de display e sincronizacao de desenho GX: `GXSetDispCopySrc/Dst`,
+  `GXSetDispCopyYScale` com contagem de linhas, gamma, clamp, cor de limpeza,
+  filtro de copia com padrao de amostragem e pesos, `GXCopyDisp`,
+  `GXSetDrawDone`, `GXWaitDrawDone`, `GXDrawDone` e `GXSetDrawDoneCallback`.
+  O host nao tem processador grafico assincrono, entao a fence de draw-done
+  fica pendente ate alguem drena-la, e `melee_host_gx_drain_draw_done` permite
+  que o laco de frame entregue o callback em um ponto deterministico.
+- [x] `GXNtsc480IntDf`, o render mode NTSC 480i com deflicker que `gmMain`
+  instala, com os valores da SDK.
+- [x] Camada VI do host em `port/src/video/vi.cpp`: contador de retrace,
+  paridade de campo, callbacks pre e pos retrace na ordem original e latch de
+  registradores sombra no retrace seguinte ao `VIFlush`. Nada dorme nem le
+  relogio de parede: o tempo avanca quando o jogo bloqueia em
+  `VIWaitForRetrace` ou quando o laco do host chama
+  `melee_host_video_advance_retrace`.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -153,9 +188,41 @@ Atualizado em 12 de setembro de 2026.
   loop de frame (roteiro em `docs/fight_flow_port.md`). O escalonador de frame
   ja roda; falta a camada de objetos graficos que alimenta os callbacks de
   render.
-- [ ] Camada de objetos graficos HSD (`cobj.c`, `lobj.c`, `jobj.c`, `fog.c`).
-  Enquanto nao existe, `port/src/game/hsd_graphics_stubs.c` fornece
-  substitutos que abortam com diagnostico em vez de retornar valores neutros.
+- [ ] Camada de objetos graficos HSD. Enquanto nao existe,
+  `port/src/game/hsd_graphics_stubs.c` fornece substitutos que abortam com
+  diagnostico em vez de retornar valores neutros.
+
+  Os onze arquivos `cobj.c`, `lobj.c`, `jobj.c`, `dobj.c`, `mobj.c`, `tobj.c`,
+  `pobj.c`, `robj.c`, `wobj.c`, `fog.c` e `displayfunc.c` compilam sem erro em
+  x86-64, mas formam um unico bloco: cada um referencia os outros, entao
+  adicionar qualquer um exige adicionar todos.
+
+  O gap caiu de 73 para 33 simbolos com o subset de estado GX e a matematica
+  de matrizes. Nenhum simbolo da API GX bruta falta mais. Os 33 restantes sao
+  todos modulos HSD ainda nao compilados: `texp.c` (12), `state.c` (7),
+  `tev.c` (4), `util.c` (2), `perf.c` (2), `bytecode.c` (1),
+  `initialize.c` (1), `video.c` (1) e `VIGetNextField` da SDK.
+
+  A segunda onda, que aparece ao incluir esses modulos, comecou com 56
+  simbolos e esta em 14. O GX e o VI foram fechados. Restam:
+
+  - API de heap do OS (10): `OSInitAlloc`, `OSCreateHeap`, `OSAllocFromHeap`,
+    `OSSetCurrentHeap`, `OSDestroyHeap`, `__OSCurrHeap`, `OSGetArenaHi`,
+    `OSGetArenaLo`, `OSSetArenaLo`, `OSGetPhysicalMemSize`.
+  - Quatro simbolos HSD: `HSD_LogInit` (`debug.c`), `HSD_ShadowGetAllocData` e
+    `HSD_ShadowInitAllocData` (`shadow.c`), `HSD_Synth_804D6018` (`synth.c`).
+
+  O heap do OS e o proximo recorte, e e mais delicado que os anteriores.
+  `OSAlloc.c` e `OSArena.c` compilam nativamente sem simbolos pendentes alem
+  de `OSReport`, mas nao sao seguros em 64 bits: ha 25 pontos em `OSAlloc.c`
+  que convertem ponteiro para `u32`, incluindo aritmetica carregada como
+  `cell = (void*)((u32)ptr - 0x20)` e mascaras literais `& 0xFFFFFFE0` que
+  zerariam a parte alta de um endereco. As macros `ROUND`, `TRUNC` e `OFFSET`
+  de `extern/dolphin/include/dolphin/os.h` tem o mesmo problema e sao usadas
+  por `OSArena.c`. A correcao segue o padrao ja estabelecido em
+  `src/sysdolphin/baselib/objalloc.c`: um typedef de endereco sob
+  `MELEE_HOST` que vira `uintptr_t` no host e continua `u32` no caminho
+  matching, deixando o DOL inalterado.
 
 ## Proximos gates
 
@@ -175,5 +242,20 @@ Atualizado em 12 de setembro de 2026.
 - O runtime GObj executa processos, mas nenhum GObj pode receber um objeto
   grafico ainda: anexar camera, luz, joint ou fog leva aos substitutos de
   `hsd_graphics_stubs.c`, que abortam de proposito.
+- `GXInitFogAdjTable` grava a tabela neutra (256, ou 1.0 em ponto fixo 8.8).
+  A derivacao real a partir da projecao nao esta modelada, e o estado de fog
+  reporta isso em `range_adjust_modelled`.
+- `GXCopyTex` e `GXCopyDisp` registram o pedido de copia mas nao produzem
+  pixels: nao ha framebuffer host ainda.
+- Na SDK o callback de draw-done tambem pode chegar por interrupcao, sem
+  espera. O host nao reproduz isso: sem processador grafico assincrono, a
+  fence so e entregue por `GXWaitDrawDone`, `GXDrawDone` ou pelo laco de
+  frame. Codigo que dependa da entrega por interrupcao nao veria o callback.
+- `VIGetDTVStatus` reporta ausencia de saida digital em vez de adivinhar um
+  modo progressivo que o host nao honraria.
+- `hsd_3A76.c` chama `MTXOrtho` com um buffer `Mtx` de tres linhas onde uma
+  projecao precisa de quatro. No caminho PowerPC isso e coberto pelo bloco
+  `MUST_MATCH`; no host seria estouro de pilha. O arquivo ainda nao entra no
+  build host, mas precisa de atencao quando entrar.
 - A build matching nao foi executada porque `orig/GALE01/sys/main.dol` nao esta
   presente; as mudancas compartilhadas estao isoladas por `MELEE_HOST`.

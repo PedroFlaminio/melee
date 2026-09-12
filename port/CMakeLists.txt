@@ -6,12 +6,13 @@ add_library(melee_host STATIC
     src/assets/schemas/scene_graphics.cpp
     src/assets/virtual_disc.cpp
     src/gx/command_recorder.cpp
+    src/gx/state_recorder.cpp
+    src/video/vi.cpp
     src/host.cpp
     src/os/clock.cpp
     src/os/baselib_support.c
     src/os/dolphin_mtx.c
     src/os/dolphin_time.cpp
-    src/os/hsd_spline.c
     src/os/interrupts.c
     src/os/memory.cpp
     src/os/pad.cpp
@@ -119,6 +120,7 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/list.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/mtx.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/rumble.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/spline.c
     src/game/baselib_bootstrap.c
     src/game/local_match.c
     src/game/match_rules.c
@@ -202,6 +204,9 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/list_test.cpp
         tests/local_match_test.cpp
         tests/scene_runtime_test.cpp
+        tests/spline_test.cpp
+        tests/gx_state_test.cpp
+        tests/video_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
         tests/test_main.cpp
