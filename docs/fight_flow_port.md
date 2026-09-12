@@ -31,6 +31,14 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
 - Compilado: núcleo de partida (`gmmain.c`/`gmmain_lib.c`), `player.c`,
   `fighter.c` e `ground.c` sem assembly PPC. O próximo recorte deve resolver
   suas facades e ligá-los a um entrypoint host, não apenas ao arquivo estático.
+- Executado: o escalonador de frame original. `HSD_GObjInit` sobe com os tetos
+  de prioridade que `gmScene_Init` usa (`gproc_pri_max` 0x18) e
+  `HSD_GObj_RunProcs` roda por frame no host. É esse laço que `gmscene.c`,
+  `player.c`, `ground.c` e `fighter.c` esperam para executar por frame.
+- Próximo bloqueio: a camada de objetos gráficos HSD. `ground.c` e `fighter.c`
+  criam GObjs e anexam JObj/CObj/LObj; enquanto `jobj.c`, `cobj.c`, `lobj.c` e
+  `fog.c` não forem portados, esses caminhos param nos substitutos de
+  `port/src/game/hsd_graphics_stubs.c`.
 - Implementar as facades GX, áudio e DVD que surgirem durante esse recorte,
   apenas conforme necessárias.
 

@@ -59,6 +59,19 @@ A ferramenta valida o magic GameCube, game ID, limites do DOL/FST e o SHA-1 do
 extraido contem `manifest.json`, `dvd-index.bin`, `sys/main.dol` e os arquivos do FST. Ele contem
 material do disco do usuario e nunca deve ser versionado ou publicado.
 
+## Escalonador de cena
+
+O runtime de objetos HSD original pode ser executado sem assets. O comando cria
+dois objetos de cena, pausa o p_link de um deles e roda o escalonador:
+
+```sh
+./build/host-debug/port/melee-pc --diagnose-scene-runtime 60
+```
+
+Ele reporta quantos frames rodaram, quantos objetos e processos estao vivos e
+quantas vezes cada processo foi chamado. O processo do p_link pausado deve
+terminar com zero chamadas.
+
 ## Inspecao de HSD
 
 Um arquivo HSD individual pode ser validado sem fazer relocacao in-place:

@@ -126,6 +126,21 @@ Atualizado em 12 de setembro de 2026.
 - [x] Compatibilidade host de 64 bits para asserts de layout PPC, diagnostico
   `OSPanic`, tempo e declaracoes Dolphin compartilhadas, sem alterar o caminho
   matching.
+- [x] Sistema de classes HSD original (`class.c`, `object.c`, `hash.c`)
+  compilado nativamente, com o alocador de blocos por tamanho operando sobre o
+  heap host de 64 bits.
+- [x] Runtime de objetos de cena HSD compilado nativamente: `gobj.c`,
+  `gobjinit.c`, `gobjproc.c`, `gobjplink.c`, `gobjgxlink.c`, `gobjobject.c` e
+  `gobjuserdata.c`. As quatro classes embutidas (camera, luz, joint e fog) sao
+  registradas na ordem original.
+- [x] Escalonador de frame original executando no host: `HSD_GObj_RunProcs`
+  percorre os processos por prioridade, respeita a mascara de p_links pausados
+  apontada por `HSD_GObjLibInitData.unk_2` e aplica a remocao adiada quando um
+  processo libera o proprio GObj.
+- [x] Fachada C ABI `melee_host_scene_runtime_*` com handles opacos de 32 bits
+  para objetos de cena, sem expor structs de layout PPC ao host.
+- [x] Diagnostico `melee-pc --diagnose-scene-runtime [FRAMES]` executando o
+  escalonador original por N frames.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -135,7 +150,12 @@ Atualizado em 12 de setembro de 2026.
 - [ ] Cancelamento, streaming e prioridade completa da API DVD.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
-  loop de frame (roteiro em `docs/fight_flow_port.md`).
+  loop de frame (roteiro em `docs/fight_flow_port.md`). O escalonador de frame
+  ja roda; falta a camada de objetos graficos que alimenta os callbacks de
+  render.
+- [ ] Camada de objetos graficos HSD (`cobj.c`, `lobj.c`, `jobj.c`, `fog.c`).
+  Enquanto nao existe, `port/src/game/hsd_graphics_stubs.c` fornece
+  substitutos que abortam com diagnostico em vez de retornar valores neutros.
 
 ## Proximos gates
 
@@ -152,5 +172,8 @@ Atualizado em 12 de setembro de 2026.
 - GX (alem do recorder/VCD/VAT), AX, CARD, streaming DVD e THP ainda nao estao
   implementados. PAD e DVD assincrono tem pontes basicas; os backends completos
   ainda faltam.
+- O runtime GObj executa processos, mas nenhum GObj pode receber um objeto
+  grafico ainda: anexar camera, luz, joint ou fog leva aos substitutos de
+  `hsd_graphics_stubs.c`, que abortam de proposito.
 - A build matching nao foi executada porque `orig/GALE01/sys/main.dol` nao esta
   presente; as mudancas compartilhadas estao isoladas por `MELEE_HOST`.

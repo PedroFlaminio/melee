@@ -20,6 +20,7 @@
 #include <melee_host/local_match.h>
 #include <melee_host/match_rules.h>
 #include <melee_host/menu_native.h>
+#include <melee_host/scene_runtime.h>
 
 #include <algorithm>
 #include <array>
@@ -74,6 +75,7 @@ void print_usage(const char* executable)
               << "  " << executable << " --reset-match-rules\n"
               << "  " << executable << " --diagnose-native-menu\n"
               << "  " << executable << " --diagnose-local-match\n"
+              << "  " << executable << " --diagnose-scene-runtime [FRAMES]\n"
               << "  " << executable << " --inspect-hsd FILE\n"
               << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
 #if defined(MELEE_HOST_SDL_RENDERER)
@@ -232,6 +234,90 @@ int diagnose_local_match()
               << "\n  materialized slots: " << static_cast<int>(first.character)
               << ", " << static_cast<int>(second.character) << '\n';
     return 0;
+}
+
+struct SceneRuntimeProbe {
+    unsigned frames = 0;
+    unsigned p_link = 0;
+};
+
+void scene_runtime_probe_tick(void* user_data)
+{
+    static_cast<SceneRuntimeProbe*>(user_data)->frames += 1;
+}
+
+// Drives the original HSD process scheduler for a fixed number of frames.
+// One probe object runs unpaused while a second sits on a paused p_link, so
+// the report shows both that processes fire and that the pause mask is
+// honoured by the original HSD_GObj_RunProcs.
+int diagnose_scene_runtime(unsigned frames)
+{
+    if (melee_host_scene_runtime_init() != MELEE_HOST_OK) {
+        std::cerr << "could not initialize the native HSD object runtime\n";
+        return 1;
+    }
+
+    SceneRuntimeProbe running{ .frames = 0, .p_link = 0 };
+    SceneRuntimeProbe paused{ .frames = 0, .p_link = 1 };
+    MeleeHostSceneObject running_object = 0;
+    MeleeHostSceneObject paused_object = 0;
+    if (melee_host_scene_runtime_add_object(
+            1, static_cast<mh_u8>(running.p_link), 0, 0,
+            scene_runtime_probe_tick, &running, &running_object) !=
+            MELEE_HOST_OK ||
+        melee_host_scene_runtime_add_object(
+            2, static_cast<mh_u8>(paused.p_link), 0, 1,
+            scene_runtime_probe_tick, &paused, &paused_object) !=
+            MELEE_HOST_OK)
+    {
+        std::cerr << "could not create native scene objects\n";
+        return 1;
+    }
+
+    if (melee_host_scene_runtime_set_paused_links(
+            1ULL << paused.p_link) != MELEE_HOST_OK)
+    {
+        std::cerr << "could not apply the native pause mask\n";
+        return 1;
+    }
+
+    MeleeHostSceneRuntimeStats start{};
+    if (melee_host_scene_runtime_stats(&start) != MELEE_HOST_OK) {
+        std::cerr << "could not read native scene runtime statistics\n";
+        return 1;
+    }
+    for (unsigned frame = 0; frame < frames; ++frame) {
+        if (melee_host_scene_runtime_run_frame() != MELEE_HOST_OK) {
+            std::cerr << "native scene frame " << frame << " failed\n";
+            return 1;
+        }
+    }
+
+    MeleeHostSceneRuntimeStats end{};
+    if (melee_host_scene_runtime_stats(&end) != MELEE_HOST_OK) {
+        std::cerr << "could not read native scene runtime statistics\n";
+        return 1;
+    }
+
+    std::cout << "native HSD scene runtime\n"
+              << "  frames run: " << (end.frame_count - start.frame_count)
+              << "\n  live objects: " << end.objects_live
+              << "\n  live processes: " << end.procs_live
+              << "\n  pooled objects: " << end.objects_pooled
+              << "\n  unpaused process calls: " << running.frames
+              << "\n  paused process calls: " << paused.frames << '\n';
+
+    const bool ok = running.frames == frames && paused.frames == 0 &&
+                    end.frame_count - start.frame_count == frames;
+    if (melee_host_scene_runtime_remove_object(running_object) !=
+            MELEE_HOST_OK ||
+        melee_host_scene_runtime_remove_object(paused_object) !=
+            MELEE_HOST_OK)
+    {
+        std::cerr << "could not release native scene objects\n";
+        return 1;
+    }
+    return ok ? 0 : 1;
 }
 
 int inspect_hsd(const std::filesystem::path& path)
@@ -570,6 +656,16 @@ int main(int argc, char** argv)
         }
         if (argc == 2 && std::string(argv[1]) == "--diagnose-local-match") {
             return diagnose_local_match();
+        }
+        if (argc >= 2 && std::string(argv[1]) == "--diagnose-scene-runtime") {
+            unsigned frames = 60;
+            if (argc == 3) {
+                frames = static_cast<unsigned>(std::stoul(argv[2]));
+            } else if (argc != 2) {
+                print_usage(argv[0]);
+                return 2;
+            }
+            return diagnose_scene_runtime(frames);
         }
         if (argc == 3 && std::string(argv[1]) == "--inspect-hsd") {
             return inspect_hsd(argv[2]);

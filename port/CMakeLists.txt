@@ -103,6 +103,16 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/controller.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/devcom.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/fobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/class.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/object.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hash.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjinit.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjproc.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjplink.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjgxlink.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjobject.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjuserdata.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/id.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/memory.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/objalloc.c
@@ -112,7 +122,9 @@ add_library(melee_game_core STATIC
     src/game/baselib_bootstrap.c
     src/game/local_match.c
     src/game/match_rules.c
+    src/game/hsd_graphics_stubs.c
     src/game/menu_native.c
+    src/game/scene_runtime.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/pad/PadClamp.c
 )
@@ -189,6 +201,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/fobj_test.cpp
         tests/list_test.cpp
         tests/local_match_test.cpp
+        tests/scene_runtime_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
         tests/test_main.cpp
