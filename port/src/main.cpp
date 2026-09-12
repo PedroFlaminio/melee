@@ -1,8 +1,13 @@
 #include "assets/hsd_archive.hpp"
+#include "assets/gx_texture.hpp"
 #include "assets/hsd_runtime_archive.hpp"
 #include "assets/schemas/db_common.hpp"
 #include "assets/schemas/scene_graphics.hpp"
 #include "assets/virtual_disc.hpp"
+
+#if defined(MELEE_HOST_SDL_RENDERER)
+#include "render/sdl_gl_renderer.hpp"
+#endif
 
 #include <dolphin/dvd.h>
 #include <dolphin/gx/GXDispList.h>
@@ -19,6 +24,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <span>
 #include <string>
 #include <vector>
@@ -61,6 +67,9 @@ void print_usage(const char* executable)
               << "  " << executable << " --diagnose\n"
               << "  " << executable << " --inspect-hsd FILE\n"
               << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
+#if defined(MELEE_HOST_SDL_RENDERER)
+              << "  " << executable << " --view-pobj FILE SYMBOL\n"
+#endif
               << "  " << executable << " --inspect-resources DIRECTORY\n"
               << "  " << executable << " --read-resource DIRECTORY PATH\n";
 }
@@ -150,12 +159,69 @@ int inspect_resources(const std::filesystem::path& path)
     return 0;
 }
 
-int inspect_pobj(const std::filesystem::path& path, std::string_view symbol)
+int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
+                 bool preview = false)
 {
     const std::vector<std::byte> bytes = read_file(path);
     const melee::assets::HsdRuntimeArchive runtime(bytes);
     const auto geometries =
         melee::assets::schemas::find_scene_pobjs(runtime, symbol);
+    const std::size_t textured_geometries = static_cast<std::size_t>(
+        std::count_if(geometries.begin(), geometries.end(),
+                      [](const auto& geometry) {
+                          return geometry.material.has_texture;
+                      }));
+    const std::size_t translucent_geometries = static_cast<std::size_t>(
+        std::count_if(geometries.begin(), geometries.end(),
+                      [](const auto& geometry) {
+                          return (geometry.material.render_mode & (1U << 30U)) != 0;
+                      }));
+    std::map<std::uint32_t, std::size_t> texture_formats;
+    std::map<std::uint32_t, mh_u32> texture_ids;
+#if defined(MELEE_HOST_SDL_RENDERER)
+    std::vector<melee::render::TextureImage> renderer_textures;
+#endif
+    std::size_t decoded_textures = 0;
+    for (const auto& geometry : geometries) {
+        if (geometry.material.image_data.has_value()) {
+            ++texture_formats[geometry.material.texture_format];
+            if (geometry.material.texture_format == 0 ||
+                geometry.material.texture_format == 1 ||
+                geometry.material.texture_format == 2 ||
+                geometry.material.texture_format == 3 ||
+                geometry.material.texture_format == 4 ||
+                geometry.material.texture_format == 5 ||
+                geometry.material.texture_format == 6 ||
+                geometry.material.texture_format == 14)
+            {
+                const std::size_t byte_count = melee::assets::gx_texture_data_size(
+                    geometry.material.texture_width,
+                    geometry.material.texture_height,
+                    geometry.material.texture_format);
+                const auto image = runtime.bytes_at(*geometry.material.image_data,
+                                                    byte_count);
+                const auto decoded = melee::assets::decode_gx_texture(
+                    image, geometry.material.texture_width,
+                    geometry.material.texture_height,
+                    geometry.material.texture_format);
+#if defined(MELEE_HOST_SDL_RENDERER)
+                const auto insertion = texture_ids.emplace(
+                    geometry.material.image_data->data_offset,
+                    static_cast<mh_u32>(renderer_textures.size()));
+                if (insertion.second) {
+                    renderer_textures.push_back({
+                        decoded.width, decoded.height,
+                        geometry.material.texture_wrap_s,
+                        geometry.material.texture_wrap_t, decoded.rgba
+                    });
+                }
+#else
+                static_cast<void>(decoded);
+#endif
+                ++decoded_textures;
+            }
+        }
+    }
 
     melee_host_gx_reset_command_log();
     std::size_t display_bytes = 0;
@@ -208,11 +274,21 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol)
         melee_host_gx_transform_vertices(
             first_vertex, melee_host_gx_captured_vertex_count() - first_vertex,
             &transform);
+        melee_host_gx_apply_material(
+            first_vertex, melee_host_gx_captured_vertex_count() - first_vertex,
+            geometry.material.diffuse.data(),
+            geometry.material.image_data.has_value() &&
+                    texture_ids.contains(geometry.material.image_data->data_offset)
+                ? texture_ids.at(geometry.material.image_data->data_offset)
+                : MELEE_HOST_GX_NO_TEXTURE,
+            geometry.material.render_mode);
         display_bytes += display.size();
     }
 
     std::cout << "HSD scene geometry: " << path << " :: " << symbol << '\n'
               << "  drawable PObjs: " << geometries.size() << '\n'
+              << "  PObjs with TObj: " << textured_geometries << '\n'
+              << "  translucent PObjs: " << translucent_geometries << '\n'
               << "  display list bytes: " << display_bytes << '\n'
               << "  decoded vertices: "
               << melee_host_gx_captured_vertex_count() << '\n'
@@ -220,7 +296,32 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol)
               << '\n'
               << "  display list errors: "
               << melee_host_gx_display_list_error_count() << '\n';
-    return melee_host_gx_display_list_error_count() == 0 ? 0 : 1;
+    if (!texture_formats.empty()) {
+        std::cout << "  image formats:";
+        for (const auto& [format, count] : texture_formats) {
+            std::cout << " GX_" << format << '=' << count;
+        }
+        std::cout << '\n';
+    }
+    if (decoded_textures != 0) {
+        std::cout << "  decoded supported textures: " << decoded_textures << '\n';
+    }
+    if (melee_host_gx_display_list_error_count() != 0) {
+        return 1;
+    }
+#if defined(MELEE_HOST_SDL_RENDERER)
+    if (preview) {
+        std::string error;
+        melee::render::set_texture_images(std::move(renderer_textures));
+        if (!melee::render::show_captured_geometry(&error)) {
+            std::cerr << "geometry preview failed: " << error << '\n';
+            return 1;
+        }
+    }
+#else
+    static_cast<void>(preview);
+#endif
+    return 0;
 }
 
 int read_resource(const std::filesystem::path& root, std::string path)
@@ -288,6 +389,11 @@ int main(int argc, char** argv)
         if (argc == 4 && std::string(argv[1]) == "--inspect-pobj") {
             return inspect_pobj(argv[2], argv[3]);
         }
+#if defined(MELEE_HOST_SDL_RENDERER)
+        if (argc == 4 && std::string(argv[1]) == "--view-pobj") {
+            return inspect_pobj(argv[2], argv[3], true);
+        }
+#endif
         if (argc == 3 && std::string(argv[1]) == "--inspect-resources") {
             return inspect_resources(argv[2]);
         }

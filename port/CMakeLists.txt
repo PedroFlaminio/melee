@@ -1,5 +1,6 @@
 add_library(melee_host STATIC
     src/assets/hsd_archive.cpp
+    src/assets/gx_texture.cpp
     src/assets/hsd_runtime_archive.cpp
     src/assets/schemas/db_common.cpp
     src/assets/schemas/scene_graphics.cpp
@@ -117,6 +118,19 @@ target_include_directories(melee-pc PRIVATE
 melee_host_set_warnings(melee-pc)
 melee_host_enable_sanitizers(melee-pc)
 
+option(MELEE_HOST_BUILD_SDL_RENDERER "Build the SDL/OpenGL geometry preview" ON)
+if(MELEE_HOST_BUILD_SDL_RENDERER)
+    find_package(SDL3 CONFIG QUIET)
+    find_package(OpenGL QUIET)
+    if(SDL3_FOUND AND OpenGL_FOUND)
+        target_sources(melee-pc PRIVATE src/render/sdl_gl_renderer.cpp)
+        target_link_libraries(melee-pc PRIVATE SDL3::SDL3 OpenGL::GL)
+        target_compile_definitions(melee-pc PRIVATE MELEE_HOST_SDL_RENDERER=1)
+    else()
+        message(STATUS "SDL3/OpenGL not found; geometry preview is disabled")
+    endif()
+endif()
+
 if(MELEE_HOST_BUILD_TESTS)
     enable_testing()
 
@@ -125,6 +139,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/aobj_test.cpp
         tests/gx_command_recorder_test.cpp
         tests/hsd_archive_test.cpp
+        tests/gx_texture_test.cpp
         tests/hsd_schema_test.cpp
         tests/interrupts_test.cpp
         tests/virtual_disc_test.cpp

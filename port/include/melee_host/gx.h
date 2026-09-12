@@ -32,6 +32,8 @@ enum {
     MELEE_HOST_GX_VERTEX_TEXCOORD = 1 << 3,
     MELEE_HOST_GX_VERTEX_TANGENT = 1 << 4,
     MELEE_HOST_GX_VERTEX_BINORMAL = 1 << 5,
+    MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE = 1 << 6,
+    MELEE_HOST_GX_NO_TEXTURE = 0xFFFFFFFFU,
 };
 
 typedef struct MeleeHostGxCapturedVertex {
@@ -42,6 +44,8 @@ typedef struct MeleeHostGxCapturedVertex {
     MeleeHostGxPosition3f32 binormal;
     mh_u8 color[4];
     mh_f32 texcoord[2];
+    mh_u32 texture_image;
+    mh_u32 render_mode;
 } MeleeHostGxCapturedVertex;
 
 typedef struct MeleeHostGxTriangle {
@@ -92,6 +96,9 @@ bool melee_host_gx_captured_vertex_at(size_t index,
 size_t melee_host_gx_display_list_error_count(void);
 void melee_host_gx_transform_vertices(size_t first, size_t count,
                                       const MeleeHostGxAffineTransform* matrix);
+void melee_host_gx_apply_material(size_t first, size_t count,
+                                  const mh_u8 diffuse[4],
+                                  mh_u32 texture_image, mh_u32 render_mode);
 
 #ifdef __cplusplus
 }

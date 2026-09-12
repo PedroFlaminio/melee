@@ -167,6 +167,26 @@ TEST_CASE("host GX applies an affine transform to completed geometry")
     REQUIRE(std::fabs(vertex.normal.y - 2.0F / std::sqrt(13.0F)) < 0.0001F);
 }
 
+TEST_CASE("host GX modulates captured vertex colors with a material")
+{
+    melee_host_gx_reset_command_log();
+    GXBegin(GX_POINTS, GX_VTXFMT0, 1);
+    GXPosition3f32(0.0F, 0.0F, 0.0F);
+    GXColor4u8(128, 255, 64, 255);
+    GXEnd();
+    const mh_u8 diffuse[4]{ 128, 64, 255, 128 };
+    melee_host_gx_apply_material(0, 1, diffuse, MELEE_HOST_GX_NO_TEXTURE,
+                                 1U << 30U);
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.color[0] == 64);
+    REQUIRE(vertex.color[1] == 64);
+    REQUIRE(vertex.color[2] == 64);
+    REQUIRE(vertex.color[3] == 128);
+    REQUIRE(vertex.render_mode == (1U << 30U));
+}
+
 TEST_CASE("host GX resolves indexed big-endian VCD and VAT attributes")
 {
     const std::array<u8, 18> positions{

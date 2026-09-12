@@ -3,6 +3,7 @@
 
 #include "assets/hsd_runtime_archive.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -24,12 +25,25 @@ struct HsdAffineTransform {
     float values[3][4];
 };
 
+struct HsdMaterial {
+    std::uint32_t render_mode;
+    std::array<std::uint8_t, 4> diffuse;
+    bool has_texture;
+    std::optional<HsdRuntimeNode> image_data;
+    std::uint16_t texture_width;
+    std::uint16_t texture_height;
+    std::uint32_t texture_format;
+    std::uint32_t texture_wrap_s;
+    std::uint32_t texture_wrap_t;
+};
+
 struct HsdPObjGeometry {
     HsdRuntimeNode descriptor;
     std::uint16_t flags;
     std::uint16_t display_list_blocks;
     HsdRuntimeNode display_list;
     HsdAffineTransform transform;
+    HsdMaterial material;
     std::vector<HsdVertexDescriptor> vertices;
 };
 

@@ -77,8 +77,9 @@ std::vector<std::byte> make_scene_archive()
 {
     constexpr std::string_view symbol = "scene";
     constexpr std::uint32_t data_size = 0x1C0;
-    constexpr std::array<std::uint32_t, 8> relocations{
-        0x00, 0x20, 0x30, 0x50, 0x8C, 0xA8, 0xB0, 0xF4
+    constexpr std::array<std::uint32_t, 12> relocations{
+        0x00, 0x20, 0x30, 0x50, 0x88, 0x8C, 0xA8, 0xB0, 0xC8, 0xCC, 0xF4,
+        0x1AC
     };
     constexpr std::uint32_t file_size =
         32 + data_size + static_cast<std::uint32_t>(relocations.size()) * 4 +
@@ -105,6 +106,7 @@ std::vector<std::byte> make_scene_archive()
     field32(0x30, 0x40);  // DynamicModelDesc.joint
     field32(0x44, 0);     // HSD_Joint.flags
     field32(0x50, 0x80);  // HSD_Joint.dobjdesc
+    field32(0x88, 0xC0);  // HSD_DObjDesc.mobjdesc
     field32(0x60, 0x3F800000); // HSD_Joint.scale.x = 1
     field32(0x64, 0x3F800000); // HSD_Joint.scale.y = 1
     field32(0x68, 0x3F800000); // HSD_Joint.scale.z = 1
@@ -113,6 +115,19 @@ std::vector<std::byte> make_scene_archive()
     field16(0xAC, 0x8000);
     field16(0xAE, 1);
     field32(0xB0, 0x140); // HSD_PObjDesc.display
+
+    field32(0xC4, 0x10);  // HSD_MObjDesc.rendermode
+    field32(0xC8, 0x160); // HSD_MObjDesc.texdesc
+    field32(0xCC, 0x100); // HSD_MObjDesc.mat
+    bytes[data_begin + 0x104] = std::byte{ 64 };  // diffuse R
+    bytes[data_begin + 0x105] = std::byte{ 128 }; // diffuse G
+    bytes[data_begin + 0x106] = std::byte{ 192 }; // diffuse B
+    bytes[data_begin + 0x107] = std::byte{ 255 }; // diffuse A
+    field32(0x10C, 0x3F000000); // HSD_Material.alpha = 0.5
+    field32(0x1AC, 0x1B0); // HSD_TObjDesc.imagedesc
+    field16(0x1B4, 32);    // HSD_ImageDesc.width
+    field16(0x1B6, 16);    // HSD_ImageDesc.height
+    field32(0x1B8, 5);     // HSD_ImageDesc.format = GX_RGB5A3
 
     field32(0xE0, 9);     // GX_VA_POS
     field32(0xE4, 2);     // GX_INDEX8
@@ -192,6 +207,18 @@ TEST_CASE("scene schema traverses Joint DObj and PObj as validated offsets")
     REQUIRE(geometry.transform.values[0][0] == 1.0F);
     REQUIRE(geometry.transform.values[1][1] == 1.0F);
     REQUIRE(geometry.transform.values[2][2] == 1.0F);
+    REQUIRE(geometry.material.render_mode == 0x10);
+    REQUIRE(geometry.material.has_texture);
+    REQUIRE(geometry.material.diffuse[0] == 64);
+    REQUIRE(geometry.material.diffuse[1] == 128);
+    REQUIRE(geometry.material.diffuse[2] == 192);
+    REQUIRE(geometry.material.diffuse[3] == 128);
+    REQUIRE(!geometry.material.image_data.has_value());
+    REQUIRE(geometry.material.texture_width == 32);
+    REQUIRE(geometry.material.texture_height == 16);
+    REQUIRE(geometry.material.texture_format == 5);
+    REQUIRE(geometry.material.texture_wrap_s == 0);
+    REQUIRE(geometry.material.texture_wrap_t == 0);
     REQUIRE(archive.has_reference_at({ 0xE0 }, 0x14));
     REQUIRE(archive.read_u16({ 0xA0 }, 0xE) == 1);
     REQUIRE(archive.bytes_at(geometry.display_list, 3).size() == 3);

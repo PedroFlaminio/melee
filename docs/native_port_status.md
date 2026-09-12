@@ -77,6 +77,20 @@ Atualizado em 12 de setembro de 2026.
   transformacao direcional normalizada a tangentes/binormais.
 - [x] JObjs com matriz independente do pai respeitam `JOBJ_MTX_INDEP_PARENT`
   durante o traversal headless.
+- [x] Preview grafico SDL3/OpenGL para PObjs HSD: janela redimensionavel,
+  camera orbitavel, profundidade, UVs, textura checker de fallback e cores por
+  vertice via `melee-pc --view-pobj FILE SYMBOL`.
+- [x] Schema MObj inicial: modo de renderizacao, TObj presente e material
+  difuso/alpha HSD modulam os vertices apresentados pelo backend.
+- [x] Decodificadores seguros de imagens GX `I4`, `I8`, `IA4`, `IA8`, `RGB565`,
+  `RGB5A3`, `RGBA8` e `CMPR`, incluindo tileamento GameCube, validados contra as texturas
+  referenciadas por `GmPause.dat`.
+- [x] Cache de texturas por offset HSD e associacao por PObj: o preview SDL/OpenGL
+  faz upload das imagens suportadas e usa a textura correta em cada triangulo.
+- [x] Primeiro mapeamento de estado GX: `RENDER_XLU` por PObj controla blend
+  alpha e escrita no depth buffer; o caso TEV basico usa textura × cor de vertice.
+- [x] Primeiro subconjunto de materiais GX concluido para os formatos presentes
+  em `GmPause.dat` (I4/IA4), do HSD ate o backend SDL/OpenGL.
 - [x] Testes sinteticos de disco e HSD.
 - [x] Primeiros modulos originais compilados nativamente: RNG, tempo, vetores,
   controlador, memoria, objalloc/list e fila `devcom` da baselib.
@@ -94,7 +108,8 @@ Atualizado em 12 de setembro de 2026.
 
 1. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico.
 2. Compilar o primeiro fluxo de menu sobre as facades host.
-3. Conectar a malha headless a um backend grafico de janela.
+3. Implementar TLUT e texturas paletizadas (`C4`, `C8`, `C14X2`) como extensao
+   do renderer de materiais.
 
 ## Limitacoes atuais
 

@@ -112,9 +112,52 @@ HsdAffineTransform joint_transform(const HsdRuntimeArchive& archive,
                { -sx * sin_y, sy * sin_x * cos_y, sz * cos_x * cos_y, tz } } };
 }
 
+HsdMaterial decode_material(const HsdRuntimeArchive& archive,
+                            std::optional<HsdRuntimeNode> mobj)
+{
+    constexpr HsdMaterial default_material{
+        0, { 255, 255, 255, 255 }, false, std::nullopt, 0, 0, 0, 0, 0
+    };
+    if (!mobj.has_value()) {
+        return default_material;
+    }
+    const auto tobj = optional_reference(archive, *mobj, 8);
+    HsdMaterial material{ archive.read_u32(*mobj, 4), { 255, 255, 255, 255 },
+                          tobj.has_value(), std::nullopt, 0, 0, 0, 0, 0 };
+    const auto material_desc = optional_reference(archive, *mobj, 0xC);
+    if (material_desc.has_value()) {
+        const auto diffuse =
+            archive.bytes_at({ material_desc->data_offset + 4 }, 4);
+        for (std::size_t channel = 0; channel < material.diffuse.size(); ++channel) {
+            material.diffuse[channel] =
+                std::to_integer<std::uint8_t>(diffuse[channel]);
+        }
+        const float alpha = archive.read_f32(*material_desc, 0xC);
+        if (alpha >= 0.0F && alpha <= 1.0F) {
+            material.diffuse[3] =
+                static_cast<std::uint8_t>(alpha * 255.0F + 0.5F);
+        }
+    }
+    if (!tobj.has_value()) {
+        return material;
+    }
+    material.texture_wrap_s = archive.read_u32(*tobj, 0x34);
+    material.texture_wrap_t = archive.read_u32(*tobj, 0x38);
+    const auto image = optional_reference(archive, *tobj, 0x4C);
+    if (!image.has_value()) {
+        return material;
+    }
+    material.image_data = optional_reference(archive, *image, 0);
+    material.texture_width = archive.read_u16(*image, 4);
+    material.texture_height = archive.read_u16(*image, 6);
+    material.texture_format = archive.read_u32(*image, 8);
+    return material;
+}
+
 HsdPObjGeometry decode_pobj(const HsdRuntimeArchive& archive,
                             HsdRuntimeNode descriptor,
-                            const HsdAffineTransform& transform)
+                            const HsdAffineTransform& transform,
+                            HsdMaterial material)
 {
     const auto vertices = optional_reference(archive, descriptor, 8);
     const auto display = optional_reference(archive, descriptor, 0x10);
@@ -127,6 +170,7 @@ HsdPObjGeometry decode_pobj(const HsdRuntimeArchive& archive,
         archive.read_u16(descriptor, 0xE),
         *display,
         transform,
+        material,
         decode_vertex_descriptors(archive, *vertices),
     };
 }
@@ -191,6 +235,8 @@ std::vector<HsdPObjGeometry> find_scene_pobjs(
             if (!visited_dobjs.insert(dobj->data_offset).second) {
                 break;
             }
+            const HsdMaterial material =
+                decode_material(archive, optional_reference(archive, *dobj, 8));
             auto pobj = optional_reference(archive, *dobj, 0xC);
             while (pobj.has_value() && traversed++ < kTraversalLimit) {
                 if (!visited_pobjs.insert(pobj->data_offset).second) {
@@ -199,7 +245,7 @@ std::vector<HsdPObjGeometry> find_scene_pobjs(
                 const std::uint16_t display_blocks =
                     archive.read_u16(*pobj, 0xE);
                 if (display_blocks != 0) {
-                    result.push_back(decode_pobj(archive, *pobj, world));
+                    result.push_back(decode_pobj(archive, *pobj, world, material));
                 }
                 pobj = optional_reference(archive, *pobj, 4);
             }

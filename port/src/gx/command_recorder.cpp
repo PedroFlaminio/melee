@@ -1061,6 +1061,39 @@ extern "C" void melee_host_gx_transform_vertices(
     }
 }
 
+extern "C" void melee_host_gx_apply_material(size_t first, size_t count,
+                                               const mh_u8 diffuse[4],
+                                               mh_u32 texture_image,
+                                               mh_u32 render_mode)
+{
+    if (diffuse == nullptr) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (first > captured_vertices.size() ||
+        count > captured_vertices.size() - first)
+    {
+        return;
+    }
+    for (size_t index = first; index < first + count; ++index) {
+        auto& vertex = captured_vertices[index];
+        for (size_t channel = 0; channel < 4; ++channel) {
+            const mh_u8 source =
+                (vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0
+                    ? vertex.color[channel]
+                    : static_cast<mh_u8>(255);
+            vertex.color[channel] = static_cast<mh_u8>(
+                (static_cast<mh_u16>(source) * diffuse[channel] + 127U) / 255U);
+        }
+        vertex.attributes |= MELEE_HOST_GX_VERTEX_COLOR;
+        if (texture_image != MELEE_HOST_GX_NO_TEXTURE) {
+            vertex.attributes |= MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE;
+            vertex.texture_image = texture_image;
+        }
+        vertex.render_mode = render_mode;
+    }
+}
+
 extern "C" size_t melee_host_gx_command_count(void)
 {
     const std::lock_guard<std::mutex> lock(command_mutex);
