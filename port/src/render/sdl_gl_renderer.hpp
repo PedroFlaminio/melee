@@ -18,8 +18,16 @@ struct TextureImage {
 };
 
 void set_texture_images(std::vector<TextureImage> images);
+
+/* Called once per displayed frame, before the geometry is read.  A viewer that
+ * wants motion advances the animation and captures again from here, which is
+ * what makes the window show a moving model instead of a still one. */
+using FrameCallback = void (*)(void* user_data);
+
 [[nodiscard]] bool show_captured_geometry(MeleeHostContext* context,
-                                           std::string* error);
+                                           std::string* error,
+                                           FrameCallback on_frame = nullptr,
+                                           void* user_data = nullptr);
 
 } // namespace melee::render
 

@@ -16,6 +16,7 @@
 
 #include <melee_host/baselib.h>
 
+#include "assets/hsd_archive.hpp"
 #include "assets/hsd_materialize.hpp"
 #include "assets/hsd_runtime_archive.hpp"
 
@@ -23,18 +24,25 @@
 
 MELEE_HOST_HSD_BEGIN
 #include <dolphin/gx/GXFrameBuffer.h>
+#include <melee/lb/lbanim.h>
+#include <sysdolphin/baselib/aobj.h>
+#include <sysdolphin/baselib/object.h>
 #include <sysdolphin/baselib/cobj.h>
+#include <sysdolphin/baselib/fobj.h>
 #include <sysdolphin/baselib/displayfunc.h>
 #include <sysdolphin/baselib/state.h>
 #include <sysdolphin/baselib/video.h>
 MELEE_HOST_HSD_END
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -56,6 +64,14 @@ struct LoadedModel {
     HSD_Joint* root_joint = nullptr;
     HSD_CObjDesc* camera = nullptr;
     HSD_JObj* root = nullptr;
+    /* An animation can live in a different archive from the model, so the
+     * handle keeps that one alive too: the loaded AObjs point into its
+     * descriptors and its keyframe streams. */
+    std::vector<std::byte> animation_bytes;
+    std::unique_ptr<HsdRuntimeArchive> animation_archive;
+    std::unique_ptr<HsdMaterializedArchive> animation_descriptors;
+    float animation_frame = 0.0F;
+    mh_u32 animation_bones = 0;
     bool in_use = false;
     mh_u16 generation = 0;
 };
@@ -342,6 +358,274 @@ extern "C" MeleeHostStatus melee_host_scene_graphics_joint_world_position(
     return MELEE_HOST_OK;
 }
 
+extern "C" MeleeHostStatus melee_host_scene_graphics_attach_animation(
+    MeleeHostSceneModel model, const char* path, const char* anim_symbol,
+    const char* mat_anim_symbol, const char* shape_anim_symbol)
+{
+    LoadedModel* const slot = model_of(model);
+    if (slot == nullptr || path == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "unknown scene model");
+    }
+    if (anim_symbol == nullptr && mat_anim_symbol == nullptr &&
+        shape_anim_symbol == nullptr)
+    {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "no animation symbol given");
+    }
+
+    HSD_AnimJoint* anim = nullptr;
+    HSD_MatAnimJoint* mat_anim = nullptr;
+    HSD_ShapeAnimJoint* shape_anim = nullptr;
+    try {
+        slot->animation_bytes = read_file(path);
+        slot->animation_archive =
+            std::make_unique<HsdRuntimeArchive>(slot->animation_bytes);
+        slot->animation_descriptors =
+            std::make_unique<HsdMaterializedArchive>(*slot->animation_archive);
+        if (anim_symbol != nullptr) {
+            anim = slot->animation_descriptors->anim_joint(anim_symbol);
+        }
+        if (mat_anim_symbol != nullptr) {
+            mat_anim =
+                slot->animation_descriptors->mat_anim_joint(mat_anim_symbol);
+        }
+        if (shape_anim_symbol != nullptr) {
+            shape_anim = slot->animation_descriptors->shape_anim_joint(
+                shape_anim_symbol);
+        }
+    } catch (const std::exception& error) {
+        slot->animation_descriptors.reset();
+        slot->animation_archive.reset();
+        slot->animation_bytes.clear();
+        return fail(MELEE_HOST_IO_ERROR, error.what());
+    }
+
+    /* The original walks the three trees alongside the object tree, so a
+     * mismatch in shape is the archive's business, not the host's. */
+    HSD_JObjAddAnimAll(slot->root, anim, mat_anim, shape_anim);
+    slot->animation_frame = 0.0F;
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
+extern "C" MeleeHostStatus melee_host_scene_graphics_list_animations(
+    const char* path, mh_u32 index, char* out_symbol, size_t capacity,
+    mh_u32* out_count)
+{
+    if (path == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "null argument");
+    }
+    try {
+        const std::vector<std::byte> bytes = read_file(path);
+        const std::vector<melee::assets::HsdArchiveMember> members =
+            melee::assets::enumerate_hsd_archives(bytes);
+        if (out_count != nullptr) {
+            *out_count = static_cast<mh_u32>(members.size());
+        }
+        if (out_symbol != nullptr) {
+            if (index >= members.size() || capacity == 0) {
+                return fail(MELEE_HOST_INVALID_ARGUMENT,
+                            "animation index out of range");
+            }
+            const std::string_view symbol = members[index].symbol;
+            const std::size_t length =
+                symbol.size() < capacity - 1 ? symbol.size() : capacity - 1;
+            std::memcpy(out_symbol, symbol.data(), length);
+            out_symbol[length] = '\0';
+        }
+    } catch (const std::exception& error) {
+        return fail(MELEE_HOST_IO_ERROR, error.what());
+    }
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
+extern "C" MeleeHostStatus melee_host_scene_graphics_attach_named_animation(
+    MeleeHostSceneModel model, const char* path, const char* symbol)
+{
+    LoadedModel* const slot = model_of(model);
+    if (slot == nullptr || path == nullptr || symbol == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "unknown scene model");
+    }
+
+    FigaTree* figa = nullptr;
+    HSD_AnimJoint* anim = nullptr;
+    try {
+        slot->animation_bytes = read_file(path);
+        const std::vector<melee::assets::HsdArchiveMember> members =
+            melee::assets::enumerate_hsd_archives(slot->animation_bytes);
+        /* A file with one archive per action names each by its own single
+         * public symbol.  A file that is one archive names many symbols
+         * inside it, so a miss on the first has to look further in. */
+        auto found = std::find_if(
+            members.begin(), members.end(),
+            [symbol](const melee::assets::HsdArchiveMember& member) {
+                return member.symbol == symbol;
+            });
+        if (found == members.end()) {
+            found = std::find_if(
+                members.begin(), members.end(),
+                [&](const melee::assets::HsdArchiveMember& member) {
+                    const std::span<const std::byte> bytes{
+                        slot->animation_bytes.data() + member.offset,
+                        member.size
+                    };
+                    const melee::assets::HsdArchiveView view(bytes);
+                    for (const auto& entry : view.public_symbols()) {
+                        if (entry.name == symbol) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+        }
+        if (found == members.end()) {
+            slot->animation_bytes.clear();
+            return fail(MELEE_HOST_IO_ERROR,
+                        std::string("no animation named ") + symbol);
+        }
+        /* Only the member's own bytes: each carries a complete archive whose
+         * header states its length. */
+        const std::span<const std::byte> member{
+            slot->animation_bytes.data() + found->offset, found->size
+        };
+        slot->animation_archive =
+            std::make_unique<HsdRuntimeArchive>(member);
+        slot->animation_descriptors =
+            std::make_unique<HsdMaterializedArchive>(*slot->animation_archive);
+        /* Two formats answer to the same kind of symbol: a character's action
+         * is a FigaTree, the game's own flat format, while a menu or title
+         * model uses an HSD animation tree.  Both are validated field by
+         * field, so trying one and falling back is safe: a wrong guess throws
+         * rather than producing a plausible mess. */
+        try {
+            figa = slot->animation_descriptors->figa_tree(symbol);
+        } catch (const melee::assets::HsdArchiveError&) {
+            anim = slot->animation_descriptors->anim_joint(symbol);
+        }
+    } catch (const std::exception& error) {
+        slot->animation_descriptors.reset();
+        slot->animation_archive.reset();
+        slot->animation_bytes.clear();
+        return fail(MELEE_HOST_IO_ERROR, error.what());
+    }
+
+    if (figa == nullptr) {
+        HSD_JObjAddAnimAll(slot->root, anim, nullptr, nullptr);
+        slot->animation_frame = 0.0F;
+        last_error = "no error";
+        return MELEE_HOST_OK;
+    }
+
+    /* The node list pairs one entry with each bone, in the order the tree was
+     * built, and says how many tracks that bone takes.  This is the walk
+     * ftanim.c performs over a fighter's parts, done here over the plain
+     * object tree. */
+    std::vector<HSD_JObj*> joints;
+    collect_jobjs(slot->root, &joints);
+    const s8* node = figa->nodes;
+    FigaTrack* track = figa->tracks;
+    std::size_t bone = 0;
+    while (*node >= 0 && bone < joints.size()) {
+        lbAnim_8001E6D8(joints[bone], figa, track, *node);
+        track += *node;
+        ++node;
+        ++bone;
+    }
+    slot->animation_bones = static_cast<mh_u32>(bone);
+    slot->animation_frame = 0.0F;
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
+extern "C" MeleeHostStatus melee_host_scene_graphics_run_animation(
+    MeleeHostSceneModel model, float start_frame, float rate, mh_u32 frames)
+{
+    LoadedModel* const slot = model_of(model);
+    if (slot == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "unknown scene model");
+    }
+    if (slot->animation_descriptors == nullptr) {
+        return fail(MELEE_HOST_NOT_READY, "no animation is attached");
+    }
+    /* Requesting sets the starting frame; interpreting is what advances it,
+     * once per frame, exactly as the game's loop does.  A loaded AObj already
+     * plays at one frame per call, so setting the rate here is about choosing
+     * a different speed or direction, which is what the game does per fighter
+     * action.  The traversal is the original one rather than a hand-rolled
+     * walk, so it reaches the same objects HSD_JObjAnimAll will. */
+    HSD_JObjReqAnimAll(slot->root, start_frame);
+    HSD_ForeachAnim(slot->root, JOBJ_TYPE, ALL_TYPE_MASK,
+                    reinterpret_cast<void*>(HSD_AObjSetRate), AOBJ_ARG_AF,
+                    static_cast<f64>(rate));
+    for (mh_u32 frame = 0; frame < frames; ++frame) {
+        HSD_JObjAnimAll(slot->root);
+    }
+    slot->animation_frame =
+        start_frame + rate * static_cast<float>(frames);
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
+extern "C" MeleeHostStatus melee_host_scene_graphics_step_animation(
+    MeleeHostSceneModel model, mh_u32 frames)
+{
+    LoadedModel* const slot = model_of(model);
+    if (slot == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "unknown scene model");
+    }
+    if (slot->animation_descriptors == nullptr) {
+        return fail(MELEE_HOST_NOT_READY, "no animation is attached");
+    }
+    for (mh_u32 frame = 0; frame < frames; ++frame) {
+        HSD_JObjAnimAll(slot->root);
+    }
+    slot->animation_frame += static_cast<float>(frames);
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
+extern "C" MeleeHostStatus melee_host_scene_graphics_animation_stats(
+    MeleeHostSceneModel model, MeleeHostSceneAnimationStats* out_stats)
+{
+    LoadedModel* const slot = model_of(model);
+    if (slot == nullptr || out_stats == nullptr) {
+        return fail(MELEE_HOST_INVALID_ARGUMENT, "unknown scene model");
+    }
+    MeleeHostSceneAnimationStats stats{};
+    if (slot->animation_descriptors != nullptr) {
+        const auto& translated = slot->animation_descriptors->stats();
+        stats.anim_joints = static_cast<mh_u32>(translated.anim_joints);
+        stats.mat_anim_joints =
+            static_cast<mh_u32>(translated.mat_anim_joints);
+        stats.shape_anim_joints =
+            static_cast<mh_u32>(translated.shape_anim_joints);
+        stats.aobj_descs = static_cast<mh_u32>(translated.aobj_descs);
+        stats.fobj_descs = static_cast<mh_u32>(translated.fobj_descs);
+        stats.anim_data_bytes =
+            static_cast<mh_u32>(translated.anim_data_bytes);
+    }
+    /* Read from the tree rather than from the host's own counter: this is
+     * what the original interpreter actually advanced. */
+    std::vector<HSD_JObj*> joints;
+    collect_jobjs(slot->root, &joints);
+    for (HSD_JObj* const jobj : joints) {
+        if (jobj->aobj == nullptr) {
+            continue;
+        }
+        if (stats.aobjs_in_tree == 0) {
+            stats.aobj_frame = jobj->aobj->curr_frame;
+            stats.aobj_end_frame = jobj->aobj->end_frame;
+        }
+        stats.aobjs_in_tree += 1;
+    }
+    stats.aobjs_live = HSD_ObjAllocGetUsing(HSD_AObjGetAllocData());
+    stats.fobjs_live = HSD_ObjAllocGetUsing(HSD_FObjGetAllocData());
+    stats.current_frame = slot->animation_frame;
+    *out_stats = stats;
+    last_error = "no error";
+    return MELEE_HOST_OK;
+}
+
 extern "C" MeleeHostStatus melee_host_scene_graphics_render(
     MeleeHostSceneModel model, MeleeHostSceneView view,
     MeleeHostSceneRenderStats* out_stats)
@@ -482,6 +766,12 @@ melee_host_scene_graphics_release(MeleeHostSceneModel model)
     slot->archive.reset();
     slot->bytes.clear();
     slot->bytes.shrink_to_fit();
+    slot->animation_descriptors.reset();
+    slot->animation_archive.reset();
+    slot->animation_bytes.clear();
+    slot->animation_bytes.shrink_to_fit();
+    slot->animation_frame = 0.0F;
+    slot->animation_bones = 0;
     slot->in_use = false;
     slot->generation = static_cast<mh_u16>(slot->generation + 1);
     last_error = "no error";

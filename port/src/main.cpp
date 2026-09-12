@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -85,6 +86,17 @@ void print_usage(const char* executable)
               << "  " << executable
               << " --render-scene FILE SYMBOL [MODEL_INDEX]\n"
               << "  " << executable << " --render-joint FILE SYMBOL\n"
+              << "  " << executable
+              << " --animate-joint FILE SYMBOL ANIMFILE ANIMSYM MATSYM"
+                 " [FRAMES]\n"
+              << "  " << executable << " --list-animations FILE\n"
+              << "  " << executable
+              << " --animate-named FILE SYMBOL ANIMFILE ANIMSYM [FRAMES]\n"
+#if defined(MELEE_HOST_SDL_RENDERER)
+              << "  " << executable
+              << " --view-animation FILE SYMBOL ANIMFILE ANIMSYM\n"
+#endif
+              << ""
 #if defined(MELEE_HOST_SDL_RENDERER)
               << "  " << executable << " --view-pobj FILE SYMBOL\n"
               << "  " << executable
@@ -653,36 +665,14 @@ int read_resource(const std::filesystem::path& root, std::string path)
 /* Shows what the original display path drew, rather than the geometry the
  * read-only schema decodes separately.  The capture is asked for in world
  * space so the viewer can move its own camera around the model. */
-int view_scene(const char* path, const char* symbol, bool scene_model,
-               mh_u32 model_index)
+/* Decodes the textures a capture bound, in the order the vertices index them:
+ * an image that cannot be decoded still has to occupy its slot or every id
+ * after it would point at the wrong picture. */
+void decode_captured_textures(mh_u32 count,
+                              std::vector<melee::render::TextureImage>* images,
+                              std::size_t* decoded_count)
 {
-    MeleeHostSceneModel model = 0;
-    const MeleeHostStatus status =
-        scene_model
-            ? melee_host_scene_graphics_load_model(path, symbol, model_index,
-                                                   &model)
-            : melee_host_scene_graphics_load_joint(path, symbol, &model);
-    if (status != MELEE_HOST_OK) {
-        std::cerr << "scene load failed: "
-                  << melee_host_status_string(status) << ": "
-                  << melee_host_scene_graphics_last_error() << '\n';
-        return 1;
-    }
-
-    MeleeHostSceneRenderStats drawn{};
-    if (melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
-                                         &drawn) != MELEE_HOST_OK) {
-        std::cerr << "scene render failed: "
-                  << melee_host_scene_graphics_last_error() << '\n';
-        melee_host_scene_graphics_release(model);
-        return 1;
-    }
-
-    /* The ids the captured vertices carry index this table in order, so an
-     * image that cannot be decoded still has to occupy its slot. */
-    std::vector<melee::render::TextureImage> images;
-    std::size_t decoded_count = 0;
-    for (mh_u32 id = 0; id < drawn.textures; ++id) {
+    for (mh_u32 id = 0; id < count; ++id) {
         MeleeHostGxTextureDesc desc{};
         melee::render::TextureImage image{ 1, 1, 0, 0,
                                            { 255, 255, 255, 255 } };
@@ -713,15 +703,45 @@ int view_scene(const char* path, const char* symbol, bool scene_model,
                 if (!decoded.rgba.empty()) {
                     image = { decoded.width, decoded.height, desc.wrap_s,
                               desc.wrap_t, std::move(decoded.rgba) };
-                    ++decoded_count;
+                    *decoded_count += 1;
                 }
             } catch (const std::exception& error) {
                 std::cerr << "texture " << id << " not decoded: "
                           << error.what() << '\n';
             }
         }
-        images.push_back(std::move(image));
+        images->push_back(std::move(image));
     }
+}
+
+int view_scene(const char* path, const char* symbol, bool scene_model,
+               mh_u32 model_index)
+{
+    MeleeHostSceneModel model = 0;
+    const MeleeHostStatus status =
+        scene_model
+            ? melee_host_scene_graphics_load_model(path, symbol, model_index,
+                                                   &model)
+            : melee_host_scene_graphics_load_joint(path, symbol, &model);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_status_string(status) << ": "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    MeleeHostSceneRenderStats drawn{};
+    if (melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
+                                         &drawn) != MELEE_HOST_OK) {
+        std::cerr << "scene render failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    std::vector<melee::render::TextureImage> images;
+    std::size_t decoded_count = 0;
+    decode_captured_textures(drawn.textures, &images, &decoded_count);
 
     std::cout << "showing " << drawn.triangles << " triangles from "
               << symbol << " through the original display path\n"
@@ -760,6 +780,364 @@ int view_scene(const char* path, const char* symbol, bool scene_model,
     return 0;
 }
 #endif
+
+
+/* Loads a model, attaches an animation to it and advances it, reporting where
+ * a joint ends up.  A joint that moved is the proof the keyframe streams were
+ * translated and the original interpreter read them. */
+int animate_scene(const char* model_path, const char* model_symbol,
+                  bool scene_model, const char* anim_path,
+                  const char* anim_symbol, const char* mat_anim_symbol,
+                  unsigned frames, float rate)
+{
+    MeleeHostSceneModel model = 0;
+    const MeleeHostStatus status =
+        scene_model ? melee_host_scene_graphics_load_model(
+                          model_path, model_symbol, 0, &model)
+                    : melee_host_scene_graphics_load_joint(
+                          model_path, model_symbol, &model);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    MeleeHostSceneModelStats tree{};
+    melee_host_scene_graphics_stats(model, &tree);
+    std::vector<std::array<float, 3>> before(tree.jobjs);
+    for (mh_u32 index = 0; index < tree.jobjs; ++index) {
+        melee_host_scene_graphics_joint_world_position(model, index,
+                                                       before[index].data());
+    }
+
+    if (melee_host_scene_graphics_attach_animation(
+            model, anim_path, anim_symbol, mat_anim_symbol, nullptr) !=
+        MELEE_HOST_OK)
+    {
+        std::cerr << "attach failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    MeleeHostSceneAnimationStats anim{};
+    melee_host_scene_graphics_animation_stats(model, &anim);
+    std::cout << "animation from " << anim_path << '\n'
+              << "  AnimJoint: " << anim.anim_joints
+              << "  MatAnimJoint: " << anim.mat_anim_joints
+              << "  ShapeAnimJoint: " << anim.shape_anim_joints << '\n'
+              << "  AObjDesc: " << anim.aobj_descs
+              << "  FObjDesc: " << anim.fobj_descs
+              << "  keyframe bytes: " << anim.anim_data_bytes << '\n'
+              << "  live AObj: " << anim.aobjs_live
+              << "  live FObj: " << anim.fobjs_live
+              << "  AObj na arvore: " << anim.aobjs_in_tree << '\n';
+
+    if (melee_host_scene_graphics_run_animation(model, 0.0F, rate, frames) !=
+        MELEE_HOST_OK) {
+        std::cerr << "run failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    std::size_t moved = 0;
+    float largest = 0.0F;
+    mh_u32 largest_joint = 0;
+    std::array<float, 3> sample_before{};
+    std::array<float, 3> sample_after{};
+    for (mh_u32 index = 0; index < tree.jobjs; ++index) {
+        std::array<float, 3> after{};
+        if (melee_host_scene_graphics_joint_world_position(
+                model, index, after.data()) != MELEE_HOST_OK) {
+            continue;
+        }
+        float distance = 0.0F;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float delta = after[axis] - before[index][axis];
+            distance += delta * delta;
+        }
+        distance = std::sqrt(distance);
+        if (distance > 1.0e-4F) {
+            ++moved;
+        }
+        if (distance > largest) {
+            largest = distance;
+            largest_joint = index;
+            sample_before = before[index];
+            sample_after = after;
+        }
+    }
+    melee_host_scene_graphics_animation_stats(model, &anim);
+    std::cout << "  ran " << frames << " frames to " << anim.current_frame
+              << '\n'
+              << "  joints moved: " << moved << " of " << tree.jobjs << '\n'
+              << "  AObj frame: " << anim.aobj_frame << " of "
+              << anim.aobj_end_frame << '\n';
+    if (moved != 0) {
+        std::cout << "  largest move, joint " << largest_joint << ": "
+                  << sample_before[0] << ' ' << sample_before[1] << ' '
+                  << sample_before[2] << "  ->  " << sample_after[0] << ' '
+                  << sample_after[1] << ' ' << sample_after[2] << "  ("
+                  << largest << ")\n";
+    }
+
+    melee_host_scene_graphics_release(model);
+    return 0;
+}
+
+#if defined(MELEE_HOST_SDL_RENDERER)
+namespace {
+struct AnimationPlayback {
+    MeleeHostSceneModel model;
+    float end_frame;
+    mh_u32 frame;
+};
+
+/* Runs once per displayed frame: advance the animation, then draw the tree
+ * again so the window reads this frame's geometry.  The animation is requested
+ * again when it runs out, which is what makes the action loop. */
+void advance_animation_frame(void* user_data)
+{
+    auto* const playback = static_cast<AnimationPlayback*>(user_data);
+    if (playback->end_frame > 0.0F &&
+        static_cast<float>(playback->frame) >= playback->end_frame)
+    {
+        melee_host_scene_graphics_run_animation(playback->model, 0.0F, 1.0F,
+                                                0);
+        playback->frame = 0;
+    }
+    melee_host_scene_graphics_step_animation(playback->model, 1);
+    playback->frame += 1;
+    MeleeHostSceneRenderStats drawn{};
+    melee_host_scene_graphics_render(playback->model,
+                                     MELEE_HOST_SCENE_VIEW_WORLD, &drawn);
+}
+} // namespace
+
+/* Shows a character model playing one of its actions. */
+int view_animation(const char* model_path, const char* model_symbol,
+                   const char* anim_path, const char* anim_symbol)
+{
+    MeleeHostSceneModel model = 0;
+    if (melee_host_scene_graphics_load_joint(model_path, model_symbol,
+                                             &model) != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+    if (melee_host_scene_graphics_attach_named_animation(
+            model, anim_path, anim_symbol) != MELEE_HOST_OK) {
+        std::cerr << "attach failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+    if (melee_host_scene_graphics_run_animation(model, 0.0F, 1.0F, 0) !=
+        MELEE_HOST_OK) {
+        std::cerr << "run failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    /* One capture up front, so the window has geometry and textures before the
+     * first callback runs. */
+    MeleeHostSceneRenderStats drawn{};
+    if (melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
+                                         &drawn) != MELEE_HOST_OK) {
+        std::cerr << "render failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    std::vector<melee::render::TextureImage> images;
+    std::size_t decoded_count = 0;
+    decode_captured_textures(drawn.textures, &images, &decoded_count);
+
+    MeleeHostSceneAnimationStats anim{};
+    melee_host_scene_graphics_animation_stats(model, &anim);
+    std::cout << anim_symbol << " on " << model_symbol << '\n'
+              << "  " << drawn.triangles << " triangles, "
+              << decoded_count << " of " << drawn.textures
+              << " textures decoded\n"
+              << "  " << anim.aobjs_in_tree << " animated joints over "
+              << anim.aobj_end_frame << " frames\n";
+
+    melee::render::set_texture_images(std::move(images));
+    MeleeHostContext* context = nullptr;
+    const MeleeHostConfig config{ .resource_root = nullptr,
+                                  .headless = false };
+    if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+        melee_host_activate_pad_backend(context) != MELEE_HOST_OK)
+    {
+        melee_host_destroy(context);
+        melee_host_scene_graphics_release(model);
+        std::cerr << "could not initialize SDL input context\n";
+        return 1;
+    }
+    AnimationPlayback playback{ model, anim.aobj_end_frame, 0 };
+    std::string error;
+    const bool shown = melee::render::show_captured_geometry(
+        context, &error, advance_animation_frame, &playback);
+    melee_host_destroy(context);
+    melee_host_scene_graphics_release(model);
+    if (!shown) {
+        std::cerr << "preview failed: " << error << '\n';
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+int list_animations(const char* path)
+{
+    mh_u32 count = 0;
+    if (melee_host_scene_graphics_list_animations(path, 0, nullptr, 0,
+                                                  &count) != MELEE_HOST_OK) {
+        std::cerr << "list failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+    std::cout << path << ": " << count << " animations\n";
+    for (mh_u32 index = 0; index < count; ++index) {
+        std::array<char, 128> symbol{};
+        if (melee_host_scene_graphics_list_animations(
+                path, index, symbol.data(), symbol.size(), nullptr) ==
+            MELEE_HOST_OK)
+        {
+            std::cout << "  " << index << ": " << symbol.data() << '\n';
+        }
+    }
+    return 0;
+}
+
+/* Loads a model and drives it with one named animation out of a file that
+ * holds several, which is how a character keeps one archive per action. */
+int animate_named(const char* model_path, const char* model_symbol,
+                  const char* anim_path, const char* anim_symbol,
+                  unsigned frames)
+{
+    MeleeHostSceneModel model = 0;
+    if (melee_host_scene_graphics_load_joint(model_path, model_symbol,
+                                             &model) != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    MeleeHostSceneModelStats tree{};
+    melee_host_scene_graphics_stats(model, &tree);
+    std::vector<std::array<float, 3>> before(tree.jobjs);
+    for (mh_u32 index = 0; index < tree.jobjs; ++index) {
+        melee_host_scene_graphics_joint_world_position(model, index,
+                                                       before[index].data());
+    }
+
+    if (melee_host_scene_graphics_attach_named_animation(
+            model, anim_path, anim_symbol) != MELEE_HOST_OK) {
+        std::cerr << "attach failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    MeleeHostSceneAnimationStats anim{};
+    melee_host_scene_graphics_animation_stats(model, &anim);
+    std::cout << anim_symbol << " on " << model_symbol << '\n'
+              << "  AnimJoint: " << anim.anim_joints
+              << "  AObjDesc: " << anim.aobj_descs
+              << "  FObjDesc: " << anim.fobj_descs
+              << "  keyframe bytes: " << anim.anim_data_bytes << '\n'
+              << "  AObj attached to the tree: " << anim.aobjs_in_tree
+              << " of " << tree.jobjs << " joints\n";
+
+    if (melee_host_scene_graphics_run_animation(model, 0.0F, 1.0F, frames) !=
+        MELEE_HOST_OK) {
+        std::cerr << "run failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    std::size_t moved = 0;
+    float largest = 0.0F;
+    mh_u32 largest_joint = 0;
+    for (mh_u32 index = 0; index < tree.jobjs; ++index) {
+        std::array<float, 3> after{};
+        if (melee_host_scene_graphics_joint_world_position(
+                model, index, after.data()) != MELEE_HOST_OK) {
+            continue;
+        }
+        float distance = 0.0F;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const float delta = after[axis] - before[index][axis];
+            distance += delta * delta;
+        }
+        distance = std::sqrt(distance);
+        if (distance > 1.0e-4F) {
+            ++moved;
+        }
+        if (distance > largest) {
+            largest = distance;
+            largest_joint = index;
+        }
+    }
+    melee_host_scene_graphics_animation_stats(model, &anim);
+    std::cout << "  ran " << frames << " frames, AObj frame "
+              << anim.aobj_frame << " of " << anim.aobj_end_frame << '\n'
+              << "  joints moved: " << moved << " of " << tree.jobjs
+              << ", largest " << largest << " at joint " << largest_joint
+              << '\n';
+
+    /* Moving joints are not the same claim as moving geometry: the vertices
+     * only follow if the draw runs again and picks up the new matrices.  This
+     * renders two consecutive frames and compares what the recorder captured,
+     * which is exactly what a window would be showing. */
+    MeleeHostSceneRenderStats drawn{};
+    std::vector<MeleeHostGxPosition3f32> first;
+    if (melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
+                                         &drawn) == MELEE_HOST_OK) {
+        first.reserve(drawn.triangles);
+        for (mh_u32 index = 0; index < drawn.triangles; ++index) {
+            MeleeHostGxCapturedTriangle triangle{};
+            if (melee_host_gx_captured_triangle_at(index, &triangle)) {
+                first.push_back(triangle.vertices[0].position);
+            }
+        }
+        melee_host_scene_graphics_step_animation(model, 1);
+        if (melee_host_scene_graphics_render(
+                model, MELEE_HOST_SCENE_VIEW_WORLD, &drawn) == MELEE_HOST_OK)
+        {
+            std::size_t changed = 0;
+            float biggest = 0.0F;
+            for (mh_u32 index = 0;
+                 index < drawn.triangles && index < first.size(); ++index) {
+                MeleeHostGxCapturedTriangle triangle{};
+                if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
+                    continue;
+                }
+                const auto& before_vertex = first[index];
+                const auto& after_vertex = triangle.vertices[0].position;
+                const float dx = after_vertex.x - before_vertex.x;
+                const float dy = after_vertex.y - before_vertex.y;
+                const float dz = after_vertex.z - before_vertex.z;
+                const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (distance > 1.0e-4F) {
+                    ++changed;
+                }
+                biggest = std::max(biggest, distance);
+            }
+            std::cout << "  geometry between two frames: " << changed
+                      << " of " << first.size()
+                      << " triangles moved, largest " << biggest << '\n';
+        }
+    }
+
+    melee_host_scene_graphics_release(model);
+    return moved == 0 ? 1 : 0;
+}
 
 int load_scene(const char* path, const char* symbol, bool scene_model,
                mh_u32 model_index, bool render = false,
@@ -969,6 +1347,31 @@ int main(int argc, char** argv)
         }
         if (argc == 4 && std::string(argv[1]) == "--render-joint") {
             return load_scene(argv[2], argv[3], false, 0, true);
+        }
+#if defined(MELEE_HOST_SDL_RENDERER)
+        if (argc == 6 && std::string(argv[1]) == "--view-animation") {
+            return view_animation(argv[2], argv[3], argv[4], argv[5]);
+        }
+#endif
+        if (argc == 3 && std::string(argv[1]) == "--list-animations") {
+            return list_animations(argv[2]);
+        }
+        if ((argc == 6 || argc == 7) &&
+            std::string(argv[1]) == "--animate-named") {
+            const unsigned frames =
+                argc == 7 ? static_cast<unsigned>(std::stoul(argv[6])) : 60U;
+            return animate_named(argv[2], argv[3], argv[4], argv[5], frames);
+        }
+        if ((argc == 7 || argc == 8) &&
+            std::string(argv[1]) == "--animate-joint") {
+            const unsigned frames =
+                argc == 8 ? static_cast<unsigned>(std::stoul(argv[7])) : 30U;
+            const char* const anim = std::string(argv[5]) == "-" ? nullptr
+                                                                 : argv[5];
+            const char* const mat = std::string(argv[6]) == "-" ? nullptr
+                                                                : argv[6];
+            return animate_scene(argv[2], argv[3], false, argv[4], anim, mat,
+                                 frames, 1.0F);
         }
 #if defined(MELEE_HOST_SDL_RENDERER)
         if ((argc == 4 || argc == 5) &&

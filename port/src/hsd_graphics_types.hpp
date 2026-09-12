@@ -31,7 +31,10 @@ MELEE_HOST_HSD_BEGIN
 #include <dolphin/gx/GXEnum.h>
 #include <dolphin/gx/GXStruct.h>
 #include <dolphin/mtx.h>
+#include <melee/lb/lbanim.h>
+#include <sysdolphin/baselib/aobj.h>
 #include <sysdolphin/baselib/cobj.h>
+#include <sysdolphin/baselib/fobj.h>
 #include <sysdolphin/baselib/dobj.h>
 #include <sysdolphin/baselib/jobj.h>
 #include <sysdolphin/baselib/mobj.h>

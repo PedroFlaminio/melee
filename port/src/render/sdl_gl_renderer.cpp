@@ -267,7 +267,8 @@ GLint wrap_mode(std::uint32_t mode)
 
 } // namespace
 
-bool show_captured_geometry(MeleeHostContext* context, std::string* error)
+bool show_captured_geometry(MeleeHostContext* context, std::string* error,
+                            FrameCallback on_frame, void* user_data)
 {
     const std::size_t triangle_count = melee_host_gx_triangle_count();
     if (triangle_count == 0) {
@@ -348,9 +349,10 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
         mh_u32 draw_state;
         mh_u32 tev_state;
     };
-    std::vector<Group> groups;
+    const auto collect_groups = [](std::size_t count) {
+        std::vector<Group> groups;
     for (int blended = 0; blended < 2; ++blended) {
-        for (std::size_t index = 0; index < triangle_count; ++index) {
+        for (std::size_t index = 0; index < count; ++index) {
             MeleeHostGxCapturedTriangle triangle{};
             if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
                 continue;
@@ -377,6 +379,10 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
             }
         }
     }
+        return groups;
+    };
+    std::vector<Group> groups = collect_groups(triangle_count);
+    std::size_t frame_triangles = triangle_count;
 
     bool running = true;
     /* GX treats a clockwise winding as the front face.  The viewer starts
@@ -518,6 +524,16 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
             running = false;
         }
         static_cast<void>(melee_host_step(context));
+        if (on_frame != nullptr) {
+            /* The viewer advances the animation and captures again here, so
+             * the geometry read below is this frame's, not the first one's. */
+            on_frame(user_data);
+            const std::size_t captured = melee_host_gx_triangle_count();
+            if (captured != frame_triangles) {
+                groups = collect_groups(captured);
+                frame_triangles = captured;
+            }
+        }
         int width = 0;
         int height = 0;
         SDL_GetWindowSizeInPixels(window, &width, &height);
@@ -548,7 +564,7 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
                     : Shading{};
             glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE,
                       shading.replace ? GL_REPLACE : GL_MODULATE);
-            for (std::size_t index = 0; index < triangle_count; ++index) {
+            for (std::size_t index = 0; index < frame_triangles; ++index) {
                 MeleeHostGxCapturedTriangle triangle{};
                 if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
                     continue;

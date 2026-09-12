@@ -69,7 +69,17 @@ enum : std::uint32_t {
     kVertexArray = 0x280,
     kTlutData = 0x2C0,
     kClassName = 0x2D0,
-    kDataSize = 0x300,
+    kAnimJoint = 0x300,
+    kAnimChild = 0x320,
+    kAObjDesc = 0x340,
+    kFObjDesc = 0x350,
+    kAnimData = 0x370,
+    kAnimTable = 0x3A0,
+    kFigaTree = 0x400,
+    kFigaNodes = 0x420,
+    kFigaTracks = 0x430,
+    kFigaData = 0x460,
+    kDataSize = 0x480,
 };
 
 struct SyntheticArchive {
@@ -105,7 +115,7 @@ struct SyntheticArchive {
 
 /* Every pointer field the archive relocates.  A pointer field missing from
  * this list must read as NULL, which is what the materializer enforces. */
-constexpr std::array<std::uint32_t, 18> kRelocations{
+constexpr std::array<std::uint32_t, 29> kRelocations{
     kScene + 0x00,        // SceneDesc.models
     kModels + 0x00,       // models[0]
     kModelDesc + 0x00,    // DynamicModelDesc.joint
@@ -124,19 +134,32 @@ constexpr std::array<std::uint32_t, 18> kRelocations{
     kTObjDesc + 0x50,     // HSD_TObjDesc.tlutdesc
     kImageDesc + 0x00,    // HSD_ImageDesc.image_ptr
     kTlutDesc + 0x00,     // HSD_TlutDesc.lut
+    kModelDesc + 0x04,    // DynamicModelDesc.anims
+    kAnimTable + 0x00,    // anims[0]
+    kAnimJoint + 0x00,    // HSD_AnimJoint.child
+    kAnimChild + 0x08,    // HSD_AnimJoint.aobjdesc
+    kAObjDesc + 0x08,     // HSD_AObjDesc.fobjdesc
+    kFObjDesc + 0x10,     // HSD_FObjDesc.ad
+    kFigaTree + 0x0C,     // FigaTree.nodes
+    kFigaTree + 0x10,     // FigaTree.tracks
+    kFigaTracks + 0x08,   // FigaTrack[0].ad_head
+    kFigaTracks + 0x14,   // FigaTrack[1].ad_head
+    kFigaTracks + 0x20,   // FigaTrack[2].ad_head
 };
 
 SyntheticArchive make_scene()
 {
     constexpr std::string_view symbol = "test_scene_data";
+    constexpr std::string_view figa_symbol = "test_figatree";
     constexpr std::uint32_t file_size =
         32 + kDataSize + static_cast<std::uint32_t>(kRelocations.size()) * 4 +
-        8 + static_cast<std::uint32_t>(symbol.size()) + 1;
+        16 + static_cast<std::uint32_t>(symbol.size()) + 1 +
+        static_cast<std::uint32_t>(figa_symbol.size()) + 1;
 
     SyntheticArchive archive;
     for (const std::uint32_t value : std::array<std::uint32_t, 8>{
              file_size, kDataSize,
-             static_cast<std::uint32_t>(kRelocations.size()), 1, 0,
+             static_cast<std::uint32_t>(kRelocations.size()), 2, 0,
              0x01000000, 0, 0 }) {
         append_be32(archive.bytes, value);
     }
@@ -147,6 +170,28 @@ SyntheticArchive make_scene()
     archive.field32(kModels + 0x00, kModelDesc);
     archive.field32(kModels + 0x04, 0); // model table terminator
     archive.field32(kModelDesc + 0x00, kRootJoint);
+    archive.field32(kModelDesc + 0x04, kAnimTable);
+
+    // One animation in the model's table, shaped like the joint tree it
+    // drives: a root that carries nothing and a child that carries the
+    // animation object.
+    archive.field32(kAnimTable + 0x00, kAnimJoint);
+    archive.field32(kAnimTable + 0x04, 0); // table terminator
+    archive.field32(kAnimJoint + 0x00, kAnimChild);
+    archive.field32(kAnimChild + 0x08, kAObjDesc);
+    archive.field32(kAnimChild + 0x10, 0x40); // HSD_AnimJoint.flags
+    archive.fieldf32(kAObjDesc + 0x04, 10.0F); // end frame
+    archive.field32(kAObjDesc + 0x08, kFObjDesc);
+    archive.field32(kFObjDesc + 0x04, 8);   // keyframe stream length
+    archive.fieldf32(kFObjDesc + 0x08, 2.0F); // start frame
+    archive.field8(kFObjDesc + 0x0C, 5);    // HSD_A_J_TRAX
+    archive.field8(kFObjDesc + 0x0D, 3);    // fractional bits of the value
+    archive.field8(kFObjDesc + 0x0E, 1);    // fractional bits of the slope
+    archive.field32(kFObjDesc + 0x10, kAnimData);
+    for (std::uint32_t index = 0; index < 8; ++index) {
+        archive.field8(kAnimData + index,
+                       static_cast<std::uint8_t>(0xC0 + index));
+    }
 
     // The root carries no geometry, only a child and its own transform.  Its
     // JOBJ_ROOT_OPA bit is what makes HSD_JObjDispAll descend for the opaque
@@ -253,12 +298,44 @@ SyntheticArchive make_scene()
     archive.field8(kClassName + static_cast<std::uint32_t>(class_name.size()),
                    0);
 
+    // A FigaTree beside the scene: the game's own animation container, flat
+    // rather than a tree, with a node list saying how many tracks each bone
+    // takes and the tracks laid end to end.
+    archive.field32(kFigaTree + 0x00, 1);   // type, low bit is classical scale
+    archive.field32(kFigaTree + 0x04, 0);   // flags
+    archive.fieldf32(kFigaTree + 0x08, 10.0F); // frames
+    archive.field32(kFigaTree + 0x0C, kFigaNodes);
+    archive.field32(kFigaTree + 0x10, kFigaTracks);
+    archive.field8(kFigaNodes + 0, 1);    // first bone takes one track
+    archive.field8(kFigaNodes + 1, 2);    // second takes two
+    archive.field8(kFigaNodes + 2, 0xFF); // terminator
+    for (std::uint32_t track = 0; track < 3; ++track) {
+        const std::uint32_t at = kFigaTracks + track * 0x0C;
+        archive.field16(at + 0x00, 4); // stream length
+        archive.field16(at + 0x02, static_cast<std::uint16_t>(track));
+        archive.field8(at + 0x04, static_cast<std::uint8_t>(5 + track));
+        archive.field8(at + 0x05, 1);
+        archive.field8(at + 0x06, 2);
+        archive.field32(at + 0x08, kFigaData + track * 4);
+    }
+    for (std::uint32_t index = 0; index < 12; ++index) {
+        archive.field8(kFigaData + index,
+                       static_cast<std::uint8_t>(0xE0 + index));
+    }
+
     for (const std::uint32_t relocation : kRelocations) {
         append_be32(archive.bytes, relocation);
     }
-    append_be32(archive.bytes, kScene); // public offset
-    append_be32(archive.bytes, 0);      // public symbol offset
+    append_be32(archive.bytes, kScene);
+    append_be32(archive.bytes, 0);
+    append_be32(archive.bytes, kFigaTree);
+    append_be32(archive.bytes,
+                static_cast<std::uint32_t>(symbol.size()) + 1);
     for (const char letter : symbol) {
+        archive.bytes.push_back(static_cast<std::byte>(letter));
+    }
+    archive.bytes.push_back(std::byte{ 0 });
+    for (const char letter : figa_symbol) {
         archive.bytes.push_back(static_cast<std::byte>(letter));
     }
     archive.bytes.push_back(std::byte{ 0 });
@@ -623,4 +700,158 @@ TEST_CASE("the scene graphics facade reports an unknown symbol")
             MELEE_HOST_OK);
     REQUIRE(std::string_view(melee_host_scene_graphics_last_error()).size() >
             0);
+}
+
+TEST_CASE("the materializer rebuilds an animation tree and its keyframes")
+{
+    const SyntheticArchive source = make_scene();
+    const melee::assets::HsdRuntimeArchive runtime(source.bytes);
+    melee::assets::HsdMaterializedArchive descriptors(runtime);
+
+    REQUIRE(descriptors.scene_model_anim_count("test_scene_data", 0) == 1);
+    HSD_AnimJoint* const root =
+        descriptors.scene_model_anim("test_scene_data", 0, 0);
+    REQUIRE(root != nullptr);
+    REQUIRE(root->next == nullptr);
+    REQUIRE(root->aobjdesc == nullptr);
+
+    HSD_AnimJoint* const child = root->child;
+    REQUIRE(child != nullptr);
+    REQUIRE(child->flags == 0x40);
+    REQUIRE(child->aobjdesc != nullptr);
+    REQUIRE(near(child->aobjdesc->end_frame, 10.0F));
+    REQUIRE(child->aobjdesc->obj_id == 0);
+
+    HSD_FObjDesc* const track = child->aobjdesc->fobjdesc;
+    REQUIRE(track != nullptr);
+    REQUIRE(track->next == nullptr);
+    REQUIRE(track->length == 8);
+    REQUIRE(near(track->startframe, 2.0F));
+    REQUIRE(track->type == 5);
+    REQUIRE(track->frac_value == 3);
+    REQUIRE(track->frac_slope == 1);
+    // The keyframe stream is read big-endian by the original interpreter, so
+    // like a display list it keeps the bytes the file holds.
+    REQUIRE(track->ad != nullptr);
+    REQUIRE(track->ad[0] == 0xC0);
+    REQUIRE(track->ad[7] == 0xC7);
+
+    REQUIRE(descriptors.stats().anim_joints == 2);
+    REQUIRE(descriptors.stats().aobj_descs == 1);
+    REQUIRE(descriptors.stats().fobj_descs == 1);
+    REQUIRE(descriptors.stats().anim_data_bytes == 8);
+}
+
+TEST_CASE("the original loaders build animation objects from the descriptors")
+{
+    REQUIRE(melee_host_baselib_bootstrap() == MELEE_HOST_OK);
+    const SyntheticArchive source = make_scene();
+    const melee::assets::HsdRuntimeArchive runtime(source.bytes);
+    melee::assets::HsdMaterializedArchive descriptors(runtime);
+    HSD_Joint* const joint =
+        descriptors.scene_model_joint("test_scene_data", 0);
+    HSD_AnimJoint* const anim =
+        descriptors.scene_model_anim("test_scene_data", 0, 0);
+
+    const u32 aobjs_before = HSD_ObjAllocGetUsing(HSD_AObjGetAllocData());
+    const u32 fobjs_before = HSD_ObjAllocGetUsing(HSD_FObjGetAllocData());
+
+    HSD_JObj* const root = HSD_JObjLoadJoint(joint);
+    REQUIRE(root != nullptr);
+    HSD_JObjAddAnimAll(root, anim, nullptr, nullptr);
+
+    // The animation tree is walked alongside the object tree, so the AObj
+    // lands on the joint the descriptor sits beside.
+    REQUIRE(root->aobj == nullptr);
+    REQUIRE(root->child != nullptr);
+    REQUIRE(root->child->aobj != nullptr);
+    REQUIRE(near(root->child->aobj->end_frame, 10.0F));
+    REQUIRE(root->child->aobj->fobj != nullptr);
+    // HSD_FObjLoadDesc keeps the descriptor's stream, so the object points at
+    // the materialized bytes rather than a copy.
+    REQUIRE(root->child->aobj->fobj->ad_head == anim->child->aobjdesc->fobjdesc->ad);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_AObjGetAllocData()) == aobjs_before + 1);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_FObjGetAllocData()) == fobjs_before + 1);
+
+    // A loaded AObj already plays at one frame per interpretation; the rate is
+    // only set explicitly to choose another speed or direction.
+    REQUIRE(near(root->child->aobj->framerate, 1.0F));
+
+    HSD_JObjRemoveAll(root);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_AObjGetAllocData()) == aobjs_before);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_FObjGetAllocData()) == fobjs_before);
+}
+
+TEST_CASE("the materializer rebuilds a FigaTree and its track list")
+{
+    const SyntheticArchive source = make_scene();
+    const melee::assets::HsdRuntimeArchive runtime(source.bytes);
+    melee::assets::HsdMaterializedArchive descriptors(runtime);
+
+    FigaTree* const tree = descriptors.figa_tree("test_figatree");
+    REQUIRE(tree != nullptr);
+    REQUIRE(tree->type == 1);
+    REQUIRE(near(tree->frames, 10.0F));
+
+    // The node list says how many tracks each bone takes and ends at -1.  It
+    // is signed bytes, so unlike the rest of the record it needs no
+    // translation and is used where it lies.
+    REQUIRE(tree->nodes != nullptr);
+    REQUIRE(tree->nodes[0] == 1);
+    REQUIRE(tree->nodes[1] == 2);
+    REQUIRE(tree->nodes[2] == -1);
+
+    // Three tracks, because the node list asks for one plus two.
+    REQUIRE(tree->tracks != nullptr);
+    for (std::size_t index = 0; index < 3; ++index) {
+        const FigaTrack& track = tree->tracks[index];
+        REQUIRE(track.length == 4);
+        REQUIRE(track.startframe == index);
+        REQUIRE(track.obj_type == 5 + index);
+        REQUIRE(track.frac_value == 1);
+        REQUIRE(track.frac_slope == 2);
+        REQUIRE(track.ad_head != nullptr);
+        // Each stream keeps the bytes the file holds, in order.
+        REQUIRE(track.ad_head[0] ==
+                static_cast<u8>(0xE0 + index * 4));
+    }
+    REQUIRE(descriptors.stats().figa_trees == 1);
+    REQUIRE(descriptors.stats().figa_tracks == 3);
+}
+
+TEST_CASE("a FigaTree drives the joints through the original applier")
+{
+    REQUIRE(melee_host_baselib_bootstrap() == MELEE_HOST_OK);
+    const SyntheticArchive source = make_scene();
+    const melee::assets::HsdRuntimeArchive runtime(source.bytes);
+    melee::assets::HsdMaterializedArchive descriptors(runtime);
+    HSD_Joint* const joint =
+        descriptors.scene_model_joint("test_scene_data", 0);
+    FigaTree* const tree = descriptors.figa_tree("test_figatree");
+
+    HSD_JObj* const root = HSD_JObjLoadJoint(joint);
+    REQUIRE(root != nullptr);
+
+    // One node per bone, in the order the tree was built: this is the walk
+    // ftanim.c performs over a fighter's parts.
+    const u32 fobjs_before = HSD_ObjAllocGetUsing(HSD_FObjGetAllocData());
+    lbAnim_8001E6D8(root, tree, tree->tracks, tree->nodes[0]);
+    lbAnim_8001E6D8(root->child, tree, tree->tracks + tree->nodes[0],
+                    tree->nodes[1]);
+
+    REQUIRE(root->aobj != nullptr);
+    REQUIRE(near(root->aobj->end_frame, 10.0F));
+    REQUIRE(root->aobj->fobj != nullptr);
+    REQUIRE(root->aobj->fobj->ad_head == tree->tracks[0].ad_head);
+    // The second bone takes two tracks, so its AObj carries two FObjs.
+    REQUIRE(root->child->aobj != nullptr);
+    REQUIRE(root->child->aobj->fobj != nullptr);
+    REQUIRE(root->child->aobj->fobj->next != nullptr);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_FObjGetAllocData()) == fobjs_before + 3);
+
+    // A tree whose type has the low bit set asks for classical scale.
+    REQUIRE((root->flags & JOBJ_CLASSICAL_SCALE) != 0);
+
+    HSD_JObjRemoveAll(root);
+    REQUIRE(HSD_ObjAllocGetUsing(HSD_FObjGetAllocData()) == fobjs_before);
 }

@@ -134,6 +134,51 @@ Ao estender o materializador, prefira recusar um campo que ainda nao sabe
 traduzir a adivinhar sua forma. Um ponteiro errado entregue aos loaders
 originais aparece muito depois, longe da causa.
 
+## Animacao
+
+O comando abaixo carrega um modelo, anexa uma animacao por
+`HSD_JObjAddAnimAll` e avanca N frames com `HSD_JObjAnimAll`, relatando quantas
+juntas se moveram:
+
+```sh
+./build/host-debug/port/melee-pc --animate-joint \
+    assets-local/GmTtAll.dat TtlMoji_Top_joint \
+    assets-local/GmTtAll.dat TtlMoji_Top_animjoint TtlMoji_Top_matanim_joint 200
+```
+
+Use `-` no lugar de um simbolo que o arquivo nao tem. O arquivo de animacao
+pode ser outro: e assim que um personagem guarda o modelo e os movimentos
+separados.
+
+Duas leituras do relatorio evitam um diagnostico errado:
+
+- `AObj frame` e a unica prova de que a animacao avancou. Ele conta N-1 para N
+  chamadas, porque a primeira interpretacao usa taxa zero devido a
+  `AOBJ_FIRST_PLAY`.
+- `joints moved` pode ser zero com a animacao rodando perfeitamente: animacao
+  de material muda cor e textura sem mexer no esqueleto. Olhe o frame antes de
+  concluir que nada funcionou.
+
+As animacoes de personagem ficam em um arquivo por personagem que guarda
+varios arquivos HSD enfileirados, um por acao. Liste e toque por nome:
+
+```sh
+./build/host-debug/port/melee-pc --list-animations assets-local/PlMrAJ.dat
+./build/host-debug/port/melee-pc --animate-named \
+    assets-local/PlMrNr.dat PlyMario5K_Share_joint \
+    assets-local/PlMrAJ.dat PlyMario5K_Share_ACTION_WalkMiddle_figatree 45
+```
+
+Esse caminho nao usa as arvores HSD: um personagem usa `FigaTree`, o formato
+proprio do Melee, e `lbAnim_8001E6D8` o aplica direto a um `HSD_JObj`. O
+mapeamento de osso e posicional, entao um modelo e uma animacao de personagens
+diferentes vao anexar sem erro e produzir lixo; confira que os prefixos dos
+simbolos combinam.
+
+Um AObj recem-carregado ja toca a um frame por chamada, porque `HSD_AObjAlloc`
+deixa `framerate` em 1.0. Definir a taxa serve para escolher outra velocidade
+ou o sentido inverso, que e o que o jogo faz por acao de lutador.
+
 ## Render pela camada original
 
 Os mesmos dois comandos com `--render-` em vez de `--load-` desenham a arvore

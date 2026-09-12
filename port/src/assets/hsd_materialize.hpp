@@ -23,6 +23,14 @@ struct HsdMaterializeStats {
     std::size_t tlut_descs;
     std::size_t robj_descs;
     std::size_t camera_descs;
+    std::size_t anim_joints;
+    std::size_t mat_anim_joints;
+    std::size_t shape_anim_joints;
+    std::size_t aobj_descs;
+    std::size_t fobj_descs;
+    std::size_t anim_data_bytes;
+    std::size_t figa_trees;
+    std::size_t figa_tracks;
     std::size_t shape_set_descs;
     std::size_t envelope_descs;
     std::size_t descriptor_bytes;
@@ -62,6 +70,35 @@ public:
     /* Materializes the joint tree rooted at a public symbol naming a joint. */
     [[nodiscard]] HSD_Joint* joint(std::string_view public_symbol);
 
+    /* Materializes a FigaTree, the game's own animation container.  Unlike the
+     * HSD trees this one is flat: a list saying how many tracks each bone
+     * takes, and the tracks laid end to end.  A character keeps one per
+     * action. */
+    [[nodiscard]] FigaTree* figa_tree(std::string_view public_symbol);
+
+    /* Materializes an animation tree rooted at a public symbol.  The three
+     * kinds travel together: one drives the joints' transforms, one the
+     * materials, one the shape blends.  Any of them can be absent. */
+    [[nodiscard]] HSD_AnimJoint* anim_joint(std::string_view public_symbol);
+    [[nodiscard]] HSD_MatAnimJoint* mat_anim_joint(
+        std::string_view public_symbol);
+    [[nodiscard]] HSD_ShapeAnimJoint* shape_anim_joint(
+        std::string_view public_symbol);
+
+    /* The animation tables a scene model carries, which is how a scene names
+     * several animations for one model.  Index selects within the table. */
+    [[nodiscard]] HSD_AnimJoint* scene_model_anim(
+        std::string_view public_symbol, std::size_t model_index,
+        std::size_t anim_index);
+    [[nodiscard]] HSD_MatAnimJoint* scene_model_mat_anim(
+        std::string_view public_symbol, std::size_t model_index,
+        std::size_t anim_index);
+    [[nodiscard]] HSD_ShapeAnimJoint* scene_model_shape_anim(
+        std::string_view public_symbol, std::size_t model_index,
+        std::size_t anim_index);
+    [[nodiscard]] std::size_t scene_model_anim_count(
+        std::string_view public_symbol, std::size_t model_index);
+
     /* Materializes SceneDesc.cameras[index].desc, the camera the scene
      * carries.  Returns nullptr when the scene names no camera there. */
     [[nodiscard]] HSD_CObjDesc* scene_camera(std::string_view public_symbol,
@@ -97,6 +134,22 @@ private:
     HSD_TObjDesc* tobj_chain(HsdRuntimeNode node);
     HSD_RObjDesc* robj_chain(HsdRuntimeNode node);
     HSD_CObjDesc* camera_desc(HsdRuntimeNode node);
+    [[nodiscard]] std::optional<HsdRuntimeNode> scene_model_anim_entry(
+        std::string_view public_symbol, std::size_t model_index,
+        std::uint32_t table_offset, std::size_t anim_index);
+    HSD_AnimJoint* anim_joint_chain(HsdRuntimeNode node);
+    HSD_MatAnimJoint* mat_anim_joint_chain(HsdRuntimeNode node);
+    HSD_ShapeAnimJoint* shape_anim_joint_chain(HsdRuntimeNode node);
+    HSD_MatAnim* mat_anim_chain(HsdRuntimeNode node);
+    HSD_TexAnim* tex_anim_chain(HsdRuntimeNode node);
+    HSD_RenderAnim* render_anim(HsdRuntimeNode node);
+    HSD_ShapeAnimDObj* shape_anim_dobj_chain(HsdRuntimeNode node);
+    HSD_ShapeAnim* shape_anim_chain(HsdRuntimeNode node);
+    HSD_RObjAnimJoint* robj_anim_chain(HsdRuntimeNode node);
+    template <typename T> T* anim_link_chain(HsdRuntimeNode node);
+    HSD_AObjDesc* aobj_desc(HsdRuntimeNode node);
+    FigaTree* figa_tree_at(HsdRuntimeNode node);
+    HSD_FObjDesc* fobj_chain(HsdRuntimeNode node);
     HSD_WObjDesc* world_desc(HsdRuntimeNode node);
     HSD_VtxDescList* vertex_descriptors(HsdRuntimeNode node);
     HSD_ShapeSetDesc* shape_set_desc(HsdRuntimeNode node);
@@ -130,6 +183,10 @@ private:
     std::unordered_map<std::uint32_t, HSD_RObjDesc*> robjs_;
     std::unordered_map<std::uint32_t, HSD_ShapeSetDesc*> shape_sets_;
     std::unordered_map<std::uint32_t, HSD_EnvelopeDesc**> envelope_arrays_;
+    std::unordered_map<std::uint32_t, HSD_AnimJoint*> anim_joints_;
+    std::unordered_map<std::uint32_t, HSD_MatAnimJoint*> mat_anim_joints_;
+    std::unordered_map<std::uint32_t, HSD_ShapeAnimJoint*> shape_anim_joints_;
+    std::unordered_map<std::uint32_t, HSD_AObjDesc*> aobj_descs_;
     HsdMaterializeStats stats_{};
 };
 

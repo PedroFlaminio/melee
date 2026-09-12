@@ -46,6 +46,43 @@ std::size_t checked_table_end(std::size_t offset, std::uint32_t count,
 
 } // namespace
 
+std::vector<HsdArchiveMember> enumerate_hsd_archives(
+    std::span<const std::byte> bytes)
+{
+    constexpr std::size_t kAlignment = 32;
+    std::vector<HsdArchiveMember> members;
+    std::size_t offset = 0;
+
+    while (offset + kHeaderSize <= bytes.size()) {
+        const std::size_t declared = read_be32(bytes, offset);
+        if (declared < kHeaderSize || declared > bytes.size() - offset) {
+            break;
+        }
+        const std::span<const std::byte> member =
+            bytes.subspan(offset, declared);
+        std::string_view symbol;
+        try {
+            const HsdArchiveView view(member);
+            const std::vector<HsdPublicSymbol> symbols = view.public_symbols();
+            if (!symbols.empty()) {
+                symbol = symbols.front().name;
+            }
+        } catch (const HsdArchiveError&) {
+            break;
+        }
+        members.push_back({ offset, declared, symbol });
+        /* Each member starts on a 32-byte boundary, so the next one begins at
+         * the rounded-up end of this one. */
+        const std::size_t advance =
+            (declared + kAlignment - 1) / kAlignment * kAlignment;
+        if (advance == 0 || advance > bytes.size() - offset) {
+            break;
+        }
+        offset += advance;
+    }
+    return members;
+}
+
 HsdArchiveView::HsdArchiveView(std::span<const std::byte> bytes) : bytes_(bytes)
 {
     if (bytes.size() < kHeaderSize) {

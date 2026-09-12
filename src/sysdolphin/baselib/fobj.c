@@ -139,7 +139,14 @@ static f32 parseFloat(u8** pos, u8 frac)
         *pos += 1;
         break;
     case HSD_A_FRAC_S16:
+#ifdef MELEE_HOST
+        /* The same value, shifted in an unsigned type: shifting a negative
+         * signed char left is undefined behaviour the sanitizers report.  The
+         * high byte is sign-extended first, exactly as before. */
+        numer = (s32) ((u32) (s32) (s8) (*pos)[1] << 8) | (*pos)[0];
+#else
         numer = ((s8) (*pos)[1] << 8) | (*pos)[0];
+#endif
         *pos += 2;
         break;
     case HSD_A_FRAC_U16:

@@ -126,6 +126,90 @@ constexpr std::uint32_t kWeight = 0x04;
 constexpr std::uint32_t kSize = 0x08;
 } // namespace envelope_field
 
+namespace figa_tree_field {
+constexpr std::uint32_t kType = 0x00;
+constexpr std::uint32_t kFlags = 0x04;
+constexpr std::uint32_t kFrames = 0x08;
+constexpr std::uint32_t kNodes = 0x0C;
+constexpr std::uint32_t kTracks = 0x10;
+} // namespace figa_tree_field
+
+namespace figa_track_field {
+constexpr std::uint32_t kLength = 0x00;
+constexpr std::uint32_t kStartFrame = 0x02;
+constexpr std::uint32_t kObjType = 0x04;
+constexpr std::uint32_t kFracValue = 0x05;
+constexpr std::uint32_t kFracSlope = 0x06;
+constexpr std::uint32_t kData = 0x08;
+constexpr std::uint32_t kSize = 0x0C;
+} // namespace figa_track_field
+
+namespace anim_joint_field {
+constexpr std::uint32_t kChild = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kAObjDesc = 0x08;
+constexpr std::uint32_t kRObjAnim = 0x0C;
+constexpr std::uint32_t kFlags = 0x10;
+} // namespace anim_joint_field
+
+namespace aobj_field {
+constexpr std::uint32_t kFlags = 0x00;
+constexpr std::uint32_t kEndFrame = 0x04;
+constexpr std::uint32_t kFObjDesc = 0x08;
+constexpr std::uint32_t kObjId = 0x0C;
+} // namespace aobj_field
+
+namespace fobj_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kLength = 0x04;
+constexpr std::uint32_t kStartFrame = 0x08;
+constexpr std::uint32_t kType = 0x0C;
+constexpr std::uint32_t kFracValue = 0x0D;
+constexpr std::uint32_t kFracSlope = 0x0E;
+constexpr std::uint32_t kData = 0x10;
+} // namespace fobj_field
+
+namespace mat_anim_joint_field {
+constexpr std::uint32_t kChild = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kMatAnim = 0x08;
+} // namespace mat_anim_joint_field
+
+namespace mat_anim_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kAObjDesc = 0x04;
+constexpr std::uint32_t kTexAnim = 0x08;
+constexpr std::uint32_t kRenderAnim = 0x0C;
+} // namespace mat_anim_field
+
+namespace tex_anim_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kId = 0x04;
+constexpr std::uint32_t kAObjDesc = 0x08;
+constexpr std::uint32_t kImageTable = 0x0C;
+constexpr std::uint32_t kTlutTable = 0x10;
+constexpr std::uint32_t kImageCount = 0x14;
+constexpr std::uint32_t kTlutCount = 0x16;
+} // namespace tex_anim_field
+
+namespace render_anim_field {
+constexpr std::uint32_t kChanAnim = 0x00;
+constexpr std::uint32_t kRegAnim = 0x04;
+} // namespace render_anim_field
+
+namespace shape_anim_joint_field {
+constexpr std::uint32_t kChild = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kShapeAnimDObj = 0x08;
+} // namespace shape_anim_joint_field
+
+/* HSD_RObjAnimJoint, HSD_ChanAnim, HSD_TevRegAnim, HSD_ShapeAnimDObj and
+ * HSD_ShapeAnim all have the same shape: a link and one payload pointer. */
+namespace anim_link_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kPayload = 0x04;
+} // namespace anim_link_field
+
 namespace camera_field {
 constexpr std::uint32_t kClassName = 0x00;
 constexpr std::uint32_t kFlags = 0x04;
@@ -184,6 +268,11 @@ constexpr std::uint32_t kActive = 0x1C;
 constexpr std::uint32_t kSceneModels = 0x00;
 constexpr std::uint32_t kSceneCameras = 0x04;
 constexpr std::uint32_t kModelJoint = 0x00;
+/* DynamicModelDesc keeps three NULL-terminated tables beside its joint, one
+ * per kind of animation. */
+constexpr std::uint32_t kModelAnims = 0x04;
+constexpr std::uint32_t kModelMatAnims = 0x08;
+constexpr std::uint32_t kModelShapeAnims = 0x0C;
 constexpr std::uint32_t kSceneCameraDescSize = 0x08;
 constexpr std::uint32_t kSceneCameraDesc = 0x00;
 
@@ -196,6 +285,10 @@ constexpr std::size_t kSceneModelLimit = 4096;
  * stop a malformed list from being walked without end. */
 constexpr std::size_t kEnvelopeLimit = 64;
 constexpr std::size_t kShapeLimit = 4096;
+/* A skeleton's bone count and the tracks one bone can carry.  Both are far
+ * past what the game uses and exist to stop a malformed list. */
+constexpr std::size_t kFigaNodeLimit = 4096;
+constexpr std::size_t kFigaTrackLimit = 65536;
 constexpr std::size_t kDepthLimit = 512;
 
 /* Host descriptors are larger than the disk records they come from, because
@@ -219,6 +312,19 @@ public:
 private:
     std::size_t& depth_;
 };
+
+std::string hex_string(std::uint32_t value)
+{
+    static constexpr char kDigits[] = "0123456789abcdef";
+    std::string text;
+    for (int shift = 28; shift >= 0; shift -= 4) {
+        const auto nibble = static_cast<std::size_t>((value >> shift) & 0xFU);
+        if (!text.empty() || nibble != 0 || shift == 0) {
+            text.push_back(kDigits[nibble]);
+        }
+    }
+    return text;
+}
 
 [[noreturn]] void unsupported(const char* what)
 {
@@ -308,9 +414,12 @@ std::optional<HsdRuntimeNode> HsdMaterializedArchive::reference(
      * non-zero one is either a console address the host cannot honour or a
      * field the schema has misread, and both have to surface here rather than
      * reach the original loaders as a wild pointer. */
-    if (archive_.read_u32(node, relative_offset) != 0) {
+    const std::uint32_t raw = archive_.read_u32(node, relative_offset);
+    if (raw != 0) {
         throw HsdArchiveError(
-            "HSD pointer field holds a non-zero value with no relocation");
+            "HSD pointer field at data+0x" +
+            hex_string(node.data_offset + relative_offset) +
+            " holds 0x" + hex_string(raw) + " with no relocation");
     }
     return std::nullopt;
 }
@@ -992,6 +1101,86 @@ HSD_CObjDesc* HsdMaterializedArchive::camera_desc(HsdRuntimeNode node)
     return host;
 }
 
+std::size_t HsdMaterializedArchive::scene_model_anim_count(
+    std::string_view public_symbol, std::size_t model_index)
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    const auto models = reference(scene, kSceneModels);
+    if (!models.has_value() || model_index >= kSceneModelLimit) {
+        return 0;
+    }
+    const auto model =
+        reference(*models, static_cast<std::uint32_t>(model_index * 4));
+    if (!model.has_value()) {
+        return 0;
+    }
+    const auto table = reference(*model, kModelAnims);
+    if (!table.has_value()) {
+        return 0;
+    }
+    std::size_t count = 0;
+    while (count < kSceneModelLimit) {
+        if (!reference(*table, static_cast<std::uint32_t>(count * 4))
+                 .has_value()) {
+            return count;
+        }
+        ++count;
+    }
+    throw HsdArchiveError("HSD animation table has no terminator");
+}
+
+std::optional<HsdRuntimeNode>
+HsdMaterializedArchive::scene_model_anim_entry(std::string_view public_symbol,
+                                               std::size_t model_index,
+                                               std::uint32_t table_offset,
+                                               std::size_t anim_index)
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    const auto models = reference(scene, kSceneModels);
+    if (!models.has_value() || model_index >= kSceneModelLimit ||
+        anim_index >= kSceneModelLimit)
+    {
+        return std::nullopt;
+    }
+    const auto model =
+        reference(*models, static_cast<std::uint32_t>(model_index * 4));
+    if (!model.has_value()) {
+        return std::nullopt;
+    }
+    const auto table = reference(*model, table_offset);
+    if (!table.has_value()) {
+        return std::nullopt;
+    }
+    return reference(*table, static_cast<std::uint32_t>(anim_index * 4));
+}
+
+HSD_AnimJoint* HsdMaterializedArchive::scene_model_anim(
+    std::string_view public_symbol, std::size_t model_index,
+    std::size_t anim_index)
+{
+    const auto entry = scene_model_anim_entry(public_symbol, model_index,
+                                              kModelAnims, anim_index);
+    return entry.has_value() ? anim_joint_chain(*entry) : nullptr;
+}
+
+HSD_MatAnimJoint* HsdMaterializedArchive::scene_model_mat_anim(
+    std::string_view public_symbol, std::size_t model_index,
+    std::size_t anim_index)
+{
+    const auto entry = scene_model_anim_entry(public_symbol, model_index,
+                                              kModelMatAnims, anim_index);
+    return entry.has_value() ? mat_anim_joint_chain(*entry) : nullptr;
+}
+
+HSD_ShapeAnimJoint* HsdMaterializedArchive::scene_model_shape_anim(
+    std::string_view public_symbol, std::size_t model_index,
+    std::size_t anim_index)
+{
+    const auto entry = scene_model_anim_entry(public_symbol, model_index,
+                                              kModelShapeAnims, anim_index);
+    return entry.has_value() ? shape_anim_joint_chain(*entry) : nullptr;
+}
+
 HSD_CObjDesc* HsdMaterializedArchive::scene_camera(
     std::string_view public_symbol, std::size_t camera_index)
 {
@@ -1009,6 +1198,466 @@ HSD_CObjDesc* HsdMaterializedArchive::scene_camera(
         return nullptr;
     }
     return camera_desc(*desc);
+}
+
+HSD_FObjDesc* HsdMaterializedArchive::fobj_chain(HsdRuntimeNode node)
+{
+    HSD_FObjDesc* head = nullptr;
+    HSD_FObjDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        HSD_FObjDesc* const host = allocate<HSD_FObjDesc>();
+        stats_.fobj_descs += 1;
+
+        host->length = archive_.read_u32(*current, fobj_field::kLength);
+        host->startframe =
+            archive_.read_f32(*current, fobj_field::kStartFrame);
+        host->type = std::to_integer<u8>(archive_.bytes_at(
+            { current->data_offset + fobj_field::kType }, 1)[0]);
+        host->frac_value = std::to_integer<u8>(archive_.bytes_at(
+            { current->data_offset + fobj_field::kFracValue }, 1)[0]);
+        host->frac_slope = std::to_integer<u8>(archive_.bytes_at(
+            { current->data_offset + fobj_field::kFracSlope }, 1)[0]);
+        if (const auto data = reference(*current, fobj_field::kData)) {
+            /* The keyframe stream is read big-endian by the original
+             * interpreter, so it stays a GX-style payload rather than being
+             * translated.  Its length is declared, so the whole run is
+             * validated here instead of while it is being walked. */
+            host->ad = static_cast<u8*>(payload(*data, host->length));
+            stats_.anim_data_bytes += host->length;
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, fobj_field::kNext);
+    }
+    return head;
+}
+
+FigaTree* HsdMaterializedArchive::figa_tree_at(HsdRuntimeNode node)
+{
+    FigaTree* const host = allocate<FigaTree>();
+    stats_.figa_trees += 1;
+
+    host->type = static_cast<int>(
+        archive_.read_u32(node, figa_tree_field::kType));
+    host->flags = archive_.read_u32(node, figa_tree_field::kFlags);
+    host->frames = archive_.read_f32(node, figa_tree_field::kFrames);
+
+    const auto nodes = reference(node, figa_tree_field::kNodes);
+    const auto tracks = reference(node, figa_tree_field::kTracks);
+    if (!nodes.has_value() || !tracks.has_value()) {
+        throw HsdArchiveError("FigaTree is missing its node or track list");
+    }
+
+    /* The node list says how many tracks each bone takes and ends at -1, so
+     * walking it is also what gives the track count. */
+    std::size_t node_count = 0;
+    std::size_t track_count = 0;
+    while (node_count < kFigaNodeLimit) {
+        const auto byte = archive_.bytes_at(
+            { nodes->data_offset + static_cast<std::uint32_t>(node_count) },
+            1);
+        const auto entry =
+            static_cast<std::int8_t>(std::to_integer<std::uint8_t>(byte[0]));
+        if (entry < 0) {
+            break;
+        }
+        track_count += static_cast<std::size_t>(entry);
+        ++node_count;
+    }
+    if (node_count == kFigaNodeLimit) {
+        throw HsdArchiveError("FigaTree node list has no terminator");
+    }
+    if (track_count > kFigaTrackLimit) {
+        throw HsdArchiveError("FigaTree declares too many tracks");
+    }
+    /* Signed bytes need no translation, so the list is used where it lies. */
+    host->nodes = static_cast<s8*>(payload(*nodes, node_count + 1));
+
+    auto* const host_tracks = static_cast<FigaTrack*>(allocate_bytes(
+        sizeof(FigaTrack) * (track_count == 0 ? 1 : track_count),
+        alignof(FigaTrack)));
+    host->tracks = host_tracks;
+    stats_.figa_tracks += track_count;
+    for (std::size_t index = 0; index < track_count; ++index) {
+        const HsdRuntimeNode entry{
+            tracks->data_offset +
+            static_cast<std::uint32_t>(index * figa_track_field::kSize)
+        };
+        FigaTrack& out = host_tracks[index];
+        out.length = archive_.read_u16(entry, figa_track_field::kLength);
+        out.startframe =
+            archive_.read_u16(entry, figa_track_field::kStartFrame);
+        out.obj_type = std::to_integer<u8>(archive_.bytes_at(
+            { entry.data_offset + figa_track_field::kObjType }, 1)[0]);
+        out.frac_value = std::to_integer<u8>(archive_.bytes_at(
+            { entry.data_offset + figa_track_field::kFracValue }, 1)[0]);
+        out.frac_slope = std::to_integer<u8>(archive_.bytes_at(
+            { entry.data_offset + figa_track_field::kFracSlope }, 1)[0]);
+        if (const auto data = reference(entry, figa_track_field::kData)) {
+            /* Same keyframe encoding an HSD_FObjDesc carries, read
+             * big-endian by the same interpreter, with its length declared. */
+            out.ad_head = static_cast<u8*>(payload(*data, out.length));
+            stats_.anim_data_bytes += out.length;
+        }
+    }
+    return host;
+}
+
+FigaTree* HsdMaterializedArchive::figa_tree(std::string_view public_symbol)
+{
+    return figa_tree_at(archive_.public_root(public_symbol));
+}
+
+HSD_AObjDesc* HsdMaterializedArchive::aobj_desc(HsdRuntimeNode node)
+{
+    const auto found = aobj_descs_.find(node.data_offset);
+    if (found != aobj_descs_.end()) {
+        return found->second;
+    }
+    HSD_AObjDesc* const host = allocate<HSD_AObjDesc>();
+    aobj_descs_.emplace(node.data_offset, host);
+    stats_.aobj_descs += 1;
+
+    host->flags = archive_.read_u32(node, aobj_field::kFlags);
+    host->end_frame = archive_.read_f32(node, aobj_field::kEndFrame);
+    host->obj_id = archive_.read_u32(node, aobj_field::kObjId);
+    if (const auto fobj = reference(node, aobj_field::kFObjDesc)) {
+        host->fobjdesc = fobj_chain(*fobj);
+    }
+    return host;
+}
+
+/* HSD_RObjAnimJoint, HSD_ChanAnim, HSD_TevRegAnim and HSD_ShapeAnim are all a
+ * link plus one HSD_AObjDesc, so one walk covers them; the caller says which
+ * type the result is. */
+template <typename T>
+T* HsdMaterializedArchive::anim_link_chain(HsdRuntimeNode node)
+{
+    T* head = nullptr;
+    T* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        T* const host = allocate<T>();
+        if (const auto aobj = reference(*current, anim_link_field::kPayload)) {
+            host->aobjdesc = aobj_desc(*aobj);
+        }
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, anim_link_field::kNext);
+    }
+    return head;
+}
+
+HSD_RObjAnimJoint* HsdMaterializedArchive::robj_anim_chain(HsdRuntimeNode node)
+{
+    return anim_link_chain<HSD_RObjAnimJoint>(node);
+}
+
+HSD_ShapeAnim* HsdMaterializedArchive::shape_anim_chain(HsdRuntimeNode node)
+{
+    return anim_link_chain<HSD_ShapeAnim>(node);
+}
+
+HSD_AnimJoint* HsdMaterializedArchive::anim_joint_chain(HsdRuntimeNode node)
+{
+    if (depth_ >= kDepthLimit) {
+        throw HsdArchiveError(
+            "HSD animation tree is deeper than the host allows");
+    }
+    const DepthGuard guard(depth_);
+
+    HSD_AnimJoint* head = nullptr;
+    HSD_AnimJoint* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = anim_joints_.find(current->data_offset);
+        if (found != anim_joints_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_AnimJoint* const host = allocate<HSD_AnimJoint>();
+        anim_joints_.emplace(current->data_offset, host);
+        stats_.anim_joints += 1;
+
+        host->flags = archive_.read_u32(*current, anim_joint_field::kFlags);
+        if (const auto child = reference(*current, anim_joint_field::kChild)) {
+            host->child = anim_joint_chain(*child);
+        }
+        if (const auto aobj =
+                reference(*current, anim_joint_field::kAObjDesc)) {
+            host->aobjdesc = aobj_desc(*aobj);
+        }
+        if (const auto robj =
+                reference(*current, anim_joint_field::kRObjAnim)) {
+            host->robj_anim = robj_anim_chain(*robj);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, anim_joint_field::kNext);
+    }
+    return head;
+}
+
+HSD_TexAnim* HsdMaterializedArchive::tex_anim_chain(HsdRuntimeNode node)
+{
+    HSD_TexAnim* head = nullptr;
+    HSD_TexAnim* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        HSD_TexAnim* const host = allocate<HSD_TexAnim>();
+        host->id = static_cast<GXTexMapID>(
+            archive_.read_u32(*current, tex_anim_field::kId));
+        host->n_imagetbl =
+            archive_.read_u16(*current, tex_anim_field::kImageCount);
+        host->n_tluttbl =
+            archive_.read_u16(*current, tex_anim_field::kTlutCount);
+        if (const auto aobj = reference(*current, tex_anim_field::kAObjDesc)) {
+            host->aobjdesc = aobj_desc(*aobj);
+        }
+        /* A texture animation swaps whole images and palettes, so each table
+         * is an array of descriptors the frames index into. */
+        if (const auto table =
+                reference(*current, tex_anim_field::kImageTable)) {
+            if (host->n_imagetbl != 0) {
+                auto* const images = static_cast<HSD_ImageDesc**>(
+                    allocate_bytes(sizeof(HSD_ImageDesc*) * host->n_imagetbl,
+                                   alignof(HSD_ImageDesc*)));
+                for (std::size_t index = 0; index < host->n_imagetbl;
+                     ++index) {
+                    const auto entry = reference(
+                        *table, static_cast<std::uint32_t>(index * 4));
+                    images[index] =
+                        entry.has_value() ? image_desc(*entry) : nullptr;
+                }
+                host->imagetbl = images;
+            }
+        }
+        if (const auto table =
+                reference(*current, tex_anim_field::kTlutTable)) {
+            if (host->n_tluttbl != 0) {
+                auto* const tluts = static_cast<HSD_TlutDesc**>(
+                    allocate_bytes(sizeof(HSD_TlutDesc*) * host->n_tluttbl,
+                                   alignof(HSD_TlutDesc*)));
+                for (std::size_t index = 0; index < host->n_tluttbl; ++index) {
+                    const auto entry = reference(
+                        *table, static_cast<std::uint32_t>(index * 4));
+                    tluts[index] =
+                        entry.has_value() ? tlut_desc(*entry) : nullptr;
+                }
+                host->tluttbl = tluts;
+            }
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, tex_anim_field::kNext);
+    }
+    return head;
+}
+
+HSD_RenderAnim* HsdMaterializedArchive::render_anim(HsdRuntimeNode node)
+{
+    HSD_RenderAnim* const host = allocate<HSD_RenderAnim>();
+    if (const auto chan = reference(node, render_anim_field::kChanAnim)) {
+        host->chananim = anim_link_chain<HSD_ChanAnim>(*chan);
+    }
+    if (const auto reg = reference(node, render_anim_field::kRegAnim)) {
+        host->reganim = anim_link_chain<HSD_TevRegAnim>(*reg);
+    }
+    return host;
+}
+
+HSD_MatAnim* HsdMaterializedArchive::mat_anim_chain(HsdRuntimeNode node)
+{
+    HSD_MatAnim* head = nullptr;
+    HSD_MatAnim* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        HSD_MatAnim* const host = allocate<HSD_MatAnim>();
+        if (const auto aobj = reference(*current, mat_anim_field::kAObjDesc)) {
+            host->aobjdesc = aobj_desc(*aobj);
+        }
+        if (const auto tex = reference(*current, mat_anim_field::kTexAnim)) {
+            host->texanim = tex_anim_chain(*tex);
+        }
+        if (const auto render =
+                reference(*current, mat_anim_field::kRenderAnim)) {
+            host->renderanim = render_anim(*render);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, mat_anim_field::kNext);
+    }
+    return head;
+}
+
+HSD_MatAnimJoint* HsdMaterializedArchive::mat_anim_joint_chain(
+    HsdRuntimeNode node)
+{
+    if (depth_ >= kDepthLimit) {
+        throw HsdArchiveError(
+            "HSD material animation tree is deeper than the host allows");
+    }
+    const DepthGuard guard(depth_);
+
+    HSD_MatAnimJoint* head = nullptr;
+    HSD_MatAnimJoint* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = mat_anim_joints_.find(current->data_offset);
+        if (found != mat_anim_joints_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_MatAnimJoint* const host = allocate<HSD_MatAnimJoint>();
+        mat_anim_joints_.emplace(current->data_offset, host);
+        stats_.mat_anim_joints += 1;
+
+        if (const auto child =
+                reference(*current, mat_anim_joint_field::kChild)) {
+            host->child = mat_anim_joint_chain(*child);
+        }
+        if (const auto anim =
+                reference(*current, mat_anim_joint_field::kMatAnim)) {
+            host->matanim = mat_anim_chain(*anim);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, mat_anim_joint_field::kNext);
+    }
+    return head;
+}
+
+HSD_ShapeAnimDObj* HsdMaterializedArchive::shape_anim_dobj_chain(
+    HsdRuntimeNode node)
+{
+    HSD_ShapeAnimDObj* head = nullptr;
+    HSD_ShapeAnimDObj* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        HSD_ShapeAnimDObj* const host = allocate<HSD_ShapeAnimDObj>();
+        if (const auto anim =
+                reference(*current, anim_link_field::kPayload)) {
+            host->shapeanim = shape_anim_chain(*anim);
+        }
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, anim_link_field::kNext);
+    }
+    return head;
+}
+
+HSD_ShapeAnimJoint* HsdMaterializedArchive::shape_anim_joint_chain(
+    HsdRuntimeNode node)
+{
+    if (depth_ >= kDepthLimit) {
+        throw HsdArchiveError(
+            "HSD shape animation tree is deeper than the host allows");
+    }
+    const DepthGuard guard(depth_);
+
+    HSD_ShapeAnimJoint* head = nullptr;
+    HSD_ShapeAnimJoint* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = shape_anim_joints_.find(current->data_offset);
+        if (found != shape_anim_joints_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_ShapeAnimJoint* const host = allocate<HSD_ShapeAnimJoint>();
+        shape_anim_joints_.emplace(current->data_offset, host);
+        stats_.shape_anim_joints += 1;
+
+        if (const auto child =
+                reference(*current, shape_anim_joint_field::kChild)) {
+            host->child = shape_anim_joint_chain(*child);
+        }
+        if (const auto dobj =
+                reference(*current, shape_anim_joint_field::kShapeAnimDObj)) {
+            host->shapeanimdobj = shape_anim_dobj_chain(*dobj);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, shape_anim_joint_field::kNext);
+    }
+    return head;
+}
+
+HSD_AnimJoint* HsdMaterializedArchive::anim_joint(
+    std::string_view public_symbol)
+{
+    return anim_joint_chain(archive_.public_root(public_symbol));
+}
+
+HSD_MatAnimJoint* HsdMaterializedArchive::mat_anim_joint(
+    std::string_view public_symbol)
+{
+    return mat_anim_joint_chain(archive_.public_root(public_symbol));
+}
+
+HSD_ShapeAnimJoint* HsdMaterializedArchive::shape_anim_joint(
+    std::string_view public_symbol)
+{
+    return shape_anim_joint_chain(archive_.public_root(public_symbol));
 }
 
 HSD_Joint* HsdMaterializedArchive::joint_chain(HsdRuntimeNode node)

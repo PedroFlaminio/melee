@@ -50,6 +50,64 @@ MeleeHostStatus melee_host_scene_graphics_model_count(const char* path,
                                                       const char* symbol,
                                                       mh_u32* out_count);
 
+/* Attaches an animation to a loaded tree, through HSD_JObjAddAnimAll, which is
+ * the entry point the game uses.  `path` and the three symbols may name a
+ * different archive from the one the model came from, which is how a character
+ * keeps its animations in a separate file.  A symbol may be NULL when that
+ * kind of animation is absent. */
+MeleeHostStatus melee_host_scene_graphics_attach_animation(
+    MeleeHostSceneModel model, const char* path, const char* anim_symbol,
+    const char* mat_anim_symbol, const char* shape_anim_symbol);
+
+/* Attaches one animation named by its own public symbol, from a file that
+ * holds several HSD archives end to end.  A character keeps one archive per
+ * action that way, so the symbol is the action's name. */
+MeleeHostStatus melee_host_scene_graphics_attach_named_animation(
+    MeleeHostSceneModel model, const char* path, const char* symbol);
+
+/* Lists the animations such a file holds.  Call with out_symbol NULL to learn
+ * the count, then once per index to read each name into the caller's buffer. */
+MeleeHostStatus melee_host_scene_graphics_list_animations(
+    const char* path, mh_u32 index, char* out_symbol, size_t capacity,
+    mh_u32* out_count);
+
+/* Requests the animation from a starting frame and advances it, running the
+ * original HSD_JObjAnimAll once per frame.  This is what moves the joints.
+ *
+ * `rate` is frames of animation per call, applied through the original
+ * traversal.  A loaded AObj already plays at one, so pass one for normal
+ * playback; other values are how the game slows, speeds or reverses an
+ * action. */
+MeleeHostStatus melee_host_scene_graphics_run_animation(
+    MeleeHostSceneModel model, float start_frame, float rate, mh_u32 frames);
+
+/* Advances the animation without requesting it again, which is what a viewer
+ * needs per frame: requesting would restart it every time. */
+MeleeHostStatus melee_host_scene_graphics_step_animation(
+    MeleeHostSceneModel model, mh_u32 frames);
+
+typedef struct MeleeHostSceneAnimationStats {
+    mh_u32 anim_joints;
+    mh_u32 mat_anim_joints;
+    mh_u32 shape_anim_joints;
+    mh_u32 aobj_descs;
+    mh_u32 fobj_descs;
+    mh_u32 anim_data_bytes;
+    /* Objects the original loaders built from those descriptors. */
+    mh_u32 aobjs_live;
+    mh_u32 fobjs_live;
+    /* The frame the host asked for, and the frame an actual AObj in the tree
+     * reports.  They diverge when the animation is not advancing, which is the
+     * first thing to check when nothing moves. */
+    float current_frame;
+    float aobj_frame;
+    float aobj_end_frame;
+    mh_u32 aobjs_in_tree;
+} MeleeHostSceneAnimationStats;
+
+MeleeHostStatus melee_host_scene_graphics_animation_stats(
+    MeleeHostSceneModel model, MeleeHostSceneAnimationStats* out_stats);
+
 MeleeHostStatus melee_host_scene_graphics_stats(
     MeleeHostSceneModel model, MeleeHostSceneModelStats* out_stats);
 

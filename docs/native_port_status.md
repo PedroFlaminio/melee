@@ -364,6 +364,59 @@ Atualizado em 12 de setembro de 2026.
   desenhado como foi capturado. Onde o programa foi lido exatamente ele aplica
   a forma correta; onde nao, cai em textura x cor de vertice, que e o que o
   visualizador sempre fez.
+- [x] Materializacao de animacao. `HSD_AnimJoint`, `HSD_MatAnimJoint`,
+  `HSD_ShapeAnimJoint`, `HSD_AObjDesc`, `HSD_FObjDesc`, `HSD_MatAnim`,
+  `HSD_TexAnim` com suas tabelas de imagem e de paleta, `HSD_RenderAnim`,
+  `HSD_ChanAnim`, `HSD_TevRegAnim`, `HSD_ShapeAnimDObj`, `HSD_ShapeAnim` e
+  `HSD_RObjAnimJoint`. Os streams de keyframe do `HSD_FObjDesc` nao sao
+  traduzidos: como as display lists, mantem os bytes big-endian que o
+  interpretador original le, e o campo `length` da o tamanho exato, entao o
+  intervalo inteiro e validado na materializacao em vez de durante a leitura.
+- [x] As tres tabelas de animacao que um modelo de cena carrega em
+  `DynamicModelDesc` (`anims`, `matanims`, `shapeanims`), que e como uma cena
+  nomeia varias animacoes para o mesmo modelo.
+- [x] Animacao real executada pelo codigo original. `HSD_JObjAddAnimAll`
+  percorre as arvores ao lado da arvore de objetos, `HSD_AObjLoadDesc` e
+  `HSD_FObjLoadDesc` constroem os objetos e `HSD_JObjAnimAll` avanca um frame
+  por chamada. Em `GmTtAll.dat` o modelo `TtlMoji_Top` recebe 30 AnimJoints e
+  30 MatAnimJoints, 65 AObjDesc e 154 FObjDesc com 47.198 bytes de keyframes;
+  22 AObj ficam presos na arvore, o contador chega a frame 199 de 1600 e a
+  junta 28 anda 51,8 unidades. A primeira interpretacao usa taxa zero por
+  causa de `AOBJ_FIRST_PLAY`, que e por isso que N chamadas avancam N-1
+  frames.
+- [x] Varredura de animacao no disco: **288 de 288** pares de modelo e animacao
+  materializam e rodam sem um unico erro, somando 1.136 AnimJoints, 1.189
+  AObjDesc, 2.414 FObjDesc e 128.823 bytes de keyframe. Em 36 deles alguma
+  junta se move; nos demais a animacao e de material, que muda cor e textura
+  sem mexer no esqueleto.
+- [x] A mensagem de campo de ponteiro nao relocado passou a dizer o offset e o
+  valor. Foi ela que apontou o erro exato quando os dados sinteticos de teste
+  estavam mal montados.
+- [x] Leitor de arquivos HSD concatenados. Alguns arquivos do jogo sao varios
+  arquivos HSD enfileirados, cada um alinhado a 32 bytes: um personagem guarda
+  assim uma animacao por acao. Nao ha indice; o header de cada um declara o
+  proprio tamanho, e e isso que torna a caminhada possivel. `PlMrAJ.dat` tem
+  195 membros, e o disco tem 6.271 animacoes em 59 arquivos.
+- [x] `FigaTree` e `FigaTrack` materializados. A animacao de personagem nao usa
+  as arvores HSD: usa o formato proprio do Melee, plano, com uma lista dizendo
+  quantas tracks cada osso consome (terminada em -1) e as tracks enfileiradas.
+  A lista de nos e de bytes com sinal, entao e usada onde esta; os streams de
+  keyframe seguem a mesma codificacao do `HSD_FObjDesc` e mantem os bytes
+  originais com o tamanho declarado por track.
+- [x] `lbanim.c` compilado nativamente. `lbAnim_8001E6D8` aplica um FigaTree
+  direto a um `HSD_JObj`, sem precisar de `Fighter`, o que permite acionar o
+  esqueleto antes do runtime de luta existir.
+- [x] Esqueleto de personagem animando. `PlyMario5K_Share_ACTION_WalkMiddle`
+  anexa a 48 das 61 juntas do Mario, com 2.150 bytes de keyframe, e em 45
+  frames **58 de 61 juntas se movem**, a maior andando 6,88 unidades.
+- [x] Varredura de animacao de personagem: **6.245 de 6.245** animacoes, em 33
+  personagens, anexam e movem juntas, sem um unico erro.
+- [x] `fobj.c` deslocava um `s8` negativo para a esquerda ao montar um valor de
+  16 bits, que e undefined behavior. Sob `MELEE_HOST` o deslocamento passa por
+  tipo sem sinal, com o mesmo resultado numerico (verificado: as posicoes das
+  juntas nao mudaram em nenhuma casa decimal). Sem o define a unidade de
+  traducao continua identica, verificado com o `-DMUST_MATCH` do build
+  matching.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -398,12 +451,16 @@ Atualizado em 12 de setembro de 2026.
 
 ## Proximos gates
 
-1. Executar a equacao de iluminacao do GX para produzir as cores rasterizadas
+1. Resolver as referencias a JObj que um `HSD_AObjDesc` carrega em `obj_id`.
+   Hoje `aobj.c` recusa sob `MELEE_HOST` qualquer id diferente de zero, porque
+   sao enderecos de 32 bits da era do disco; nenhum dos 288 casos do disco
+   bateu nisso, mas as animacoes de personagem provavelmente batem.
+2. Executar a equacao de iluminacao do GX para produzir as cores rasterizadas
    por canal, que e o que falta antes de qualquer avaliacao TEV honesta de
    varios estagios.
-2. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico, o que resolve
+3. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico, o que resolve
    tambem os dois simbolos que hoje vivem em `hsd_audio_stubs.c`.
-3. Ligar o laco de frame: `HSD_GObj_RunProcs` para a simulacao e o retrace de
+4. Ligar o laco de frame: `HSD_GObj_RunProcs` para a simulacao e o retrace de
    VI para a apresentacao, com o executavel chamando o fluxo em vez de um
    diagnostico.
 
@@ -434,6 +491,14 @@ Atualizado em 12 de setembro de 2026.
   frontal, e nao foi verificada visualmente. A tecla F inverte, porque um
   modelo aparecendo do lado de dentro e a evidencia mais clara de que a
   suposicao esta errada para um asset.
+- A animacao de personagem roda pela arvore de JObj, nao por um `Fighter`. O
+  mapeamento de osso e posicional: o n-esimo no da lista cai na n-esima junta
+  em ordem de construcao. `ftanim.c` faz o mesmo percurso, mas pulando partes
+  por flags do lutador, entao quando o runtime de luta entrar esse mapeamento
+  precisa passar por ele em vez da ordem crua.
+- `HSD_AObjDesc.obj_id` diferente de zero e recusado por `aobj.c` sob
+  `MELEE_HOST`: e uma referencia a JObj gravada como endereco de 32 bits, que o
+  host precisa resolver pelo grafo em vez de converter em ponteiro.
 - Um simbolo de joint solto nao tem cena e portanto nao tem camera; nesse caso
   o render usa a camera substituta do host. A linha de relatorio diz qual das
   duas foi usada.

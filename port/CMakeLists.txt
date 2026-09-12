@@ -86,6 +86,7 @@ melee_host_enable_sanitizers(melee_host)
 add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbtime.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbvector.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbanim.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain_lib.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmscene.c
@@ -300,6 +301,48 @@ if(MELEE_HOST_BUILD_TESTS)
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_tests_properties(melee-host-model-load-asset PROPERTIES
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # A model and its animation from the same archive, advanced far enough that
+    # a joint actually travels.  This is the end-to-end check that keyframe
+    # streams survived translation and the original interpreter read them.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/GmTtAll.dat")
+        add_test(
+            NAME melee-host-animation-asset
+            COMMAND melee-pc --animate-joint
+                    ${CMAKE_SOURCE_DIR}/assets-local/GmTtAll.dat
+                    TtlMoji_Top_joint
+                    ${CMAKE_SOURCE_DIR}/assets-local/GmTtAll.dat
+                    TtlMoji_Top_animjoint TtlMoji_Top_matanim_joint 200
+        )
+        set_tests_properties(melee-host-animation-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION "AObj frame: 199 of 1600"
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_property(TEST melee-host-animation-asset APPEND PROPERTY
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # A character's own walk cycle, out of the file that holds one archive per
+    # action.  This is the whole chain: the concatenated container, the
+    # FigaTree format, and the original applier driving a real skeleton.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/PlMrAJ.dat")
+        add_test(
+            NAME melee-host-character-animation-asset
+            COMMAND melee-pc --animate-named
+                    ${CMAKE_SOURCE_DIR}/assets-local/PlMrNr.dat
+                    PlyMario5K_Share_joint
+                    ${CMAKE_SOURCE_DIR}/assets-local/PlMrAJ.dat
+                    PlyMario5K_Share_ACTION_WalkMiddle_figatree 30
+        )
+        set_tests_properties(melee-host-character-animation-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION "AObj frame 29 of 45"
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_property(TEST melee-host-character-animation-asset APPEND
+                PROPERTY ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()
     endif()

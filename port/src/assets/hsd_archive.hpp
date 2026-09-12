@@ -29,6 +29,22 @@ struct HsdPublicSymbol {
     std::uint32_t data_offset;
 };
 
+struct HsdArchiveMember {
+    std::size_t offset;
+    std::size_t size;
+    /* The member's first public symbol, which is how the game names it.  A
+     * character's animations use one archive per action, named after it. */
+    std::string_view symbol;
+};
+
+/* Walks a file that holds several HSD archives laid end to end, each padded to
+ * a 32-byte boundary.  There is no index: every header states its own length,
+ * which is what makes the walk possible.  Stops at the first header that does
+ * not parse, so a truncated file yields what was readable rather than
+ * throwing. */
+[[nodiscard]] std::vector<HsdArchiveMember> enumerate_hsd_archives(
+    std::span<const std::byte> bytes);
+
 class HsdArchiveView final {
 public:
     explicit HsdArchiveView(std::span<const std::byte> bytes);
