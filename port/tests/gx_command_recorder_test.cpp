@@ -139,8 +139,11 @@ TEST_CASE("host GX applies an affine transform to completed geometry")
     melee_host_gx_reset_command_log();
     GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
     GXPosition3f32(0.0F, 0.0F, 0.0F);
+    GXNormal3f32(1.0F, 1.0F, 0.0F);
     GXPosition3f32(1.0F, 0.0F, 0.0F);
+    GXNormal3f32(1.0F, 1.0F, 0.0F);
     GXPosition3f32(0.0F, 1.0F, 0.0F);
+    GXNormal3f32(1.0F, 1.0F, 0.0F);
     GXEnd();
 
     MeleeHostGxAffineTransform transform{ {
@@ -158,6 +161,10 @@ TEST_CASE("host GX applies an affine transform to completed geometry")
     MeleeHostGxTriangle positions{};
     REQUIRE(melee_host_gx_triangle_at(0, &positions));
     REQUIRE(positions.vertices[2].y == 23.0F);
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(std::fabs(vertex.normal.x - 3.0F / std::sqrt(13.0F)) < 0.0001F);
+    REQUIRE(std::fabs(vertex.normal.y - 2.0F / std::sqrt(13.0F)) < 0.0001F);
 }
 
 TEST_CASE("host GX resolves indexed big-endian VCD and VAT attributes")
@@ -323,4 +330,114 @@ TEST_CASE("host GX rejects a truncated display list without over-reading")
 
     REQUIRE(melee_host_gx_display_list_error_count() == 1);
     REQUIRE(melee_host_gx_triangle_count() == 0);
+}
+
+TEST_CASE("host GX rejects an indexed vertex outside a bounded array")
+{
+    const std::array<u8, 6> positions{ 0, 1, 0, 2, 0, 3 };
+
+    melee_host_gx_reset_command_log();
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_S16, 0);
+    melee_host_gx_set_array_bounded(GX_VA_POS, positions.data(),
+                                    positions.size(), 6);
+
+    GXBegin(GX_POINTS, GX_VTXFMT0, 1);
+    GXPosition1x8(1);
+    GXEnd();
+
+    REQUIRE(melee_host_gx_captured_vertex_count() == 0);
+}
+
+TEST_CASE("host GX preserves the primary normal from a direct NBT stream")
+{
+    alignas(32) std::array<u8, 32> display_list{};
+    display_list[0] = static_cast<u8>(static_cast<u8>(GX_POINTS) |
+                                      static_cast<u8>(GX_VTXFMT0));
+    display_list[1] = 0;
+    display_list[2] = 1;
+    display_list[3] = 0x3F; // position x = 1.0F, big-endian
+    display_list[4] = 0x80;
+    display_list[5] = 0;
+    display_list[6] = 0;
+    display_list[7] = 0;
+    display_list[8] = 0;
+    display_list[9] = 0;
+    display_list[10] = 0;
+    display_list[11] = 0;
+    display_list[12] = 0;
+    display_list[13] = 0;
+    display_list[15] = 1;  // normal
+    display_list[16] = 2;
+    display_list[17] = 3;
+    display_list[18] = 4;  // tangent
+    display_list[19] = 5;
+    display_list[20] = 6;
+    display_list[21] = 7;  // binormal
+    display_list[22] = 8;
+    display_list[23] = 9;
+
+    melee_host_gx_reset_command_log();
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_NBT, GX_DIRECT);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NBT, GX_NRM_NBT, GX_S8, 0);
+    GXCallDisplayList(display_list.data(), display_list.size());
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_display_list_error_count() == 0);
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE((vertex.attributes & MELEE_HOST_GX_VERTEX_NORMAL) != 0);
+    REQUIRE(vertex.normal.x == 1.0F);
+    REQUIRE(vertex.normal.y == 2.0F);
+    REQUIRE(vertex.normal.z == 3.0F);
+    REQUIRE((vertex.attributes & MELEE_HOST_GX_VERTEX_TANGENT) != 0);
+    REQUIRE((vertex.attributes & MELEE_HOST_GX_VERTEX_BINORMAL) != 0);
+    REQUIRE(vertex.tangent.x == 4.0F);
+    REQUIRE(vertex.tangent.y == 5.0F);
+    REQUIRE(vertex.tangent.z == 6.0F);
+    REQUIRE(vertex.binormal.x == 7.0F);
+    REQUIRE(vertex.binormal.y == 8.0F);
+    REQUIRE(vertex.binormal.z == 9.0F);
+}
+
+TEST_CASE("host GX resolves the three indexed NBT3 vectors")
+{
+    const std::array<u8, 12> positions{
+        0x3F, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+    const std::array<u8, 9> nbt{
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9,
+    };
+    alignas(32) std::array<u8, 32> display_list{};
+    display_list[0] = static_cast<u8>(static_cast<u8>(GX_POINTS) |
+                                      static_cast<u8>(GX_VTXFMT0));
+    display_list[1] = 0;
+    display_list[2] = 1;
+    display_list[3] = 0;
+    display_list[4] = 0;
+    display_list[5] = 1;
+    display_list[6] = 2;
+
+    melee_host_gx_reset_command_log();
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
+    GXSetVtxDesc(GX_VA_NBT, GX_INDEX8);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NBT, GX_NRM_NBT3, GX_S8, 0);
+    melee_host_gx_set_array_bounded(GX_VA_POS, positions.data(),
+                                    positions.size(), 12);
+    melee_host_gx_set_array_bounded(GX_VA_NBT, nbt.data(), nbt.size(), 3);
+    GXCallDisplayList(display_list.data(), display_list.size());
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_display_list_error_count() == 0);
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.normal.z == 3.0F);
+    REQUIRE(vertex.tangent.y == 5.0F);
+    REQUIRE(vertex.binormal.x == 7.0F);
 }

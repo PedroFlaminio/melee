@@ -185,8 +185,9 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol)
                     descriptor.array->data_offset;
                 const auto array =
                     runtime.bytes_at(*descriptor.array, remaining);
-                GXSetArray(attribute, array.data(),
-                           static_cast<u8>(descriptor.stride));
+                melee_host_gx_set_array_bounded(
+                    descriptor.attribute, array.data(), array.size(),
+                    static_cast<mh_u8>(descriptor.stride));
             }
         }
 

@@ -8,6 +8,7 @@ namespace {
 
 constexpr std::uint32_t kJObjParticle = 1U << 5U;
 constexpr std::uint32_t kJObjSpline = 1U << 14U;
+constexpr std::uint32_t kJObjMtxIndependentParent = 1U << 24U;
 constexpr std::uint32_t kVertexDescriptorSize = 0x18;
 constexpr std::uint32_t kNullAttribute = 0xFF;
 constexpr std::uint32_t kDirectAttribute = 1;
@@ -170,15 +171,17 @@ std::vector<HsdPObjGeometry> find_scene_pobjs(
         if (!visited_joints.insert(joint.data_offset).second) {
             continue;
         }
+        const HsdAffineTransform local = joint_transform(archive, joint);
+        const std::uint32_t flags = archive.read_u32(joint, 4);
         const HsdAffineTransform world =
-            concat(pending.parent_transform, joint_transform(archive, joint));
+            (flags & kJObjMtxIndependentParent) != 0 ? local
+                                                     : concat(pending.parent_transform, local);
         if (const auto next = optional_reference(archive, joint, 0xC)) {
             joints.push_back({ *next, pending.parent_transform });
         }
         if (const auto child = optional_reference(archive, joint, 8)) {
             joints.push_back({ *child, world });
         }
-        const std::uint32_t flags = archive.read_u32(joint, 4);
         if ((flags & (kJObjParticle | kJObjSpline)) != 0) {
             continue;
         }

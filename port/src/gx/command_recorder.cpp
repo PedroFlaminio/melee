@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <vector>
 
@@ -41,11 +42,14 @@ struct AttributeFormat {
 struct AttributeArray {
     const std::byte* base = nullptr;
     mh_u8 stride = 0;
+    std::size_t byte_length = 0;
 };
 
 constexpr std::size_t kAttributeCount = static_cast<std::size_t>(GX_VA_MAX_ATTR);
 constexpr std::size_t kVertexFormatCount =
     static_cast<std::size_t>(GX_MAX_VTXFMT);
+constexpr std::size_t kUnboundedArraySize =
+    std::numeric_limits<std::size_t>::max();
 
 std::array<GXAttrType, kAttributeCount> vertex_descriptors{};
 std::array<std::array<AttributeFormat, kAttributeCount>, kVertexFormatCount>
@@ -194,11 +198,18 @@ const std::byte* indexed_data(GXAttr attribute, mh_u16 index,
     const std::size_t attribute_index = static_cast<std::size_t>(attribute);
     const AttributeArray& array = attribute_arrays[attribute_index];
     if (vertex_descriptors[attribute_index] != expected_type ||
-        array.base == nullptr)
+        array.base == nullptr || array.stride == 0)
     {
         return nullptr;
     }
-    return array.base + static_cast<std::size_t>(index) * array.stride;
+    const std::size_t offset = static_cast<std::size_t>(index) * array.stride;
+    if (array.byte_length != kUnboundedArraySize &&
+        (offset > array.byte_length ||
+         array.stride > array.byte_length - offset))
+    {
+        return nullptr;
+    }
+    return array.base + offset;
 }
 
 const AttributeFormat* active_format(GXAttr attribute)
@@ -234,6 +245,22 @@ void capture_normal(mh_f32 x, mh_f32 y, mh_f32 z)
         auto& vertex = active_draw.vertices.back();
         vertex.attributes |= MELEE_HOST_GX_VERTEX_NORMAL;
         vertex.normal = { x, y, z };
+        captured_vertices.back() = vertex;
+    }
+}
+
+void capture_nbt(const MeleeHostGxPosition3f32& normal,
+                 const MeleeHostGxPosition3f32& tangent,
+                 const MeleeHostGxPosition3f32& binormal)
+{
+    if (active_draw.active && !active_draw.vertices.empty()) {
+        auto& vertex = active_draw.vertices.back();
+        vertex.attributes |= MELEE_HOST_GX_VERTEX_NORMAL |
+                             MELEE_HOST_GX_VERTEX_TANGENT |
+                             MELEE_HOST_GX_VERTEX_BINORMAL;
+        vertex.normal = normal;
+        vertex.tangent = tangent;
+        vertex.binormal = binormal;
         captured_vertices.back() = vertex;
     }
 }
@@ -285,12 +312,27 @@ void decode_position_index(mh_u16 index, GXAttrType index_type)
     capture_position(x, y, z);
 }
 
-void decode_normal_index(mh_u16 index, GXAttrType index_type)
+MeleeHostGxPosition3f32 decode_normal(const std::byte* source,
+                                      const AttributeFormat& format,
+                                      std::size_t offset)
 {
-    const std::byte* source = indexed_data(GX_VA_NRM, index, index_type);
-    const AttributeFormat* format = active_format(GX_VA_NRM);
-    if (source == nullptr || format == nullptr ||
-        format->component_count != GX_NRM_XYZ)
+    const std::size_t size = component_size(format.component_type);
+    return {
+        decode_component(source + offset, format.component_type,
+                         format.fractional_bits),
+        decode_component(source + offset + size, format.component_type,
+                         format.fractional_bits),
+        decode_component(source + offset + 2 * size, format.component_type,
+                         format.fractional_bits),
+    };
+}
+
+void decode_normal_index(GXAttr attribute, mh_u16 index, GXAttrType index_type,
+                         std::size_t nbt3_component = 0)
+{
+    const std::byte* source = indexed_data(attribute, index, index_type);
+    const AttributeFormat* format = active_format(attribute);
+    if (source == nullptr || format == nullptr)
     {
         return;
     }
@@ -298,12 +340,29 @@ void decode_normal_index(mh_u16 index, GXAttrType index_type)
     if (size == 0) {
         return;
     }
-    capture_normal(decode_component(source, format->component_type,
-                                    format->fractional_bits),
-                   decode_component(source + size, format->component_type,
-                                    format->fractional_bits),
-                   decode_component(source + 2 * size, format->component_type,
-                                    format->fractional_bits));
+    if (attribute == GX_VA_NRM) {
+        const auto normal = decode_normal(source, *format, 0);
+        capture_normal(normal.x, normal.y, normal.z);
+    } else if (format->component_count == GX_NRM_NBT) {
+        capture_nbt(decode_normal(source, *format, 0),
+                    decode_normal(source, *format, 3 * size),
+                    decode_normal(source, *format, 6 * size));
+    } else if (format->component_count == GX_NRM_NBT3) {
+        const auto vector = decode_normal(source, *format, 0);
+        if (nbt3_component == 0) {
+            capture_normal(vector.x, vector.y, vector.z);
+        } else if (active_draw.active && !active_draw.vertices.empty()) {
+            auto& vertex = active_draw.vertices.back();
+            if (nbt3_component == 1) {
+                vertex.attributes |= MELEE_HOST_GX_VERTEX_TANGENT;
+                vertex.tangent = vector;
+            } else {
+                vertex.attributes |= MELEE_HOST_GX_VERTEX_BINORMAL;
+                vertex.binormal = vector;
+            }
+            captured_vertices.back() = vertex;
+        }
+    }
 }
 
 mh_u8 expand_bits(mh_u32 value, unsigned bits)
@@ -468,17 +527,17 @@ void decode_direct_attribute(GXAttr attribute, const std::byte* source,
                                                 format.fractional_bits)
                              : 0.0F;
         capture_position(x, y, z);
-    } else if (attribute == GX_VA_NRM &&
-               format.component_count == GX_NRM_XYZ)
+    } else if (attribute == GX_VA_NRM || attribute == GX_VA_NBT)
     {
         const std::size_t size = component_size(format.component_type);
-        capture_normal(decode_component(source, format.component_type,
-                                        format.fractional_bits),
-                       decode_component(source + size, format.component_type,
-                                        format.fractional_bits),
-                       decode_component(source + 2 * size,
-                                        format.component_type,
-                                        format.fractional_bits));
+        if (attribute == GX_VA_NRM) {
+            const auto normal = decode_normal(source, format, 0);
+            capture_normal(normal.x, normal.y, normal.z);
+        } else {
+            capture_nbt(decode_normal(source, format, 0),
+                        decode_normal(source, format, 3 * size),
+                        decode_normal(source, format, 6 * size));
+        }
     } else if (attribute == GX_VA_CLR0) {
         decode_color_data(source, format);
     } else if (attribute == GX_VA_TEX0) {
@@ -545,11 +604,12 @@ bool consume_display_attribute(const std::byte*& cursor,
         submit_locked(descriptor == GX_INDEX8 ? MELEE_HOST_GX_U8
                                               : MELEE_HOST_GX_U16,
                       index);
-        if (item == 0) {
+        if (item == 0 || (attribute == GX_VA_NBT &&
+                          format.component_count == GX_NRM_NBT3)) {
             if (attribute == GX_VA_POS) {
                 decode_position_index(index, descriptor);
-            } else if (attribute == GX_VA_NRM) {
-                decode_normal_index(index, descriptor);
+            } else if (attribute == GX_VA_NRM || attribute == GX_VA_NBT) {
+                decode_normal_index(attribute, index, descriptor, item);
             } else if (attribute == GX_VA_CLR0) {
                 decode_color_index(index, descriptor);
             } else if (attribute == GX_VA_TEX0) {
@@ -707,12 +767,18 @@ extern "C" void melee_host_gx_submit_position_index16(mh_u16 index)
 
 extern "C" void melee_host_gx_submit_normal_index8(mh_u8 index)
 {
-    submit_index(index, MELEE_HOST_GX_U8, GX_INDEX8, decode_normal_index);
+    submit_index(index, MELEE_HOST_GX_U8, GX_INDEX8,
+                 [](mh_u16 value, GXAttrType type) {
+                     decode_normal_index(GX_VA_NRM, value, type);
+                 });
 }
 
 extern "C" void melee_host_gx_submit_normal_index16(mh_u16 index)
 {
-    submit_index(index, MELEE_HOST_GX_U16, GX_INDEX16, decode_normal_index);
+    submit_index(index, MELEE_HOST_GX_U16, GX_INDEX16,
+                 [](mh_u16 value, GXAttrType type) {
+                     decode_normal_index(GX_VA_NRM, value, type);
+                 });
 }
 
 extern "C" void melee_host_gx_submit_color_index8(mh_u8 index)
@@ -799,7 +865,21 @@ extern "C" void GXSetArray(GXAttr attribute, const void* base, u8 stride)
     const std::lock_guard<std::mutex> lock(command_mutex);
     if (valid_attribute(attribute)) {
         attribute_arrays[static_cast<std::size_t>(attribute)] = {
-            static_cast<const std::byte*>(base), stride
+            static_cast<const std::byte*>(base), stride, kUnboundedArraySize
+        };
+    }
+}
+
+extern "C" void melee_host_gx_set_array_bounded(mh_u32 attribute,
+                                                   const void* base,
+                                                   size_t byte_length,
+                                                   mh_u8 stride)
+{
+    const auto gx_attribute = static_cast<GXAttr>(attribute);
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (valid_attribute(gx_attribute)) {
+        attribute_arrays[static_cast<std::size_t>(gx_attribute)] = {
+            static_cast<const std::byte*>(base), stride, byte_length
         };
     }
 }
@@ -908,6 +988,48 @@ extern "C" void melee_host_gx_transform_vertices(
     {
         return;
     }
+    const mh_f32 a = matrix->values[0][0];
+    const mh_f32 b = matrix->values[0][1];
+    const mh_f32 c = matrix->values[0][2];
+    const mh_f32 d = matrix->values[1][0];
+    const mh_f32 e = matrix->values[1][1];
+    const mh_f32 f = matrix->values[1][2];
+    const mh_f32 g = matrix->values[2][0];
+    const mh_f32 h = matrix->values[2][1];
+    const mh_f32 i = matrix->values[2][2];
+    const mh_f32 determinant = a * (e * i - f * h) -
+                               b * (d * i - f * g) +
+                               c * (d * h - e * g);
+    const auto transform_direction = [=](const MeleeHostGxPosition3f32& source) {
+        return MeleeHostGxPosition3f32{
+            a * source.x + b * source.y + c * source.z,
+            d * source.x + e * source.y + f * source.z,
+            g * source.x + h * source.y + i * source.z,
+        };
+    };
+    const auto transform_normal = [=](const MeleeHostGxPosition3f32& source) {
+        if (std::fabs(determinant) < 1.0e-8F) {
+            return transform_direction(source);
+        }
+        return MeleeHostGxPosition3f32{
+            ((e * i - f * h) * source.x + (f * g - d * i) * source.y +
+             (d * h - e * g) * source.z) / determinant,
+            ((c * h - b * i) * source.x + (a * i - c * g) * source.y +
+             (b * g - a * h) * source.z) / determinant,
+            ((b * f - c * e) * source.x + (c * d - a * f) * source.y +
+             (a * e - b * d) * source.z) / determinant,
+        };
+    };
+    const auto normalize = [](MeleeHostGxPosition3f32 vector) {
+        const mh_f32 length = std::sqrt(vector.x * vector.x + vector.y * vector.y +
+                                        vector.z * vector.z);
+        if (length > 0.0F) {
+            vector.x /= length;
+            vector.y /= length;
+            vector.z /= length;
+        }
+        return vector;
+    };
     for (size_t index = first; index < first + count; ++index) {
         auto& vertex = captured_vertices[index];
         if ((vertex.attributes & MELEE_HOST_GX_VERTEX_POSITION) != 0) {
@@ -920,6 +1042,15 @@ extern "C" void melee_host_gx_transform_vertices(
                 matrix->values[2][0] * source.x + matrix->values[2][1] * source.y +
                     matrix->values[2][2] * source.z + matrix->values[2][3],
             };
+        }
+        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_NORMAL) != 0) {
+            vertex.normal = normalize(transform_normal(vertex.normal));
+        }
+        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_TANGENT) != 0) {
+            vertex.tangent = normalize(transform_direction(vertex.tangent));
+        }
+        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_BINORMAL) != 0) {
+            vertex.binormal = normalize(transform_direction(vertex.binormal));
         }
     }
     for (size_t index = 0; index < triangles.size(); ++index) {

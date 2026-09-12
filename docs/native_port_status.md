@@ -69,6 +69,14 @@ Atualizado em 12 de setembro de 2026.
   triangulo, inclusive quando os atributos chegam apos a posicao no stream GX.
 - [x] Transformacoes SRT da arvore JObj sao acumuladas e aplicadas a cada PObj
   decodificado no backend headless.
+- [x] Arrays GX provenientes de HSD carregam limites do segmento de dados;
+  indices e strides que excedem o intervalo sao rejeitados sem leitura.
+- [x] Streams GX NBT/NBT3 preservam normal, tangente e binormal por vertice
+  no backend headless, para atributos diretos e indexados.
+- [x] Transformacoes afins aplicam inverse-transpose normalizado a normais e
+  transformacao direcional normalizada a tangentes/binormais.
+- [x] JObjs com matriz independente do pai respeitam `JOBJ_MTX_INDEP_PARENT`
+  durante o traversal headless.
 - [x] Testes sinteticos de disco e HSD.
 - [x] Primeiros modulos originais compilados nativamente: RNG, tempo, vetores,
   controlador, memoria, objalloc/list e fila `devcom` da baselib.
@@ -84,9 +92,9 @@ Atualizado em 12 de setembro de 2026.
 
 ## Proximos gates
 
-1. Completar normais NBT, matrizes especiais e limites estritos das arrays GX.
-2. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico.
-3. Compilar o primeiro fluxo de menu sobre as facades host.
+1. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico.
+2. Compilar o primeiro fluxo de menu sobre as facades host.
+3. Conectar a malha headless a um backend grafico de janela.
 
 ## Limitacoes atuais
 

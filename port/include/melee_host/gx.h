@@ -30,12 +30,16 @@ enum {
     MELEE_HOST_GX_VERTEX_NORMAL = 1 << 1,
     MELEE_HOST_GX_VERTEX_COLOR = 1 << 2,
     MELEE_HOST_GX_VERTEX_TEXCOORD = 1 << 3,
+    MELEE_HOST_GX_VERTEX_TANGENT = 1 << 4,
+    MELEE_HOST_GX_VERTEX_BINORMAL = 1 << 5,
 };
 
 typedef struct MeleeHostGxCapturedVertex {
     mh_u32 attributes;
     MeleeHostGxPosition3f32 position;
     MeleeHostGxPosition3f32 normal;
+    MeleeHostGxPosition3f32 tangent;
+    MeleeHostGxPosition3f32 binormal;
     mh_u8 color[4];
     mh_f32 texcoord[2];
 } MeleeHostGxCapturedVertex;
@@ -72,6 +76,8 @@ void melee_host_gx_submit_color_index8(mh_u8 index);
 void melee_host_gx_submit_color_index16(mh_u16 index);
 void melee_host_gx_submit_texcoord_index8(mh_u8 index);
 void melee_host_gx_submit_texcoord_index16(mh_u16 index);
+void melee_host_gx_set_array_bounded(mh_u32 attribute, const void* base,
+                                     size_t byte_length, mh_u8 stride);
 
 void melee_host_gx_reset_command_log(void);
 size_t melee_host_gx_command_count(void);
