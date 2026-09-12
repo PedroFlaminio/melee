@@ -153,6 +153,12 @@ HsdArchiveView::relocated_target(std::uint32_t field_offset) const
     return target;
 }
 
+bool HsdArchiveView::has_relocation(std::uint32_t field_offset) const noexcept
+{
+    return std::find(relocations_.begin(), relocations_.end(), field_offset) !=
+           relocations_.end();
+}
+
 std::uint32_t
 HsdArchiveView::public_data_offset(std::string_view symbol) const
 {

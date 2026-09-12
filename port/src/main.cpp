@@ -1,10 +1,14 @@
 #include "assets/hsd_archive.hpp"
 #include "assets/hsd_runtime_archive.hpp"
 #include "assets/schemas/db_common.hpp"
+#include "assets/schemas/scene_graphics.hpp"
 #include "assets/virtual_disc.hpp"
 
 #include <dolphin/dvd.h>
+#include <dolphin/gx/GXDispList.h>
+#include <dolphin/gx/GXGeometry.h>
 #include <melee_host/baselib.h>
+#include <melee_host/gx.h>
 #include <melee_host/host.h>
 
 #include <algorithm>
@@ -56,6 +60,7 @@ void print_usage(const char* executable)
     std::cerr << "usage:\n"
               << "  " << executable << " --diagnose\n"
               << "  " << executable << " --inspect-hsd FILE\n"
+              << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
               << "  " << executable << " --inspect-resources DIRECTORY\n"
               << "  " << executable << " --read-resource DIRECTORY PATH\n";
 }
@@ -145,6 +150,78 @@ int inspect_resources(const std::filesystem::path& path)
     return 0;
 }
 
+int inspect_pobj(const std::filesystem::path& path, std::string_view symbol)
+{
+    const std::vector<std::byte> bytes = read_file(path);
+    const melee::assets::HsdRuntimeArchive runtime(bytes);
+    const auto geometries =
+        melee::assets::schemas::find_scene_pobjs(runtime, symbol);
+
+    melee_host_gx_reset_command_log();
+    std::size_t display_bytes = 0;
+    for (const auto& geometry : geometries) {
+        GXClearVtxDesc();
+        for (const auto& descriptor : geometry.vertices) {
+            if (descriptor.attribute >= GX_VA_MAX_ATTR ||
+                descriptor.attribute_type > GX_INDEX16 ||
+                descriptor.component_count > GX_NRM_NBT3 ||
+                descriptor.component_type > GX_RGBA8 ||
+                descriptor.stride > 0xFF)
+            {
+                throw melee::assets::HsdArchiveError(
+                    "PObj contains an unsupported vertex descriptor");
+            }
+            const auto attribute = static_cast<GXAttr>(descriptor.attribute);
+            const auto attribute_type =
+                static_cast<GXAttrType>(descriptor.attribute_type);
+            GXSetVtxDesc(attribute, attribute_type);
+            GXSetVtxAttrFmt(GX_VTXFMT0, attribute,
+                            static_cast<GXCompCnt>(descriptor.component_count),
+                            static_cast<GXCompType>(descriptor.component_type),
+                            descriptor.fractional_bits);
+            if (descriptor.array.has_value()) {
+                const std::size_t remaining =
+                    runtime.disk_view().header().data_size -
+                    descriptor.array->data_offset;
+                const auto array =
+                    runtime.bytes_at(*descriptor.array, remaining);
+                GXSetArray(attribute, array.data(),
+                           static_cast<u8>(descriptor.stride));
+            }
+        }
+
+        const std::size_t display_size =
+            static_cast<std::size_t>(geometry.display_list_blocks) * 32;
+        const auto display =
+            runtime.bytes_at(geometry.display_list, display_size);
+        const std::size_t first_vertex = melee_host_gx_captured_vertex_count();
+        GXCallDisplayList(const_cast<std::byte*>(display.data()),
+                          static_cast<u32>(display.size()));
+        MeleeHostGxAffineTransform transform{};
+        for (std::size_t row = 0; row < 3; ++row) {
+            for (std::size_t column = 0; column < 4; ++column) {
+                transform.values[row][column] =
+                    geometry.transform.values[row][column];
+            }
+        }
+        melee_host_gx_transform_vertices(
+            first_vertex, melee_host_gx_captured_vertex_count() - first_vertex,
+            &transform);
+        display_bytes += display.size();
+    }
+
+    std::cout << "HSD scene geometry: " << path << " :: " << symbol << '\n'
+              << "  drawable PObjs: " << geometries.size() << '\n'
+              << "  display list bytes: " << display_bytes << '\n'
+              << "  decoded vertices: "
+              << melee_host_gx_captured_vertex_count() << '\n'
+              << "  decoded triangles: " << melee_host_gx_triangle_count()
+              << '\n'
+              << "  display list errors: "
+              << melee_host_gx_display_list_error_count() << '\n';
+    return melee_host_gx_display_list_error_count() == 0 ? 0 : 1;
+}
+
 int read_resource(const std::filesystem::path& root, std::string path)
 {
     MeleeHostContext* context = nullptr;
@@ -206,6 +283,9 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string(argv[1]) == "--inspect-hsd") {
             return inspect_hsd(argv[2]);
+        }
+        if (argc == 4 && std::string(argv[1]) == "--inspect-pobj") {
+            return inspect_pobj(argv[2], argv[3]);
         }
         if (argc == 3 && std::string(argv[1]) == "--inspect-resources") {
             return inspect_resources(argv[2]);

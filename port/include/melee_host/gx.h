@@ -44,6 +44,14 @@ typedef struct MeleeHostGxTriangle {
     MeleeHostGxPosition3f32 vertices[3];
 } MeleeHostGxTriangle;
 
+typedef struct MeleeHostGxCapturedTriangle {
+    MeleeHostGxCapturedVertex vertices[3];
+} MeleeHostGxCapturedTriangle;
+
+typedef struct MeleeHostGxAffineTransform {
+    mh_f32 values[3][4];
+} MeleeHostGxAffineTransform;
+
 void melee_host_gx_submit_u8(mh_u8 value);
 void melee_host_gx_submit_u16(mh_u16 value);
 void melee_host_gx_submit_u32(mh_u32 value);
@@ -56,15 +64,28 @@ void melee_host_gx_submit_normal3f32(mh_f32 x, mh_f32 y, mh_f32 z);
 void melee_host_gx_submit_color4u8(mh_u8 red, mh_u8 green, mh_u8 blue,
                                    mh_u8 alpha);
 void melee_host_gx_submit_texcoord2f32(mh_f32 s, mh_f32 t);
+void melee_host_gx_submit_position_index8(mh_u8 index);
+void melee_host_gx_submit_position_index16(mh_u16 index);
+void melee_host_gx_submit_normal_index8(mh_u8 index);
+void melee_host_gx_submit_normal_index16(mh_u16 index);
+void melee_host_gx_submit_color_index8(mh_u8 index);
+void melee_host_gx_submit_color_index16(mh_u16 index);
+void melee_host_gx_submit_texcoord_index8(mh_u8 index);
+void melee_host_gx_submit_texcoord_index16(mh_u16 index);
 
 void melee_host_gx_reset_command_log(void);
 size_t melee_host_gx_command_count(void);
 bool melee_host_gx_command_at(size_t index, MeleeHostGxCommand* output);
 size_t melee_host_gx_triangle_count(void);
 bool melee_host_gx_triangle_at(size_t index, MeleeHostGxTriangle* output);
+bool melee_host_gx_captured_triangle_at(
+    size_t index, MeleeHostGxCapturedTriangle* output);
 size_t melee_host_gx_captured_vertex_count(void);
 bool melee_host_gx_captured_vertex_at(size_t index,
                                       MeleeHostGxCapturedVertex* output);
+size_t melee_host_gx_display_list_error_count(void);
+void melee_host_gx_transform_vertices(size_t first, size_t count,
+                                      const MeleeHostGxAffineTransform* matrix);
 
 #ifdef __cplusplus
 }

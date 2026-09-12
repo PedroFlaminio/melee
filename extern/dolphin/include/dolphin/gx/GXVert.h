@@ -140,8 +140,19 @@ FUNC_2PARAM(GXPosition, u8)
 FUNC_2PARAM(GXPosition, s8)
 FUNC_2PARAM(GXPosition, u16)
 FUNC_2PARAM(GXPosition, s16)
+#if defined(MELEE_HOST)
+static inline void GXPosition1x8(u8 index)
+{
+    melee_host_gx_submit_position_index8(index);
+}
+static inline void GXPosition1x16(u16 index)
+{
+    melee_host_gx_submit_position_index16(index);
+}
+#else
 FUNC_INDEX16(GXPosition)
 FUNC_INDEX8(GXPosition)
+#endif
 
 // GXNormal
 #if defined(MELEE_HOST)
@@ -154,8 +165,19 @@ FUNC_3PARAM(GXNormal, f32)
 #endif
 FUNC_3PARAM(GXNormal, s16)
 FUNC_3PARAM(GXNormal, s8)
+#if defined(MELEE_HOST)
+static inline void GXNormal1x8(u8 index)
+{
+    melee_host_gx_submit_normal_index8(index);
+}
+static inline void GXNormal1x16(u16 index)
+{
+    melee_host_gx_submit_normal_index16(index);
+}
+#else
 FUNC_INDEX16(GXNormal)
 FUNC_INDEX8(GXNormal)
+#endif
 
 // GXColor
 #if defined(MELEE_HOST)
@@ -169,8 +191,19 @@ FUNC_4PARAM(GXColor, u8)
 FUNC_1PARAM(GXColor, u32)
 FUNC_3PARAM(GXColor, u8)
 FUNC_1PARAM(GXColor, u16)
+#if defined(MELEE_HOST)
+static inline void GXColor1x8(u8 index)
+{
+    melee_host_gx_submit_color_index8(index);
+}
+static inline void GXColor1x16(u16 index)
+{
+    melee_host_gx_submit_color_index16(index);
+}
+#else
 FUNC_INDEX16(GXColor)
 FUNC_INDEX8(GXColor)
+#endif
 
 // GXTexCoord
 #if defined(MELEE_HOST)
@@ -190,8 +223,19 @@ FUNC_1PARAM(GXTexCoord, s16)
 FUNC_1PARAM(GXTexCoord, u16)
 FUNC_1PARAM(GXTexCoord, s8)
 FUNC_1PARAM(GXTexCoord, u8)
+#if defined(MELEE_HOST)
+static inline void GXTexCoord1x8(u8 index)
+{
+    melee_host_gx_submit_texcoord_index8(index);
+}
+static inline void GXTexCoord1x16(u16 index)
+{
+    melee_host_gx_submit_texcoord_index16(index);
+}
+#else
 FUNC_INDEX16(GXTexCoord)
 FUNC_INDEX8(GXTexCoord)
+#endif
 
 // GXMatrixIndex
 FUNC_1PARAM(GXMatrixIndex, u8)

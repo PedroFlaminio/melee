@@ -34,8 +34,16 @@ public:
     [[nodiscard]] HsdRuntimeNode public_root(std::string_view symbol) const;
     [[nodiscard]] std::uint32_t read_u32(HsdRuntimeNode node,
                                          std::uint32_t relative_offset) const;
+    [[nodiscard]] std::uint16_t read_u16(HsdRuntimeNode node,
+                                         std::uint32_t relative_offset) const;
+    [[nodiscard]] float read_f32(HsdRuntimeNode node,
+                                 std::uint32_t relative_offset) const;
+    [[nodiscard]] std::span<const std::byte> bytes_at(
+        HsdRuntimeNode node, std::size_t length) const;
     [[nodiscard]] std::string_view read_c_string(HsdRuntimeNode node) const;
     [[nodiscard]] HsdRuntimeNode reference_at(
+        HsdRuntimeNode node, std::uint32_t relative_offset) const;
+    [[nodiscard]] bool has_reference_at(
         HsdRuntimeNode node, std::uint32_t relative_offset) const;
     [[nodiscard]] std::vector<HsdRuntimeReference> internal_references() const;
 

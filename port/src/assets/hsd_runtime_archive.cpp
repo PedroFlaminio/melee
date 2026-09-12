@@ -1,6 +1,7 @@
 #include "assets/hsd_runtime_archive.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 
 namespace melee::assets {
@@ -38,6 +39,39 @@ std::uint32_t HsdRuntimeArchive::read_u32(HsdRuntimeNode node,
            std::to_integer<std::uint32_t>(data[index + 3]);
 }
 
+std::uint16_t HsdRuntimeArchive::read_u16(HsdRuntimeNode node,
+                                          std::uint32_t relative_offset) const
+{
+    const std::uint64_t offset = static_cast<std::uint64_t>(node.data_offset) +
+                                 relative_offset;
+    const auto data = view_->data();
+    const std::uint64_t data_size = data.size();
+    if (offset > data_size || data_size - offset < 2) {
+        throw HsdArchiveError("HSD runtime field exceeds the data section");
+    }
+    const std::size_t index = static_cast<std::size_t>(offset);
+    return static_cast<std::uint16_t>(
+        (std::to_integer<std::uint16_t>(data[index]) << 8U) |
+        std::to_integer<std::uint16_t>(data[index + 1]));
+}
+
+float HsdRuntimeArchive::read_f32(HsdRuntimeNode node,
+                                  std::uint32_t relative_offset) const
+{
+    return std::bit_cast<float>(read_u32(node, relative_offset));
+}
+
+std::span<const std::byte> HsdRuntimeArchive::bytes_at(
+    HsdRuntimeNode node, std::size_t length) const
+{
+    const auto data = view_->data();
+    const std::size_t offset = node.data_offset;
+    if (offset > data.size() || length > data.size() - offset) {
+        throw HsdArchiveError("HSD runtime byte range exceeds the data section");
+    }
+    return data.subspan(offset, length);
+}
+
 std::string_view HsdRuntimeArchive::read_c_string(HsdRuntimeNode node) const
 {
     const auto data = view_->data();
@@ -63,6 +97,15 @@ HsdRuntimeNode HsdRuntimeArchive::reference_at(
         throw HsdArchiveError("HSD runtime reference offset overflows u32");
     }
     return { view_->relocated_target(static_cast<std::uint32_t>(field)) };
+}
+
+bool HsdRuntimeArchive::has_reference_at(
+    HsdRuntimeNode node, std::uint32_t relative_offset) const
+{
+    const std::uint64_t field = static_cast<std::uint64_t>(node.data_offset) +
+                                relative_offset;
+    return field <= std::numeric_limits<std::uint32_t>::max() &&
+           view_->has_relocation(static_cast<std::uint32_t>(field));
 }
 
 std::vector<HsdRuntimeReference>

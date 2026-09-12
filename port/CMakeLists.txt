@@ -2,6 +2,7 @@ add_library(melee_host STATIC
     src/assets/hsd_archive.cpp
     src/assets/hsd_runtime_archive.cpp
     src/assets/schemas/db_common.cpp
+    src/assets/schemas/scene_graphics.cpp
     src/assets/virtual_disc.cpp
     src/gx/command_recorder.cpp
     src/host.cpp

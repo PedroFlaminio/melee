@@ -2,6 +2,7 @@
 
 #include "assets/hsd_runtime_archive.hpp"
 #include "assets/schemas/db_common.hpp"
+#include "assets/schemas/scene_graphics.hpp"
 
 #include <array>
 #include <cstddef>
@@ -17,6 +18,22 @@ void append_be32(std::vector<std::byte>& output, std::uint32_t value)
     output.push_back(static_cast<std::byte>(value >> 16U));
     output.push_back(static_cast<std::byte>(value >> 8U));
     output.push_back(static_cast<std::byte>(value));
+}
+
+void write_be16(std::vector<std::byte>& output, std::size_t offset,
+                std::uint16_t value)
+{
+    output[offset] = static_cast<std::byte>(value >> 8U);
+    output[offset + 1] = static_cast<std::byte>(value);
+}
+
+void write_be32(std::vector<std::byte>& output, std::size_t offset,
+                std::uint32_t value)
+{
+    output[offset] = static_cast<std::byte>(value >> 24U);
+    output[offset + 1] = static_cast<std::byte>(value >> 16U);
+    output[offset + 2] = static_cast<std::byte>(value >> 8U);
+    output[offset + 3] = static_cast<std::byte>(value);
 }
 
 std::vector<std::byte> make_db_common_archive()
@@ -56,6 +73,74 @@ std::vector<std::byte> make_db_common_archive()
     return bytes;
 }
 
+std::vector<std::byte> make_scene_archive()
+{
+    constexpr std::string_view symbol = "scene";
+    constexpr std::uint32_t data_size = 0x1C0;
+    constexpr std::array<std::uint32_t, 8> relocations{
+        0x00, 0x20, 0x30, 0x50, 0x8C, 0xA8, 0xB0, 0xF4
+    };
+    constexpr std::uint32_t file_size =
+        32 + data_size + static_cast<std::uint32_t>(relocations.size()) * 4 +
+        8 + static_cast<std::uint32_t>(symbol.size()) + 1;
+
+    std::vector<std::byte> bytes;
+    for (const std::uint32_t value : std::array<std::uint32_t, 8>{
+             file_size, data_size,
+             static_cast<std::uint32_t>(relocations.size()), 1, 0,
+             0x01000000, 0, 0 }) {
+        append_be32(bytes, value);
+    }
+    const std::size_t data_begin = bytes.size();
+    bytes.resize(data_begin + data_size);
+    const auto field32 = [&](std::size_t offset, std::uint32_t value) {
+        write_be32(bytes, data_begin + offset, value);
+    };
+    const auto field16 = [&](std::size_t offset, std::uint16_t value) {
+        write_be16(bytes, data_begin + offset, value);
+    };
+
+    field32(0x00, 0x20);  // SceneDesc.models
+    field32(0x20, 0x30);  // models[0]
+    field32(0x30, 0x40);  // DynamicModelDesc.joint
+    field32(0x44, 0);     // HSD_Joint.flags
+    field32(0x50, 0x80);  // HSD_Joint.dobjdesc
+    field32(0x60, 0x3F800000); // HSD_Joint.scale.x = 1
+    field32(0x64, 0x3F800000); // HSD_Joint.scale.y = 1
+    field32(0x68, 0x3F800000); // HSD_Joint.scale.z = 1
+    field32(0x8C, 0xA0);  // HSD_DObjDesc.pobjdesc
+    field32(0xA8, 0xE0);  // HSD_PObjDesc.verts
+    field16(0xAC, 0x8000);
+    field16(0xAE, 1);
+    field32(0xB0, 0x140); // HSD_PObjDesc.display
+
+    field32(0xE0, 9);     // GX_VA_POS
+    field32(0xE4, 2);     // GX_INDEX8
+    field32(0xE8, 1);     // GX_POS_XYZ
+    field32(0xEC, 3);     // GX_S16
+    bytes[data_begin + 0xF0] = std::byte{ 2 };
+    field16(0xF2, 6);
+    field32(0xF4, 0x180); // vertex array
+    field32(0xF8, 0xFF);  // descriptor terminator
+
+    bytes[data_begin + 0x140] = std::byte{ 0x90 };
+    bytes[data_begin + 0x142] = std::byte{ 3 };
+    bytes[data_begin + 0x143] = std::byte{ 0 };
+    bytes[data_begin + 0x144] = std::byte{ 1 };
+    bytes[data_begin + 0x145] = std::byte{ 2 };
+
+    for (const std::uint32_t relocation : relocations) {
+        append_be32(bytes, relocation);
+    }
+    append_be32(bytes, 0);
+    append_be32(bytes, 0);
+    for (const char value : symbol) {
+        bytes.push_back(static_cast<std::byte>(value));
+    }
+    bytes.push_back(std::byte{ 0 });
+    return bytes;
+}
+
 } // namespace
 
 TEST_CASE("DbCo schema decodes its three pointer fields without native casts")
@@ -80,4 +165,34 @@ TEST_CASE("DbCo schema decodes its three pointer fields without native casts")
     REQUIRE(tables.bonus_names[0] == "one");
     REQUIRE(tables.motion_state_names[0] == "two");
     REQUIRE(tables.submotion_names[0] == "tri");
+}
+
+TEST_CASE("scene schema traverses Joint DObj and PObj as validated offsets")
+{
+    const auto bytes = make_scene_archive();
+    const melee::assets::HsdRuntimeArchive archive(bytes);
+    const auto geometry =
+        melee::assets::schemas::find_first_scene_pobj(archive, "scene");
+    const auto geometries =
+        melee::assets::schemas::find_scene_pobjs(archive, "scene");
+
+    REQUIRE(geometries.size() == 1);
+    REQUIRE(geometry.descriptor.data_offset == 0xA0);
+    REQUIRE(geometry.flags == 0x8000);
+    REQUIRE(geometry.display_list_blocks == 1);
+    REQUIRE(geometry.display_list.data_offset == 0x140);
+    REQUIRE(geometry.vertices.size() == 1);
+    REQUIRE(geometry.vertices[0].attribute == 9);
+    REQUIRE(geometry.vertices[0].attribute_type == 2);
+    REQUIRE(geometry.vertices[0].component_type == 3);
+    REQUIRE(geometry.vertices[0].fractional_bits == 2);
+    REQUIRE(geometry.vertices[0].stride == 6);
+    REQUIRE(geometry.vertices[0].array.has_value());
+    REQUIRE(geometry.vertices[0].array->data_offset == 0x180);
+    REQUIRE(geometry.transform.values[0][0] == 1.0F);
+    REQUIRE(geometry.transform.values[1][1] == 1.0F);
+    REQUIRE(geometry.transform.values[2][2] == 1.0F);
+    REQUIRE(archive.has_reference_at({ 0xE0 }, 0x14));
+    REQUIRE(archive.read_u16({ 0xA0 }, 0xE) == 1);
+    REQUIRE(archive.bytes_at(geometry.display_list, 3).size() == 3);
 }

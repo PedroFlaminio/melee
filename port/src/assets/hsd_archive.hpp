@@ -37,6 +37,8 @@ public:
     [[nodiscard]] std::span<const std::byte> data() const noexcept;
     [[nodiscard]] std::uint32_t relocated_target(
         std::uint32_t field_offset) const;
+    [[nodiscard]] bool has_relocation(
+        std::uint32_t field_offset) const noexcept;
     [[nodiscard]] std::uint32_t public_data_offset(
         std::string_view symbol) const;
     [[nodiscard]] std::vector<HsdPublicSymbol> public_symbols() const;

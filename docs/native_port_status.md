@@ -53,6 +53,22 @@ Atualizado em 12 de setembro de 2026.
 - [x] Conversao headless de `GX_TRIANGLESTRIP`, `GX_TRIANGLEFAN` e `GX_QUADS`
   para listas de triangulos.
 - [x] Captura de vertices GX diretos com position, normal, RGBA e UV.
+- [x] Estado GX VCD/VAT para oito formatos, arrays com stride e indices de
+  8/16 bits para position, normal, cor e UV principal.
+- [x] Decodificacao big-endian de componentes U8/S8/U16/S16/F32 com ponto fixo
+  e cores RGB565/RGB8/RGBX8/RGBA4/RGBA6/RGBA8.
+- [x] `GXCallDisplayList` host interpreta comandos PObj, formatos VAT, atributos
+  diretos/indexados e padding com validacao contra streams truncados.
+- [x] Primeiro schema grafico seguro Scene/Joint/DObj/PObj, mantendo o grafo em
+  offsets de 32 bits validados.
+- [x] Traversal de todos os PObjs desenhaveis de uma cena HSD, incluindo listas
+  de display independentes e descritores de vertices por objeto.
+- [x] Primeiro PObj real executado: `GmPause.dat` gera 48 triangulos no backend
+  headless sem erros de display list.
+- [x] Malha headless preserva position, normal, cor e UV por vertice de cada
+  triangulo, inclusive quando os atributos chegam apos a posicao no stream GX.
+- [x] Transformacoes SRT da arvore JObj sao acumuladas e aplicadas a cada PObj
+  decodificado no backend headless.
 - [x] Testes sinteticos de disco e HSD.
 - [x] Primeiros modulos originais compilados nativamente: RNG, tempo, vetores,
   controlador, memoria, objalloc/list e fila `devcom` da baselib.
@@ -68,17 +84,17 @@ Atualizado em 12 de setembro de 2026.
 
 ## Proximos gates
 
-1. Implementar descritores/indexacao de vertices GX (VCD/VAT).
+1. Completar normais NBT, matrizes especiais e limites estritos das arrays GX.
 2. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico.
 3. Compilar o primeiro fluxo de menu sobre as facades host.
-4. Decodificar um schema grafico HSD (JObj/DObj/PObj) real.
 
 ## Limitacoes atuais
 
 - Os assets `GALE01` extraidos estao disponiveis apenas em `assets-local`, que
   permanece ignorado pelo Git e nao faz parte de builds ou artefatos publicos.
 - O executavel ainda nao chama `gmMain`.
-- GX, AX, CARD, streaming DVD e THP ainda nao estao implementados. PAD e DVD
-  assincrono tem pontes basicas; os backends completos ainda faltam.
+- GX (alem do recorder/VCD/VAT), AX, CARD, streaming DVD e THP ainda nao estao
+  implementados. PAD e DVD assincrono tem pontes basicas; os backends completos
+  ainda faltam.
 - A build matching nao foi executada porque `orig/GALE01/sys/main.dol` nao esta
   presente; as mudancas compartilhadas estao isoladas por `MELEE_HOST`.
