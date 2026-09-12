@@ -72,6 +72,10 @@ typedef struct PADStatus {
     /*0x0A*/ s8 err;
 } PADStatus;
 
+#if defined(MELEE_HOST) && defined(__cplusplus)
+extern "C" {
+#endif
+
 // PAD.c
 int PADReset(unsigned long mask);
 BOOL PADRecalibrate(u32 mask);
@@ -91,5 +95,9 @@ void SIRefreshSamplingRate(void);
 
 // Padclamp.c
 void PADClamp(PADStatus* status);
+
+#if defined(MELEE_HOST) && defined(__cplusplus)
+}
+#endif
 
 #endif

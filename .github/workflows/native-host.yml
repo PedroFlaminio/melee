@@ -1,0 +1,35 @@
+name: Native host
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Clang sanitizers
+            os: ubuntu-latest
+            preset: host-sanitize
+          - name: Windows MSVC
+            os: windows-latest
+            preset: host-debug
+          - name: macOS Clang
+            os: macos-latest
+            preset: host-debug
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+

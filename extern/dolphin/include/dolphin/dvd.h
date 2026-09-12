@@ -74,6 +74,10 @@ typedef struct DVDDriveInfo {
     /* 0x08 */ u8 padding[24];
 } DVDDriveInfo;
 
+#if defined(MELEE_HOST) && defined(__cplusplus)
+extern "C" {
+#endif
+
 void DVDDumpWaitingQueue(void);
 int DVDLowRead(void * addr, unsigned long length, unsigned long offset, void (* callback)(unsigned long));
 int DVDLowSeek(unsigned long offset, void (* callback)(unsigned long));
@@ -208,5 +212,9 @@ int DVDReadAbsAsyncPrio(struct DVDCommandBlock * block /* r29 */, void * addr /*
 int DVDSeekAbsAsyncPrio(struct DVDCommandBlock * block /* r31 */, long offset /* r28 */, void (* callback)(long, struct DVDCommandBlock *) /* r1+0x10 */, long prio /* r1+0x14 */);
 int DVDPrepareStreamAbsAsync(struct DVDCommandBlock * block /* r31 */, unsigned long length /* r1+0xC */, unsigned long offset /* r1+0x10 */, void (* callback)(long, struct DVDCommandBlock *) /* r1+0x14 */);
 void __DVDStoreErrorCode(u32 error);
+
+#if defined(MELEE_HOST) && defined(__cplusplus)
+}
+#endif
 
 #endif

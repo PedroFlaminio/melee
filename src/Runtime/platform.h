@@ -27,8 +27,17 @@
 /// The underlying type of an @c enum, used as a placeholder
 typedef int enum_t;
 
-/// Signed variant of ::size_t
+/// Signed variant of ::size_t in the original 32-bit runtime. Native POSIX
+/// builds import libc's type; MSVC does not provide it.
+#if defined(MELEE_HOST)
+#if defined(_MSC_VER)
+typedef ptrdiff_t ssize_t;
+#else
+#include <sys/types.h>
+#endif
+#else
 typedef signed int ssize_t;
+#endif
 
 /// A @c void callback with no arguments.
 typedef void (*Event)(void);
@@ -180,6 +189,9 @@ typedef bool (*Predicate)(void);
 #endif
 
 #define M_TAU 6.283185307179586
+#if defined(MELEE_HOST) && !defined(M_PI)
+#define M_PI 3.14159265358979323846
+#endif
 #define M_PI_3 (M_PI / 3)
 
 #define M_PI_F 3.14159265358979323846F

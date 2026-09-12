@@ -81,7 +81,7 @@ static void HSD_DevComARAMCallback(ARQRequest* request)
     }
 
     if (aramDC->callback != NULL) {
-        aramDC->callback(aramDC->dcReq, (int) aramDC->args, buf,
+        aramDC->callback(aramDC->dcReq, (HSD_DevComArg) aramDC->args, buf,
                          aramDC->cancelflag);
     }
 
@@ -119,7 +119,7 @@ void HSD_DevComARAMWakeUp(void)
     if (devComStatus[3] != NULL) {
         if (aramDC->cancelflag) {
             if (aramDC->callback != NULL) {
-                aramDC->callback(aramDC->dcReq, (s32) aramDC->args, NULL,
+                aramDC->callback(aramDC->dcReq, (HSD_DevComArg) aramDC->args, NULL,
                                  true);
             }
             HSD_DevComUnlink(aramDC);
@@ -227,7 +227,8 @@ static void HSD_DevComDVDARAMEndCallback(ARQRequest* request)
 
     if (HSD_DevCom_804D77FC[i]->callback != NULL && HSD_DevCom_804D7804 == 0) {
         HSD_DevCom_804D77FC[i]->callback(
-            HSD_DevCom_804D77FC[i]->dcReq, (int) HSD_DevCom_804D77FC[i]->args,
+            HSD_DevCom_804D77FC[i]->dcReq,
+            (HSD_DevComArg) HSD_DevCom_804D77FC[i]->args,
             NULL, HSD_DevCom_804D77FC[i]->cancelflag);
     }
     HSD_DevComARAMCallback_inline(HSD_DevCom_804D77FC[i]);
@@ -251,7 +252,7 @@ static void HSD_DevComDVDMemCallback(s32 result, DVDFileInfo* unused)
         return;
     }
     if (dvdDC->callback != NULL && HSD_DevCom_804D7804 == 0) {
-        dvdDC->callback(dvdDC->dcReq, (int) dvdDC->args, NULL,
+        dvdDC->callback(dvdDC->dcReq, (HSD_DevComArg) dvdDC->args, NULL,
                         dvdDC->cancelflag);
     }
     HSD_DevComUnlink(dvdDC);
@@ -280,7 +281,7 @@ static void HSD_DevComDVDCallback(s32 result, DVDFileInfo* unused)
         HSD_ASSERT(0x18C, dvdDC->size <= DEVCOM_BUF_SIZE);
         HSD_ASSERT(0x18D, dvdDC->callback);
         if (HSD_DevCom_804D7804 == 0) {
-            dvdDC->callback(dvdDC->dcReq, (s32) dvdDC->args,
+            dvdDC->callback(dvdDC->dcReq, (HSD_DevComArg) dvdDC->args,
                             HSD_DevCom_804C6330_bufs[HSD_DevCom_804D77F6],
                             dvdDC->cancelflag);
         }
@@ -333,7 +334,8 @@ void HSD_DevComDVDWakeUp(void)
         if ((dvdDC = devComStatus[i])) {
             if (dvdDC->cancelflag) {
                 if (dvdDC->callback != NULL) {
-                    dvdDC->callback(dvdDC->dcReq, (s32) dvdDC->args, NULL,
+                    dvdDC->callback(dvdDC->dcReq,
+                                    (HSD_DevComArg) dvdDC->args, NULL,
                                     true);
                 }
                 HSD_DevComUnlink(dvdDC);
@@ -470,7 +472,7 @@ int HSD_DevComCancelEx(int dcReq, u32 flags, HSD_DevComCallback cb, void* args)
             dc->cancelflag = true;
         } else {
             if (dc->callback != NULL) {
-                dc->callback(dc->dcReq, (int) dc->args, NULL, true);
+                dc->callback(dc->dcReq, (HSD_DevComArg) dc->args, NULL, true);
             }
             HSD_DevComUnlink(dc);
         }

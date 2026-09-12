@@ -104,7 +104,12 @@ typedef union HSD_TExp HSD_TExp;
 
 typedef void (*GObj_RenderFunc)(HSD_GObj* gobj, int code);
 typedef void (*HSD_ObjUpdateFunc)(void* obj, enum_t type, HSD_ObjData* fval);
-typedef void (*HSD_DevComCallback)(int, int, void*, bool cancelflag);
+#ifdef MELEE_HOST
+typedef intptr_t HSD_DevComArg;
+#else
+typedef int HSD_DevComArg;
+#endif
+typedef void (*HSD_DevComCallback)(int, HSD_DevComArg, void*, bool cancelflag);
 typedef void (*HSD_GObjEvent)(HSD_GObj* gobj);
 typedef void (*HSD_UserDataEvent)(void* user_data);
 typedef bool (*HSD_GObjPredicate)(HSD_GObj* gobj);

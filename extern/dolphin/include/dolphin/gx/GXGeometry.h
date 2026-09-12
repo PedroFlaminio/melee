@@ -26,10 +26,20 @@ static inline void GXSetTexCoordGen(GXTexCoordID dst_coord, GXTexGenType func,
     GXSetTexCoordGen2(dst_coord, func, src_param, mtx, GX_FALSE, GX_PTIDENTITY);
 }
 
+#ifdef MELEE_HOST
+#include <melee_host/gx.h>
+static inline void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts)
+{
+    melee_host_gx_begin((u8) type, (u8) vtxfmt, nverts);
+}
+#else
 void GXBegin(GXPrimitive type, GXVtxFmt vtxfmt, u16 nverts);
+#endif
 static inline void GXEnd(void)
 {
-#if DEBUG
+#if defined(MELEE_HOST)
+    melee_host_gx_end();
+#elif DEBUG
     extern GXBool __GXinBegin;
     extern void OSPanic(char *file, int line, char *msg, ...);
     if (!__GXinBegin) {

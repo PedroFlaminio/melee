@@ -2,9 +2,19 @@
 
 #include <string.h>
 
-#include "initialize.h"
 #include "memory.h"
+#ifndef MELEE_HOST
+#include "initialize.h"
 #include <dolphin/os/OSAlloc.h>
+#endif
+
+#ifdef MELEE_HOST
+typedef uintptr_t ObjHeapAddress;
+typedef size_t ObjHeapSize;
+#else
+typedef u32 ObjHeapAddress;
+typedef u32 ObjHeapSize;
+#endif
 
 static objheap obj_heap = { 0, 0, -1, -1 };
 
@@ -12,17 +22,17 @@ static HSD_ObjAllocData* alloc_datas;
 
 void HSD_ObjSetHeap(u32 size, void* ptr)
 {
-    obj_heap.curr = (u32) ptr;
-    obj_heap.top = (u32) ptr;
+    obj_heap.curr = (ObjHeapAddress) ptr;
+    obj_heap.top = (ObjHeapAddress) ptr;
     obj_heap.remain = size;
     obj_heap.size = size;
 }
 
 s32 HSD_ObjAllocAddFree(HSD_ObjAllocData* data, u32 num)
 {
-    u32 computed_start;
-    u32 pool_end;
-    u32 pool_size;
+    ObjHeapAddress computed_start;
+    ObjHeapAddress pool_end;
+    ObjHeapSize pool_size;
     u8* pool_start;
 
     u8 _[4];
@@ -36,15 +46,15 @@ s32 HSD_ObjAllocAddFree(HSD_ObjAllocData* data, u32 num)
         if (computed_start > pool_end) {
             return 0;
         }
-        if (pool_end - (u32) pool_start < pool_size) {
-            pool_size = pool_end - (u32) pool_start -
-                        (pool_end - (u32) pool_start) % data->size;
+        if (pool_end - (ObjHeapAddress) pool_start < pool_size) {
+            pool_size = pool_end - (ObjHeapAddress) pool_start -
+                        (pool_end - (ObjHeapAddress) pool_start) % data->size;
         }
         num = pool_size / data->size;
         if (num == 0) {
             return 0;
         }
-        obj_heap.curr = (u32) pool_start + pool_size;
+        obj_heap.curr = (ObjHeapAddress) pool_start + pool_size;
         obj_heap.remain = pool_end - obj_heap.curr;
     } else {
         pool_start = HSD_MemAlloc(pool_size);
@@ -81,7 +91,11 @@ void* HSD_ObjAlloc(HSD_ObjAllocData* data)
             if (obj_heap.top != 0) {
                 size = obj_heap.remain;
             } else {
+#ifdef MELEE_HOST
+                size = U32_MAX;
+#else
                 size = OSCheckHeap(HSD_GetHeap());
+#endif
             }
             if (size <= data->heap_limit_size) {
                 data->heap_limit_num = data->used + data->free;
@@ -90,7 +104,11 @@ void* HSD_ObjAlloc(HSD_ObjAllocData* data)
             if (obj_heap.top != 0) {
                 size = obj_heap.remain;
             } else {
+#ifdef MELEE_HOST
+                size = U32_MAX;
+#else
                 size = OSCheckHeap(HSD_GetHeap());
+#endif
             }
             if (size > data->heap_limit_size) {
                 data->heap_limit_num = -1;

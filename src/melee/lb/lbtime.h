@@ -3,7 +3,11 @@
 
 #include <Runtime/platform.h>
 
+#if defined(MELEE_HOST)
+#include <melee_host/dolphin_time.h>
+#else
 #include <dolphin/os.h>
+#endif
 
 u32 lbTime_8000AEC8(u32 a, u32 b);
 u32 lbTime_8000AEE4(u32 a, int b);

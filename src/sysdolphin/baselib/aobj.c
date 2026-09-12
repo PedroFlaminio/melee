@@ -181,11 +181,12 @@ HSD_AObj* HSD_AObjLoadDesc(HSD_AObjDesc* aobjdesc)
     HSD_FObjDesc* fobjdesc;
     HSD_AObj* aobj;
 
-    u8 _[4];
-
     HSD_FObj* fobj;
     u32 id;
+#ifndef MELEE_HOST
+    u8 _[4];
     HSD_Obj* phi_r30;
+#endif
 
     if (aobjdesc != NULL) {
         aobj = HSD_AObjAlloc();
@@ -196,6 +197,12 @@ HSD_AObj* HSD_AObjLoadDesc(HSD_AObjDesc* aobjdesc)
         fobj = HSD_FObjLoadDesc(fobjdesc);
         HSD_AObjSetFObj(aobj, fobj);
         id = aobjdesc->obj_id;
+#ifdef MELEE_HOST
+        /* Disk-era object IDs are 32-bit addresses.  They must be resolved by
+         * the host graph loader rather than cast to a native pointer. */
+        HSD_ASSERTMSG(0xCC, id == 0,
+                      "host AObj JObj references are not resolved yet");
+#else
         if (id != 0U) {
             HSD_Obj* hsd_obj = HSD_IDGetDataFromTable(0, id, 0);
             phi_r30 = hsd_obj;
@@ -212,6 +219,7 @@ HSD_AObj* HSD_AObjLoadDesc(HSD_AObjDesc* aobjdesc)
                 aobj->hsd_obj = phi_r30;
             }
         }
+#endif
         return aobj;
     }
     return NULL;
@@ -232,7 +240,12 @@ void HSD_AObjRemove(HSD_AObj* aobj)
 
     if (aobj) {
         if (aobj->hsd_obj != NULL) {
+#ifdef MELEE_HOST
+            HSD_ASSERTMSG(0xED, 0,
+                          "host AObj contains an unresolved JObj reference");
+#else
             HSD_JObjUnref((HSD_JObj*) aobj->hsd_obj);
+#endif
         }
         aobj->hsd_obj = NULL;
     }

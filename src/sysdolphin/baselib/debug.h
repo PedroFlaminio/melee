@@ -3,12 +3,29 @@
 
 #include <Runtime/platform.h>
 
+#ifdef MELEE_HOST
+#include <dolphin/os/OSContext.h>
+#include <dolphin/os/OSCache.h>
+#include <melee_host/dolphin_os.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+void OSReport(const char* format, ...);
+#ifdef __cplusplus
+}
+#endif
+#else
 #include <dolphin/os.h> // IWYU pragma: keep
+#endif
 
 typedef void (*ReportCallback)(const unsigned char*, size_t);
 typedef void (*PanicCallback)(OSContext*, ...);
 
+#ifdef MELEE_HOST
+ATTRIBUTE_NORETURN void __assert(const char*, u32, const char*);
+#else
 ATTRIBUTE_NORETURN void __assert(char*, u32, char*);
+#endif
 
 void HSD_LogInit(void);
 ATTRIBUTE_NORETURN void HSD_Panic(char*, u32, char*);

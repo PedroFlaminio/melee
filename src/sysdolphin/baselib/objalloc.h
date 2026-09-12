@@ -6,10 +6,17 @@
 #include <sysdolphin/baselib/debug.h>
 
 typedef struct _objheap {
+#ifdef MELEE_HOST
+    uintptr_t top;
+    uintptr_t curr;
+    size_t size;
+    size_t remain;
+#else
     u32 top;
     u32 curr;
     u32 size;
     u32 remain;
+#endif
 } objheap;
 
 typedef struct _HSD_ObjAllocLink {
