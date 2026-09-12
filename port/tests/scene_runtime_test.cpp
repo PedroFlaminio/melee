@@ -3,8 +3,12 @@
 #include "hsd_include.hpp"
 
 #include <melee_host/scene_runtime.h>
+#include <melee_host/gx.h>
+#include <melee_host/video.h>
 
 MELEE_HOST_TEST_HSD_BEGIN
+#include <dolphin/gx/GXManage.h>
+#include <dolphin/vi.h>
 #include <sysdolphin/baselib/gobj.h>
 #include <sysdolphin/baselib/gobjgxlink.h>
 #include <sysdolphin/baselib/gobjobject.h>
@@ -54,6 +58,13 @@ void remove_self(void* user_data)
     }
 }
 
+int draw_done_calls = 0;
+
+void draw_done_callback(void)
+{
+    draw_done_calls += 1;
+}
+
 } // namespace
 
 TEST_CASE("native HSD GObj runtime boots with Melee's priority ceilings")
@@ -79,6 +90,27 @@ TEST_CASE("native HSD GObj runtime boots with Melee's priority ceilings")
     REQUIRE(melee_host_scene_runtime_run_frame() == MELEE_HOST_OK);
     REQUIRE(melee_host_scene_runtime_stats(&stats) == MELEE_HOST_OK);
     REQUIRE(stats.frame_count == before + 1);
+}
+
+TEST_CASE("the scene frame boundary drains GX before advancing VI")
+{
+    REQUIRE(melee_host_scene_runtime_init() == MELEE_HOST_OK);
+    melee_host_video_reset();
+    VIInit();
+    melee_host_gx_state_reset();
+    draw_done_calls = 0;
+    GXSetDrawDoneCallback(draw_done_callback);
+    GXSetDrawDone();
+
+    MeleeHostVideoState before{};
+    REQUIRE(melee_host_video_state(&before) == MELEE_HOST_OK);
+    REQUIRE(melee_host_scene_runtime_run_frame() == MELEE_HOST_OK);
+
+    MeleeHostVideoState after{};
+    REQUIRE(melee_host_video_state(&after) == MELEE_HOST_OK);
+    REQUIRE(draw_done_calls == 1);
+    REQUIRE(after.retrace_count == before.retrace_count + 1);
+    GXSetDrawDoneCallback(nullptr);
 }
 
 TEST_CASE("host scene objects run one process per frame")

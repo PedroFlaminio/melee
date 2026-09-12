@@ -7,6 +7,7 @@
 extern "C" {
 #include <dolphin/gx/GXVert.h>
 #include <dolphin/gx/GXGeometry.h>
+#include <dolphin/gx/GXLighting.h>
 #include <dolphin/gx/GXDispList.h>
 #include <dolphin/gx/GXPixel.h>
 #include <dolphin/gx/GXTev.h>
@@ -190,6 +191,42 @@ TEST_CASE("host GX modulates captured vertex colors with a material")
     REQUIRE(vertex.color[2] == 64);
     REQUIRE(vertex.color[3] == 128);
     REQUIRE(vertex.render_mode == (1U << 30U));
+}
+
+TEST_CASE("host GX evaluates two independent raster lighting channels")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    GXLightObj light{};
+    GXInitLightColor(&light, GXColor{ 100, 200, 50, 255 });
+    GXInitLightPos(&light, 0.0F, 0.0F, 10.0F);
+    GXInitLightDir(&light, 0.0F, 0.0F, -1.0F);
+    GXInitLightAttn(&light, 0.0F, 1.0F, 0.0F, 1.0F, 0.0F, 0.0F);
+    GXLoadLightObjImm(&light, GX_LIGHT0);
+    GXSetChanAmbColor(GX_COLOR0, GXColor{ 10, 10, 10, 255 });
+    GXSetChanMatColor(GX_COLOR0, GXColor{ 128, 128, 128, 255 });
+    GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0,
+                  GX_DF_CLAMP, GX_AF_SPOT);
+
+    GXSetChanAmbColor(GX_COLOR1, GXColor{ 7, 8, 9, 255 });
+    GXSetChanMatColor(GX_COLOR1, GXColor{ 255, 255, 255, 255 });
+    GXSetChanCtrl(GX_COLOR1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0,
+                  GX_DF_NONE, GX_AF_NONE);
+
+    GXBegin(GX_POINTS, GX_VTXFMT0, 1);
+    GXPosition3f32(0.0F, 0.0F, 0.0F);
+    GXNormal3f32(0.0F, 0.0F, 1.0F);
+    GXEnd();
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.raster_color[0][0] == 55);
+    REQUIRE(vertex.raster_color[0][1] == 105);
+    REQUIRE(vertex.raster_color[0][2] == 30);
+    REQUIRE(vertex.raster_color[1][0] == 7);
+    REQUIRE(vertex.raster_color[1][1] == 8);
+    REQUIRE(vertex.raster_color[1][2] == 9);
 }
 
 TEST_CASE("host GX resolves indexed big-endian VCD and VAT attributes")

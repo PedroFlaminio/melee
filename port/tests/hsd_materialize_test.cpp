@@ -115,7 +115,7 @@ struct SyntheticArchive {
 
 /* Every pointer field the archive relocates.  A pointer field missing from
  * this list must read as NULL, which is what the materializer enforces. */
-constexpr std::array<std::uint32_t, 29> kRelocations{
+constexpr std::array<std::uint32_t, 30> kRelocations{
     kScene + 0x00,        // SceneDesc.models
     kModels + 0x00,       // models[0]
     kModelDesc + 0x00,    // DynamicModelDesc.joint
@@ -139,6 +139,7 @@ constexpr std::array<std::uint32_t, 29> kRelocations{
     kAnimJoint + 0x00,    // HSD_AnimJoint.child
     kAnimChild + 0x08,    // HSD_AnimJoint.aobjdesc
     kAObjDesc + 0x08,     // HSD_AObjDesc.fobjdesc
+    kAObjDesc + 0x0C,     // HSD_AObjDesc.obj_id
     kFObjDesc + 0x10,     // HSD_FObjDesc.ad
     kFigaTree + 0x0C,     // FigaTree.nodes
     kFigaTree + 0x10,     // FigaTree.tracks
@@ -182,6 +183,7 @@ SyntheticArchive make_scene()
     archive.field32(kAnimChild + 0x10, 0x40); // HSD_AnimJoint.flags
     archive.fieldf32(kAObjDesc + 0x04, 10.0F); // end frame
     archive.field32(kAObjDesc + 0x08, kFObjDesc);
+    archive.field32(kAObjDesc + 0x0C, kChildJoint);
     archive.field32(kFObjDesc + 0x04, 8);   // keyframe stream length
     archive.fieldf32(kFObjDesc + 0x08, 2.0F); // start frame
     archive.field8(kFObjDesc + 0x0C, 5);    // HSD_A_J_TRAX
@@ -720,7 +722,10 @@ TEST_CASE("the materializer rebuilds an animation tree and its keyframes")
     REQUIRE(child->flags == 0x40);
     REQUIRE(child->aobjdesc != nullptr);
     REQUIRE(near(child->aobjdesc->end_frame, 10.0F));
-    REQUIRE(child->aobjdesc->obj_id == 0);
+    HSD_Joint* const model =
+        descriptors.scene_model_joint("test_scene_data", 0);
+    REQUIRE(child->aobjdesc->obj_id ==
+            static_cast<u32>(reinterpret_cast<std::uintptr_t>(model->child)));
 
     HSD_FObjDesc* const track = child->aobjdesc->fobjdesc;
     REQUIRE(track != nullptr);
@@ -765,6 +770,8 @@ TEST_CASE("the original loaders build animation objects from the descriptors")
     REQUIRE(root->aobj == nullptr);
     REQUIRE(root->child != nullptr);
     REQUIRE(root->child->aobj != nullptr);
+    REQUIRE(root->child->aobj->hsd_obj ==
+            reinterpret_cast<HSD_Obj*>(root->child));
     REQUIRE(near(root->child->aobj->end_frame, 10.0F));
     REQUIRE(root->child->aobj->fobj != nullptr);
     // HSD_FObjLoadDesc keeps the descriptor's stream, so the object points at
@@ -777,6 +784,11 @@ TEST_CASE("the original loaders build animation objects from the descriptors")
     // only set explicitly to choose another speed or direction.
     REQUIRE(near(root->child->aobj->framerate, 1.0F));
 
+    // obj_id is an owning reference.  This synthetic descriptor targets the
+    // same JObj that owns its AObj, so release that deliberately cyclic test
+    // reference before tearing down the tree.
+    HSD_AObjRemove(root->child->aobj);
+    root->child->aobj = nullptr;
     HSD_JObjRemoveAll(root);
     REQUIRE(HSD_ObjAllocGetUsing(HSD_AObjGetAllocData()) == aobjs_before);
     REQUIRE(HSD_ObjAllocGetUsing(HSD_FObjGetAllocData()) == fobjs_before);

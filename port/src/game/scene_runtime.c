@@ -1,6 +1,8 @@
 #include <melee_host/scene_runtime.h>
 
 #include <melee_host/baselib.h>
+#include <melee_host/gx.h>
+#include <melee_host/video.h>
 
 #include <sysdolphin/baselib/gobj.h>
 #include <sysdolphin/baselib/gobjplink.h>
@@ -108,6 +110,19 @@ MeleeHostStatus melee_host_scene_runtime_run_frame(void)
         return MELEE_HOST_NOT_READY;
     }
     HSD_GObj_RunProcs();
+    /* This is the deterministic host frame boundary: game processes update
+     * first, a completed GX fence is then delivered, and VI presents the
+     * finished field last.  Video remains opt-in until the game has called
+     * VIInit, so the scheduler can still run in headless bootstrap tests. */
+    (void) melee_host_gx_drain_draw_done();
+    MeleeHostVideoState video;
+    if (melee_host_video_state(&video) == MELEE_HOST_OK &&
+        video.initialized)
+    {
+        if (melee_host_video_advance_retrace() != MELEE_HOST_OK) {
+            return MELEE_HOST_INTERNAL_ERROR;
+        }
+    }
     frame_count += 1;
     return MELEE_HOST_OK;
 }

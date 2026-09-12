@@ -417,6 +417,31 @@ Atualizado em 12 de setembro de 2026.
   juntas nao mudaram em nenhuma casa decimal). Sem o define a unidade de
   traducao continua identica, verificado com o `-DMUST_MATCH` do build
   matching.
+- [x] Referencias de `HSD_AObjDesc.obj_id` para JObj. O materializador resolve
+  o ponteiro relocado do disco para o `HSD_Joint` materializado e grava a chave
+  de 32 bits que o ID table original usa; `HSD_AObjLoadDesc` encontra o JObj
+  ja carregado, toma a referencia e `HSD_AObjRemove` a devolve. Assim nenhum
+  endereco PPC e convertido em ponteiro nativo. O teste integrado tambem
+  cobre a liberacao explicita de uma referencia ciclica sintetica antes de
+  desmontar a arvore.
+- [x] Avaliacao host dos canais de iluminacao GX. Cada vertice capturado
+  recebe `COLOR0A0` e `COLOR1A1` separados, calculados a partir de ambiente,
+  material, normal, luzes, difuso e atenuacao do estado GX; o preview seleciona
+  o canal pedido pelo primeiro estagio TEV. A equacao ainda nao substitui o
+  rasterizador por fragmento exigido pelos programas TEV de varios estagios.
+- [x] Fronteira deterministica de frame para o runtime de cena: executa
+  `HSD_GObj_RunProcs`, entrega uma fence `GXDrawDone` pendente e por fim avanca
+  um retrace VI quando o video ja foi inicializado. A ordem e coberta por teste
+  e conserva o bootstrap headless, que nao cria video implicitamente.
+- [x] `synth.c` no build nativo. Os callbacks de DevCom usam o argumento de
+  largura de ponteiro no host, eliminando a primeira incompatibilidade de
+  assinatura em 64 bits; `HSD_Synth_804D6018`, `HSD_AudioMalloc` e
+  `HSD_AudioFree` passam a vir do modulo original. Antes de AX/ARAM existir,
+  o allocator host preserva alinhamento de 32 bytes para que DevCom continue a
+  inicializar com seguranca. `HSD_SynthInit` tambem executa contra uma fachada
+  deterministica de AX/AI e offsets ARAM alinhados; a limpeza ARAM inicial e
+  redundante nesse espaco virtual zerado e nao agenda DMA. O caminho de
+  voz/DSP ainda nao e acionado nem produz audio.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -430,46 +455,34 @@ Atualizado em 12 de setembro de 2026.
   ja roda; falta a camada de objetos graficos que alimenta os callbacks de
   render.
 - [ ] Avaliar os programas TEV de varios estagios, que sao 80% dos triangulos.
-  Isso depende de duas coisas que ainda nao existem, e nenhuma e pequena:
-  avaliacao por fragmento, porque o TEV e por pixel e o preview e de funcao
-  fixa, e os dois canais de cor rasterizada separados, porque os programas de
-  varios estagios referenciam `COLOR0A0` e `COLOR1A1` de forma independente
-  enquanto a captura guarda uma cor por vertice. A segunda exige avaliar a
-  equacao de iluminacao do GX a partir dos controles de canal, das luzes e das
-  normais, que o host modela mas nao executa.
+  Os dois canais rasterizados separados e sua iluminacao por vertice ja existem;
+  o bloqueio restante e a avaliacao por fragmento, porque o TEV e por pixel e
+  o preview atual e de funcao fixa.
 
   A camada formava um unico bloco: os onze arquivos se referenciam
   mutuamente, entao adicionar qualquer um exigia adicionar todos.
 
   Historico das duas ondas de bloqueio: a primeira comecou em 73 simbolos e a
-  segunda em 56. Ambas estao fechadas. O que restava por ultimo eram
-  `HSD_LogInit`, que no host nao tem o que redirecionar porque a saida ja passa
-  por `OSReport`, e `HSD_Synth_804D6018`, o handle do heap de audio. Os dois
-  vivem em `port/src/game/hsd_audio_stubs.c` como definicoes reais, nao como
-  armadilhas, e devem sair de la quando `synth.c` e `debug.c` entrarem no
-  build.
+  segunda em 56. Ambas estao fechadas. `synth.c` tambem ja entrou no build;
+  `hsd_audio_stubs.c` conserva somente `HSD_LogInit`, que no host nao precisa
+  redirecionar MSL stdio porque `OSReport` ja escreve no fluxo de erro nativo.
 
 ## Proximos gates
 
-1. Resolver as referencias a JObj que um `HSD_AObjDesc` carrega em `obj_id`.
-   Hoje `aobj.c` recusa sob `MELEE_HOST` qualquer id diferente de zero, porque
-   sao enderecos de 32 bits da era do disco; nenhum dos 288 casos do disco
-   bateu nisso, mas as animacoes de personagem provavelmente batem.
-2. Executar a equacao de iluminacao do GX para produzir as cores rasterizadas
-   por canal, que e o que falta antes de qualquer avaliacao TEV honesta de
-   varios estagios.
-3. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico, o que resolve
-   tambem os dois simbolos que hoje vivem em `hsd_audio_stubs.c`.
-4. Ligar o laco de frame: `HSD_GObj_RunProcs` para a simulacao e o retrace de
-   VI para a apresentacao, com o executavel chamando o fluxo em vez de um
-   diagnostico.
+1. Avaliar TEV de varios estagios por fragmento e apresentar o resultado em um
+   framebuffer host.
+2. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
+   confundir isso com uma saida DSP real.
+3. Chamar o fluxo de cena pelo executavel, em vez de expor apenas o diagnostico
+   que ja executa `HSD_GObj_RunProcs`, a fence GX e o retrace VI.
 
 ## Limitacoes atuais
 
 - Os assets `GALE01` extraidos estao disponiveis apenas em `assets-local`, que
   permanece ignorado pelo Git e nao faz parte de builds ou artefatos publicos.
 - O executavel ainda nao chama `gmMain`.
-- AX, CARD, streaming DVD e THP ainda nao estao implementados. PAD e DVD
+- AX, CARD, streaming DVD e THP ainda nao estao implementados. AX/AI/ARAM so
+  possuem a fachada minima necessaria para `HSD_SynthInit`; PAD e DVD
   assincrono tem pontes basicas; os backends completos ainda faltam.
 - O estado GX e registrado, nao rasterizado. Nenhum pixel e produzido por ele:
   o que existe de imagem vem do preview SDL/OpenGL sobre geometria decodificada
@@ -481,9 +494,9 @@ Atualizado em 12 de setembro de 2026.
   estado capturados. Ele segue culling, profundidade, blend, compare de alpha e
   mascara de cor, e a cor de 20% dos triangulos vem do programa de material
   lido; nos outros 80% ela e uma aproximacao declarada.
-- A cor rasterizada capturada e a cor de vertice do display list, nao a saida
-  dos canais de iluminacao do GX. Enquanto a equacao de iluminacao nao for
-  executada, material, luzes e ambiente nao influenciam a imagem.
+- A captura guarda as saidas de iluminacao `COLOR0A0` e `COLOR1A1` por vertice,
+  e o preview escolhe o canal do primeiro estagio TEV. Isto ainda nao equivale
+  a executar o programa TEV completo por fragmento.
 - `GX_BM_LOGIC` e `GX_CULL_ALL` nao sao modelados pelo preview: o primeiro cai
   para sem blend, o segundo descarta o grupo. Nenhum simbolo do disco usa os
   dois, entao isso nunca foi exercitado por dado real.
@@ -496,9 +509,11 @@ Atualizado em 12 de setembro de 2026.
   em ordem de construcao. `ftanim.c` faz o mesmo percurso, mas pulando partes
   por flags do lutador, entao quando o runtime de luta entrar esse mapeamento
   precisa passar por ele em vez da ordem crua.
-- `HSD_AObjDesc.obj_id` diferente de zero e recusado por `aobj.c` sob
-  `MELEE_HOST`: e uma referencia a JObj gravada como endereco de 32 bits, que o
-  host precisa resolver pelo grafo em vez de converter em ponteiro.
+- Um `HSD_AObjDesc.obj_id` retira uma referencia para o JObj que nomeia. Se o
+  asset apontar para o proprio JObj que possui o AObj, cria um ciclo de
+  ownership; o teste sintetico o libera explicitamente antes de desmontar a
+  arvore. Assets reais devem manter essa referencia em um objeto externo, como
+  o runtime original espera.
 - Um simbolo de joint solto nao tem cena e portanto nao tem camera; nesse caso
   o render usa a camera substituta do host. A linha de relatorio diz qual das
   duas foi usada.

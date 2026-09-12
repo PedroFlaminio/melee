@@ -33,6 +33,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 #include <mutex>
@@ -193,6 +194,103 @@ void ensure_initialized_locked()
         reset_locked();
         state_initialized = true;
     }
+}
+
+float dot3(const mh_f32 left[3], const mh_f32 right[3])
+{
+    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
+}
+
+void normalize3(mh_f32 vector[3])
+{
+    const float length = std::sqrt(dot3(vector, vector));
+    if (length > 0.0F) {
+        vector[0] /= length;
+        vector[1] /= length;
+        vector[2] /= length;
+    }
+}
+
+void evaluate_channel_locked(const MeleeHostGxCapturedVertex& vertex,
+                             std::size_t color_channel,
+                             std::size_t alpha_channel, mh_u8 out[4])
+{
+    constexpr mh_u32 kSourceVertex = static_cast<mh_u32>(GX_SRC_VTX);
+    constexpr mh_u32 kDiffuseNone = static_cast<mh_u32>(GX_DF_NONE);
+    constexpr mh_u32 kDiffuseClamp = static_cast<mh_u32>(GX_DF_CLAMP);
+    constexpr mh_u32 kAttenuationSpot = static_cast<mh_u32>(GX_AF_SPOT);
+    constexpr mh_u32 kAttenuationNone = static_cast<mh_u32>(GX_AF_NONE);
+    const auto& color_control = channel_controls[color_channel];
+    const auto& alpha_control = channel_controls[alpha_channel];
+    const auto source = [&vertex](mh_u32 selection, const mh_u8 registered[4]) {
+        return selection == kSourceVertex &&
+                       (vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0
+                   ? vertex.color
+                   : registered;
+    };
+    const mh_u8* const ambient = source(color_control.ambient_source,
+                                        color_control.ambient_color);
+    const mh_u8* const material = source(color_control.material_source,
+                                         color_control.material_color);
+    const mh_u8* const alpha_ambient = source(alpha_control.ambient_source,
+                                              alpha_control.ambient_color);
+    const mh_u8* const alpha_material = source(alpha_control.material_source,
+                                               alpha_control.material_color);
+    float lit[4]{ static_cast<float>(ambient[0]), static_cast<float>(ambient[1]),
+                  static_cast<float>(ambient[2]), static_cast<float>(alpha_ambient[3]) };
+
+    if (color_control.lighting_enabled || alpha_control.lighting_enabled) {
+        mh_f32 normal[3]{ vertex.normal.x, vertex.normal.y, vertex.normal.z };
+        normalize3(normal);
+        for (std::size_t index = 0; index < kLights; ++index) {
+            const auto& light = lights[index];
+            const mh_u32 mask = 1U << index;
+            if (!light.loaded ||
+                ((color_control.light_mask & mask) == 0U &&
+                 (alpha_control.light_mask & mask) == 0U)) {
+                continue;
+            }
+            mh_f32 direction[]{ light.position[0] - vertex.position.x,
+                                 light.position[1] - vertex.position.y,
+                                 light.position[2] - vertex.position.z };
+            const float distance = std::sqrt(dot3(direction, direction));
+            normalize3(direction);
+            float diffuse = dot3(normal, direction);
+            if (color_control.diffuse_function == kDiffuseNone) {
+                diffuse = 1.0F;
+            } else if (color_control.diffuse_function == kDiffuseClamp) {
+                diffuse = std::max(diffuse, 0.0F);
+            }
+            float attenuation = 1.0F;
+            if (color_control.attenuation_function != kAttenuationNone) {
+                const float denominator = light.distance_attenuation[0] +
+                    distance * (light.distance_attenuation[1] +
+                                distance * light.distance_attenuation[2]);
+                attenuation = denominator > 0.0F ? 1.0F / denominator : 0.0F;
+                if (color_control.attenuation_function == kAttenuationSpot) {
+                    /* GXInitLightDir stores the negated authoring direction,
+                     * which is already the vector from the shaded point to
+                     * the light used by the hardware. */
+                    const float cosine = dot3(light.direction, direction);
+                    const float spot = light.angle_attenuation[0] +
+                        cosine * (light.angle_attenuation[1] +
+                                  cosine * light.angle_attenuation[2]);
+                    attenuation *= std::max(spot, 0.0F);
+                }
+            }
+            const float factor = diffuse * attenuation;
+            for (std::size_t component = 0; component < 4; ++component) {
+                lit[component] += factor * static_cast<float>(light.color[component]);
+            }
+        }
+    }
+    for (std::size_t component = 0; component < 3; ++component) {
+        const float value = static_cast<float>(material[component]) *
+                            lit[component] / 255.0F;
+        out[component] = static_cast<mh_u8>(std::clamp(value, 0.0F, 255.0F) + 0.5F);
+    }
+    const float alpha = static_cast<float>(alpha_material[3]) * lit[3] / 255.0F;
+    out[3] = static_cast<mh_u8>(std::clamp(alpha, 0.0F, 255.0F) + 0.5F);
 }
 
 const void* combine_pointer(std::uint32_t low, std::uint32_t high)
@@ -1473,6 +1571,18 @@ bool melee_host_gx_light(mh_u32 light_index, MeleeHostGxLightDesc* output)
     }
     *output = lights[light_index];
     return lights[light_index].loaded;
+}
+
+void melee_host_gx_evaluate_lighting(const MeleeHostGxCapturedVertex* vertex,
+                                     mh_u8 color0a0[4], mh_u8 color1a1[4])
+{
+    if (vertex == nullptr || color0a0 == nullptr || color1a1 == nullptr) {
+        return;
+    }
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    evaluate_channel_locked(*vertex, 0, 2, color0a0);
+    evaluate_channel_locked(*vertex, 1, 3, color1a1);
 }
 
 void melee_host_gx_fog_state(MeleeHostGxFogState* output)

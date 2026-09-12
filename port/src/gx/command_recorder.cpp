@@ -508,6 +508,16 @@ void transform_captured_draw_locked()
     }
 }
 
+void evaluate_captured_draw_locked()
+{
+    for (std::size_t index = active_draw.captured_vertex_start;
+         index < captured_vertices.size(); ++index) {
+        auto& vertex = captured_vertices[index];
+        melee_host_gx_evaluate_lighting(&vertex, vertex.raster_color[0],
+                                        vertex.raster_color[1]);
+    }
+}
+
 void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
                   mh_u16 vertex_count)
 {
@@ -1093,12 +1103,14 @@ bool parse_display_list_locked(const std::byte* cursor, std::size_t byte_count)
                                                descriptor, format))
                 {
                     transform_captured_draw_locked();
+                    evaluate_captured_draw_locked();
                     active_draw.active = false;
                     return false;
                 }
             }
         }
         transform_captured_draw_locked();
+        evaluate_captured_draw_locked();
         active_draw.active = false;
     }
     return true;
@@ -1145,6 +1157,8 @@ extern "C" void melee_host_gx_begin(mh_u8 primitive, mh_u8 vertex_format,
 extern "C" void melee_host_gx_end(void)
 {
     const std::lock_guard<std::mutex> lock(command_mutex);
+    transform_captured_draw_locked();
+    evaluate_captured_draw_locked();
     active_draw.active = false;
 }
 

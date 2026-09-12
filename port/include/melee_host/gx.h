@@ -65,6 +65,10 @@ typedef struct MeleeHostGxCapturedVertex {
     MeleeHostGxPosition3f32 tangent;
     MeleeHostGxPosition3f32 binormal;
     mh_u8 color[4];
+    /* GX evaluates COLOR0A0 and COLOR1A1 independently before TEV.  `color`
+     * remains the source vertex colour; these are the two raster colours the
+     * TEV stages select through GXSetTevOrder. */
+    mh_u8 raster_color[2][4];
     mh_f32 texcoord[2];
     mh_u32 texture_image;
     mh_u32 render_mode;
@@ -458,6 +462,12 @@ bool melee_host_gx_bound_texture(mh_u32 texmap,
                                  MeleeHostGxTextureDesc* output);
 bool melee_host_gx_loaded_tlut(mh_u32 tlut_name, MeleeHostGxTlutDesc* output);
 bool melee_host_gx_light(mh_u32 light_index, MeleeHostGxLightDesc* output);
+/* Evaluates GX's per-vertex colour channels from the recorded light and
+ * channel state.  Position and normal must already be in the same view space
+ * as GXLightObj. */
+void melee_host_gx_evaluate_lighting(const MeleeHostGxCapturedVertex* vertex,
+                                     mh_u8 color0a0[4],
+                                     mh_u8 color1a1[4]);
 void melee_host_gx_fog_state(MeleeHostGxFogState* output);
 void melee_host_gx_copy_state(MeleeHostGxCopyState* output);
 void melee_host_gx_display_copy_state(MeleeHostGxDisplayCopyState* output);

@@ -7,14 +7,9 @@
  * back by the synth, so defining it here keeps startup honest without
  * pretending audio works.
  *
- * Delete this file when `synth.c` and `debug.c` enter the host build; both
- * symbols below belong to them. */
-
-#include <dolphin/os/OSAlloc.h>
-
-/* Written by HSD_Init when it carves the audio heap out of the arena.  It
- * stays -1 until then, which is what OSAllocFromHeap treats as no heap. */
-OSHeapHandle HSD_Synth_804D6018 = -1;
+ * `synth.c` now supplies its audio heap handle.  Keep this small host-only
+ * bridge until debug.c can be made independent of the GameCube MSL stdio
+ * implementation. */
 
 /* The original redirects the MSL stdio write hook through HSD's report
  * callback.  The host has no MSL stdio: OSReport already writes to the host's

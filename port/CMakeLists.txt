@@ -144,6 +144,7 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/mtx.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/rumble.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/spline.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/synth.c
     src/game/baselib_bootstrap.c
     src/game/local_match.c
     src/game/match_rules.c
@@ -241,6 +242,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/local_match_test.cpp
         tests/scene_runtime_test.cpp
         tests/spline_test.cpp
+        tests/synth_test.cpp
         tests/gx_state_test.cpp
         tests/video_test.cpp
         tests/os_heap_test.cpp

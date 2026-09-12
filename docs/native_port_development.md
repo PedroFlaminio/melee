@@ -69,8 +69,9 @@ dois objetos de cena, pausa o p_link de um deles e roda o escalonador:
 ```
 
 Ele reporta quantos frames rodaram, quantos objetos e processos estao vivos e
-quantas vezes cada processo foi chamado. O processo do p_link pausado deve
-terminar com zero chamadas.
+quantas vezes cada processo foi chamado, alem de retraces VI e callbacks de
+draw-done. O processo do p_link pausado deve terminar com zero chamadas; os
+outros tres contadores devem ser iguais ao numero de frames pedido.
 
 ## Heap do OS
 

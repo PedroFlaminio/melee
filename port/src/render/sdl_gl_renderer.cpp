@@ -562,6 +562,16 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error,
                 melee_host_gx_captured_tev_state_at(group.tev_state, &tev)
                     ? resolve_shading(tev)
                     : Shading{};
+            /* GX_COLOR1 and GX_COLOR1A1 select the second independently
+             * rasterized channel.  The first channel is the normal default;
+             * when a draw configured no channels at all, retain the legacy
+             * source-colour preview instead of turning it black. */
+            const std::size_t raster_channel =
+                tev.stages[0].color_channel == 1U ||
+                        tev.stages[0].color_channel == 5U
+                    ? 1U
+                    : 0U;
+            const bool use_raster_color = tev.channel_count > raster_channel;
             glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE,
                       shading.replace ? GL_REPLACE : GL_MODULATE);
             for (std::size_t index = 0; index < frame_triangles; ++index) {
@@ -580,7 +590,20 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error,
                     float green = 0.85F;
                     float blue = 0.9F;
                     float alpha = 1.0F;
-                    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0) {
+                    if (use_raster_color) {
+                        red = static_cast<float>(
+                                  vertex.raster_color[raster_channel][0]) /
+                              255.0F;
+                        green = static_cast<float>(
+                                    vertex.raster_color[raster_channel][1]) /
+                                255.0F;
+                        blue = static_cast<float>(
+                                   vertex.raster_color[raster_channel][2]) /
+                               255.0F;
+                        alpha = static_cast<float>(
+                                    vertex.raster_color[raster_channel][3]) /
+                                255.0F;
+                    } else if ((vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0) {
                         red = static_cast<float>(vertex.color[0]) / 255.0F;
                         green = static_cast<float>(vertex.color[1]) / 255.0F;
                         blue = static_cast<float>(vertex.color[2]) / 255.0F;

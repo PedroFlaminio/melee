@@ -11,6 +11,10 @@
 #include <dolphin/ar.h>
 #include <dolphin/os.h>
 
+#ifdef MELEE_HOST
+#include <melee_host/memory.h>
+#endif
+
 /* 389334 */ static int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan,
                                            int priority, int itd_flag,
                                            float pitch1, float pitch2,
@@ -19,14 +23,26 @@
 
 void* HSD_AudioMalloc(size_t size)
 {
+#ifdef MELEE_HOST
+    /* DevCom allocates before the full HSD arena bootstrap has made an audio
+     * heap.  The host keeps that early allocation aligned and independent;
+     * after the audio graph is brought up this can be switched to the native
+     * heap path below. */
+    return melee_host_aligned_alloc(size, 32);
+#else
     void* p = OSAllocFromHeap(HSD_Synth_804D6018, size);
     HSD_ASSERTREPORT(0x29U, p, "audio heap overflow.\n");
     return p;
+#endif
 }
 
 void HSD_AudioFree(void* ptr)
 {
+#ifdef MELEE_HOST
+    melee_host_aligned_free(ptr, 32);
+#else
     OSFreeToHeap(HSD_Synth_804D6018, ptr);
+#endif
 }
 
 static int HSD_Synth_804D6028[2] = { 0 };
@@ -46,7 +62,9 @@ static inline s32 SfxLoadStreamDataSize(s32 size)
     return size + 8;
 }
 
-static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
+static void HSD_SynthSFXSampleLoadCallback(int result,
+                                           HSD_SYNTH_DEVCOM_ARG length,
+                                           void* addr,
                                            bool cancelflag)
 {
     BOOL intr;
@@ -148,7 +166,9 @@ static void HSD_SynthSFXSampleLoadCallback(int result, int length, void* addr,
     OSRestoreInterrupts(intr);
 }
 
-static void HSD_SynthSFXHeaderLoadCallback(int result, int length, void* addr,
+static void HSD_SynthSFXHeaderLoadCallback(int result,
+                                           HSD_SYNTH_DEVCOM_ARG length,
+                                           void* addr,
                                            bool cancelflag)
 {
     s32 header_size;
@@ -1182,7 +1202,8 @@ void HSD_SynthCallback(void)
     OSRestoreInterrupts(enabled);
 }
 
-void HSD_SynthResetStreamCounters(int result, int length, void* buf, bool b)
+void HSD_SynthResetStreamCounters(int result, HSD_SYNTH_DEVCOM_ARG length,
+                                  void* buf, bool b)
 {
     HSD_Synth_804D776C = HSD_Synth_804D7768;
     HSD_Synth_804D7778 = 0;
@@ -1346,7 +1367,8 @@ void HSD_SynthPStreamFirstHakoHeaderCallback(void)
                       (HSD_DevComCallback) HSD_Synth_8038B120, 0);
 }
 
-void HSD_SynthPStreamHeaderCallback(int arg0, int arg1, void* arg2,
+void HSD_SynthPStreamHeaderCallback(int arg0, HSD_SYNTH_DEVCOM_ARG arg1,
+                                    void* arg2,
                                     bool cancelflag)
 {
     u32* entry = arg2;
@@ -1471,7 +1493,9 @@ void HSD_SynthInit(int dsp_size, int voices, int stream_size, int bank_size)
     AXInit();
     AISetDSPSampleRate(0);
     HSD_Synth_804D7784 = ARAlloc(0x500);
+#ifndef MELEE_HOST
     HSD_DevComRequest(0, 0, HSD_Synth_804D7784, 0x500, 3, 0, 0, 0);
+#endif
     HSD_Synth_804D7784 *= 2;
     hsd_SynthSFXBankHead[0] = ARAlloc(bank_size);
     AXRegisterCallback(HSD_SynthCallback);

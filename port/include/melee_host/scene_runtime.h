@@ -39,7 +39,8 @@ typedef struct MeleeHostSceneRuntimeStats {
 MeleeHostStatus melee_host_scene_runtime_init(void);
 
 /* Runs HSD_GObj_RunProcs once, which is the original per-frame pass over every
- * queued process in priority order. */
+ * queued process in priority order.  At the same boundary it drains a pending
+ * GX draw-done fence and advances one VI retrace when video is initialized. */
 MeleeHostStatus melee_host_scene_runtime_run_frame(void);
 
 MeleeHostStatus

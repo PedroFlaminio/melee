@@ -12,7 +12,9 @@
 #include <dolphin/dvd.h>
 #include <dolphin/gx/GXDispList.h>
 #include <dolphin/gx/GXGeometry.h>
+#include <dolphin/gx/GXManage.h>
 #include <dolphin/pad.h>
+#include <dolphin/vi.h>
 #include <melee_host/baselib.h>
 #include <melee_host/gx.h>
 #include <melee_host/host.h>
@@ -22,6 +24,7 @@
 #include <melee_host/menu_native.h>
 #include <melee_host/scene_graphics.h>
 #include <melee_host/scene_runtime.h>
+#include <melee_host/video.h>
 
 #include <algorithm>
 #include <array>
@@ -268,6 +271,13 @@ void scene_runtime_probe_tick(void* user_data)
     static_cast<SceneRuntimeProbe*>(user_data)->frames += 1;
 }
 
+unsigned scene_runtime_draw_done_callbacks = 0;
+
+void scene_runtime_draw_done_callback(void)
+{
+    scene_runtime_draw_done_callbacks += 1;
+}
+
 // Drives the original HSD process scheduler for a fixed number of frames.
 // One probe object runs unpaused while a second sits on a paused p_link, so
 // the report shows both that processes fire and that the pause mask is
@@ -278,6 +288,13 @@ int diagnose_scene_runtime(unsigned frames)
         std::cerr << "could not initialize the native HSD object runtime\n";
         return 1;
     }
+
+    /* Exercise the same frame boundary the host game loop will use: a GX
+     * fence completes after process work, then VI presents one field. */
+    VIInit();
+    melee_host_gx_state_reset();
+    scene_runtime_draw_done_callbacks = 0;
+    GXSetDrawDoneCallback(scene_runtime_draw_done_callback);
 
     SceneRuntimeProbe running{ .frames = 0, .p_link = 0 };
     SceneRuntimeProbe paused{ .frames = 0, .p_link = 1 };
@@ -309,6 +326,7 @@ int diagnose_scene_runtime(unsigned frames)
         return 1;
     }
     for (unsigned frame = 0; frame < frames; ++frame) {
+        GXSetDrawDone();
         if (melee_host_scene_runtime_run_frame() != MELEE_HOST_OK) {
             std::cerr << "native scene frame " << frame << " failed\n";
             return 1;
@@ -320,17 +338,27 @@ int diagnose_scene_runtime(unsigned frames)
         std::cerr << "could not read native scene runtime statistics\n";
         return 1;
     }
+    MeleeHostVideoState video{};
+    if (melee_host_video_state(&video) != MELEE_HOST_OK) {
+        std::cerr << "could not read native video statistics\n";
+        return 1;
+    }
 
     std::cout << "native HSD scene runtime\n"
               << "  frames run: " << (end.frame_count - start.frame_count)
               << "\n  live objects: " << end.objects_live
               << "\n  live processes: " << end.procs_live
               << "\n  pooled objects: " << end.objects_pooled
+              << "\n  VI retraces: " << video.retrace_count
+              << "\n  draw-done callbacks: " << scene_runtime_draw_done_callbacks
               << "\n  unpaused process calls: " << running.frames
               << "\n  paused process calls: " << paused.frames << '\n';
 
     const bool ok = running.frames == frames && paused.frames == 0 &&
-                    end.frame_count - start.frame_count == frames;
+                    end.frame_count - start.frame_count == frames &&
+                    video.retrace_count == frames &&
+                    scene_runtime_draw_done_callbacks == frames;
+    GXSetDrawDoneCallback(nullptr);
     if (melee_host_scene_runtime_remove_object(running_object) !=
             MELEE_HOST_OK ||
         melee_host_scene_runtime_remove_object(paused_object) !=

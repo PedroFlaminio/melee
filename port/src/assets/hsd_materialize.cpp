@@ -1327,7 +1327,14 @@ HSD_AObjDesc* HsdMaterializedArchive::aobj_desc(HsdRuntimeNode node)
 
     host->flags = archive_.read_u32(node, aobj_field::kFlags);
     host->end_frame = archive_.read_f32(node, aobj_field::kEndFrame);
-    host->obj_id = archive_.read_u32(node, aobj_field::kObjId);
+    if (const auto object = reference(node, aobj_field::kObjId)) {
+        /* archive.c turns this field into an HSD_Joint pointer before the
+         * original loader sees it.  Keep that identity on the host by using
+         * the materialized joint's ID-table key, rather than preserving the
+         * stale 32-bit disk address. */
+        host->obj_id = static_cast<u32>(reinterpret_cast<std::uintptr_t>(
+            joint_chain(*object)));
+    }
     if (const auto fobj = reference(node, aobj_field::kFObjDesc)) {
         host->fobjdesc = fobj_chain(*fobj);
     }
