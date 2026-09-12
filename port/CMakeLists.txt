@@ -1,5 +1,6 @@
 add_library(melee_host STATIC
     src/assets/hsd_archive.cpp
+    src/assets/hsd_materialize.cpp
     src/assets/gx_texture.cpp
     src/assets/hsd_runtime_archive.cpp
     src/assets/schemas/db_common.cpp
@@ -107,6 +108,27 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/class.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/object.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hash.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/cobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/displayfunc.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/dobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/fog.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/jobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/lobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/mobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/pobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/robj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/tobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/wobj.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/shadow.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/state.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/tev.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/texp.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/texpdag.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/bytecode.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/initialize.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/perf.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/util.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/video.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobj.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjinit.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/gobjproc.c
@@ -124,18 +146,31 @@ add_library(melee_game_core STATIC
     src/game/baselib_bootstrap.c
     src/game/local_match.c
     src/game/match_rules.c
-    src/game/hsd_graphics_stubs.c
+    src/game/hsd_audio_stubs.c
     src/game/menu_native.c
     src/game/scene_runtime.c
+    src/game/scene_graphics.cpp
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
+    src/os/os_heap.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/os/OSAlloc.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/os/OSArena.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/pad/PadClamp.c
 )
 target_compile_definitions(melee_game_core PUBLIC MELEE_HOST=1)
-target_include_directories(melee_game_core PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/extern/dolphin/include
+target_include_directories(melee_game_core
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/extern/dolphin/include
+    PRIVATE
+        src
 )
 melee_host_set_legacy_warnings(melee_game_core)
+# Port code keeps the strict warning set even where it shares a target with
+# decompiled translation units, which need the legacy relaxations.
+set_source_files_properties(
+    src/game/scene_graphics.cpp
+    PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wpedantic;-Wshadow"
+)
 melee_host_enable_sanitizers(melee_game_core)
 # The player bootstrap is a legacy translation unit with references to the
 # unported fighter and stage graph.  Sanitizer global metadata retains that
@@ -207,6 +242,9 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/spline_test.cpp
         tests/gx_state_test.cpp
         tests/video_test.cpp
+        tests/os_heap_test.cpp
+        tests/hsd_graphics_test.cpp
+        tests/hsd_materialize_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
         tests/test_main.cpp
@@ -232,6 +270,35 @@ if(MELEE_HOST_BUILD_TESTS)
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_tests_properties(melee-host-tlut-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # The same data, loaded through the original object layer instead of the
+    # read-only schema.  One menu scene and one character model, which is the
+    # deeper tree and the one carrying envelopes and shape sets.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/GmPause.dat")
+        add_test(
+            NAME melee-host-scene-load-asset
+            COMMAND melee-pc --render-scene
+                    ${CMAKE_SOURCE_DIR}/assets-local/GmPause.dat
+                    ScGamPause_scene_data
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-scene-load-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/PlMrNr.dat")
+        add_test(
+            NAME melee-host-model-load-asset
+            COMMAND melee-pc --render-joint
+                    ${CMAKE_SOURCE_DIR}/assets-local/PlMrNr.dat
+                    PlyMario5K_Share_joint
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-model-load-asset PROPERTIES
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()

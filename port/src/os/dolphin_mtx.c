@@ -397,6 +397,80 @@ void MTXRotRad(Mtx m, char axis, f32 rad)
     }
 }
 
+/* ---------------------------------------------------------------------------
+ * Light and shadow texture projections.
+ *
+ * These build a 3x4 matrix that maps eye space straight to texture
+ * coordinates, so a projected shadow or light map needs no separate
+ * normalized-device step.  The result is the ordinary projection composed with
+ * the scale and translate that turn the [-1, 1] device range into the [0, 1]
+ * texture range, which is why the game passes scale 0.5 and translate 0.5.
+ *
+ * The perspective forms leave q = -z in the third row so the hardware divide
+ * produces the projection; the orthographic form leaves q = 1 because there is
+ * no divide.
+ * ------------------------------------------------------------------------- */
+
+void MTXLightFrustum(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 n, f32 scaleS,
+                     f32 scaleT, f32 transS, f32 transT)
+{
+    const f32 width_scale = 1.0F / (r - l);
+    const f32 height_scale = 1.0F / (t - b);
+
+    m[0][0] = (2.0F * n * width_scale) * scaleS;
+    m[0][1] = 0.0F;
+    m[0][2] = ((r + l) * width_scale) * scaleS - transS;
+    m[0][3] = 0.0F;
+    m[1][0] = 0.0F;
+    m[1][1] = (2.0F * n * height_scale) * scaleT;
+    m[1][2] = ((t + b) * height_scale) * scaleT - transT;
+    m[1][3] = 0.0F;
+    m[2][0] = 0.0F;
+    m[2][1] = 0.0F;
+    m[2][2] = -1.0F;
+    m[2][3] = 0.0F;
+}
+
+void MTXLightPerspective(Mtx m, f32 fovY, f32 aspect, f32 scaleS, f32 scaleT,
+                         f32 transS, f32 transT)
+{
+    const f32 half_angle = MTXDegToRad(fovY) * 0.5F;
+    const f32 cotangent = cosf(half_angle) / sinf(half_angle);
+
+    m[0][0] = (cotangent / aspect) * scaleS;
+    m[0][1] = 0.0F;
+    m[0][2] = -transS;
+    m[0][3] = 0.0F;
+    m[1][0] = 0.0F;
+    m[1][1] = cotangent * scaleT;
+    m[1][2] = -transT;
+    m[1][3] = 0.0F;
+    m[2][0] = 0.0F;
+    m[2][1] = 0.0F;
+    m[2][2] = -1.0F;
+    m[2][3] = 0.0F;
+}
+
+void MTXLightOrtho(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 scaleS, f32 scaleT,
+                   f32 transS, f32 transT)
+{
+    const f32 width_scale = 1.0F / (r - l);
+    const f32 height_scale = 1.0F / (t - b);
+
+    m[0][0] = 2.0F * width_scale * scaleS;
+    m[0][1] = 0.0F;
+    m[0][2] = 0.0F;
+    m[0][3] = (-(r + l) * width_scale) * scaleS + transS;
+    m[1][0] = 0.0F;
+    m[1][1] = 2.0F * height_scale * scaleT;
+    m[1][2] = 0.0F;
+    m[1][3] = (-(t + b) * height_scale) * scaleT + transT;
+    m[2][0] = 0.0F;
+    m[2][1] = 0.0F;
+    m[2][2] = 0.0F;
+    m[2][3] = 1.0F;
+}
+
 void PSVECAdd(Vec* a, Vec* b, Vec* result)
 {
     const f32 x = a->x + b->x;

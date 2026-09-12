@@ -753,7 +753,13 @@ int HSD_CObjGetLeftVector(HSD_CObj* cobj, Vec3* left)
 
 void HSD_CObjSetMtxDirty(HSD_CObj* cobj)
 {
+#ifdef MELEE_HOST
+    /* Same two bits, spelled unsigned: shifting one into the sign bit of an
+     * int is undefined behaviour the sanitizers report. */
+    cobj->flags |= (1U << 30) | (1U << 31);
+#else
     cobj->flags |= (1 << 30) | (1 << 31);
+#endif
 }
 
 bool HSD_CObjMtxIsDirty(HSD_CObj* cobj)

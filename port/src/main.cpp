@@ -20,6 +20,7 @@
 #include <melee_host/local_match.h>
 #include <melee_host/match_rules.h>
 #include <melee_host/menu_native.h>
+#include <melee_host/scene_graphics.h>
 #include <melee_host/scene_runtime.h>
 
 #include <algorithm>
@@ -78,8 +79,17 @@ void print_usage(const char* executable)
               << "  " << executable << " --diagnose-scene-runtime [FRAMES]\n"
               << "  " << executable << " --inspect-hsd FILE\n"
               << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
+              << "  " << executable
+              << " --load-scene FILE SYMBOL [MODEL_INDEX]\n"
+              << "  " << executable << " --load-joint FILE SYMBOL\n"
+              << "  " << executable
+              << " --render-scene FILE SYMBOL [MODEL_INDEX]\n"
+              << "  " << executable << " --render-joint FILE SYMBOL\n"
 #if defined(MELEE_HOST_SDL_RENDERER)
               << "  " << executable << " --view-pobj FILE SYMBOL\n"
+              << "  " << executable
+              << " --view-scene FILE SYMBOL [MODEL_INDEX]\n"
+              << "  " << executable << " --view-joint FILE SYMBOL\n"
 #endif
               << "  " << executable << " --inspect-resources DIRECTORY\n"
               << "  " << executable << " --read-resource DIRECTORY PATH\n";
@@ -637,6 +647,274 @@ int read_resource(const std::filesystem::path& root, std::string path)
     return 0;
 }
 
+/* Loads a scene from disk through the original object layer, rather than
+ * through the read-only schema the geometry preview uses. */
+#if defined(MELEE_HOST_SDL_RENDERER)
+/* Shows what the original display path drew, rather than the geometry the
+ * read-only schema decodes separately.  The capture is asked for in world
+ * space so the viewer can move its own camera around the model. */
+int view_scene(const char* path, const char* symbol, bool scene_model,
+               mh_u32 model_index)
+{
+    MeleeHostSceneModel model = 0;
+    const MeleeHostStatus status =
+        scene_model
+            ? melee_host_scene_graphics_load_model(path, symbol, model_index,
+                                                   &model)
+            : melee_host_scene_graphics_load_joint(path, symbol, &model);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_status_string(status) << ": "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    MeleeHostSceneRenderStats drawn{};
+    if (melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
+                                         &drawn) != MELEE_HOST_OK) {
+        std::cerr << "scene render failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    /* The ids the captured vertices carry index this table in order, so an
+     * image that cannot be decoded still has to occupy its slot. */
+    std::vector<melee::render::TextureImage> images;
+    std::size_t decoded_count = 0;
+    for (mh_u32 id = 0; id < drawn.textures; ++id) {
+        MeleeHostGxTextureDesc desc{};
+        melee::render::TextureImage image{ 1, 1, 0, 0,
+                                           { 255, 255, 255, 255 } };
+        if (melee_host_gx_captured_texture_at(id, &desc) &&
+            desc.image != nullptr)
+        {
+            const std::size_t byte_count = melee::assets::gx_texture_data_size(
+                desc.width, desc.height, desc.format);
+            const std::span<const std::byte> data{
+                static_cast<const std::byte*>(desc.image), byte_count
+            };
+            try {
+                melee::assets::DecodedTexture decoded{};
+                MeleeHostGxTlutDesc tlut{};
+                if (desc.color_indexed &&
+                    melee_host_gx_loaded_tlut(desc.tlut_name, &tlut) &&
+                    tlut.loaded && tlut.entries != nullptr)
+                {
+                    decoded = melee::assets::decode_gx_texture_with_tlut(
+                        data, desc.width, desc.height, desc.format,
+                        { static_cast<const std::byte*>(tlut.entries),
+                          static_cast<std::size_t>(tlut.entry_count) * 2 },
+                        tlut.format);
+                } else if (!desc.color_indexed) {
+                    decoded = melee::assets::decode_gx_texture(
+                        data, desc.width, desc.height, desc.format);
+                }
+                if (!decoded.rgba.empty()) {
+                    image = { decoded.width, decoded.height, desc.wrap_s,
+                              desc.wrap_t, std::move(decoded.rgba) };
+                    ++decoded_count;
+                }
+            } catch (const std::exception& error) {
+                std::cerr << "texture " << id << " not decoded: "
+                          << error.what() << '\n';
+            }
+        }
+        images.push_back(std::move(image));
+    }
+
+    std::cout << "showing " << drawn.triangles << " triangles from "
+              << symbol << " through the original display path\n"
+              << "  textures decoded: " << decoded_count << " of "
+              << drawn.textures << '\n';
+    if (drawn.display_list_errors != 0 || drawn.rejected_indices != 0) {
+        std::cerr << "capture incomplete: " << drawn.display_list_errors
+                  << " display list errors, " << drawn.rejected_indices
+                  << " rejected indices\n";
+        melee_host_scene_graphics_release(model);
+        return 1;
+    }
+
+    melee::render::set_texture_images(std::move(images));
+    MeleeHostContext* context = nullptr;
+    const MeleeHostConfig config{ .resource_root = nullptr,
+                                  .headless = false };
+    if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+        melee_host_activate_pad_backend(context) != MELEE_HOST_OK)
+    {
+        melee_host_destroy(context);
+        melee_host_scene_graphics_release(model);
+        std::cerr << "could not initialize SDL input context\n";
+        return 1;
+    }
+    std::string error;
+    const bool shown = melee::render::show_captured_geometry(context, &error);
+    melee_host_destroy(context);
+    /* The captured textures point into the archive payload the handle owns, so
+     * the model outlives the window. */
+    melee_host_scene_graphics_release(model);
+    if (!shown) {
+        std::cerr << "preview failed: " << error << '\n';
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+int load_scene(const char* path, const char* symbol, bool scene_model,
+               mh_u32 model_index, bool render = false,
+               MeleeHostSceneView view = MELEE_HOST_SCENE_VIEW_SCENE_CAMERA)
+{
+    MeleeHostSceneModel model = 0;
+    const MeleeHostStatus status =
+        scene_model
+            ? melee_host_scene_graphics_load_model(path, symbol, model_index,
+                                                   &model)
+            : melee_host_scene_graphics_load_joint(path, symbol, &model);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_status_string(status) << ": "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    MeleeHostSceneModelStats stats{};
+    if (melee_host_scene_graphics_stats(model, &stats) != MELEE_HOST_OK) {
+        std::cerr << "scene stats failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    std::cout << "loaded " << symbol << " from " << path;
+    if (scene_model) {
+        std::cout << " model " << model_index;
+    }
+    std::cout << " through the original HSD object layer\n"
+              << "  JObj: " << stats.jobjs << " (depth " << stats.tree_depth
+              << ")\n"
+              << "  DObj: " << stats.dobjs << '\n'
+              << "  MObj: " << stats.mobjs << " (TObj " << stats.tobjs
+              << ")\n"
+              << "  PObj: " << stats.pobjs << " (textured "
+              << stats.textured_pobjs << ")\n"
+              << "  display list blocks: " << stats.display_blocks << '\n'
+              << "  not drawn: " << stats.undrawn_pobjs << " PObj (hidden "
+              << stats.hidden_jobjs << " JObj / " << stats.hidden_dobjs
+              << " DObj, both-face cull " << stats.culled_pobjs << ")\n"
+              << "  host descriptor bytes: " << stats.descriptor_bytes << '\n'
+              << "  archive payload bytes: " << stats.payload_bytes << '\n';
+
+    float position[3] = { 0.0F, 0.0F, 0.0F };
+    if (melee_host_scene_graphics_joint_world_position(model, 0, position) ==
+        MELEE_HOST_OK)
+    {
+        std::cout << "  root world position: " << position[0] << ' '
+                  << position[1] << ' ' << position[2] << '\n';
+    }
+
+    if (render) {
+        MeleeHostSceneRenderStats drawn{};
+        if (melee_host_scene_graphics_render(model, view, &drawn) !=
+            MELEE_HOST_OK) {
+            std::cerr << "scene render failed: "
+                      << melee_host_scene_graphics_last_error() << '\n';
+            return 1;
+        }
+        std::cout << "rendered through HSD_JObjDispAll"
+                  << (drawn.used_scene_camera ? " with the scene camera"
+                                              : " with the host camera")
+                  << (view == MELEE_HOST_SCENE_VIEW_WORLD
+                          ? ", world space"
+                          : ", view space")
+                  << '\n'
+                  << "  triangles: " << drawn.triangles << " (textured "
+                  << drawn.textured_triangles << ")\n"
+                  << "  textures bound: " << drawn.textures << '\n'
+                  << "  distinct draw states: " << drawn.draw_states << "\n"
+                  << "  vertices: " << drawn.vertices << '\n'
+                  << "  per pass opa/texedge/xlu: " << drawn.pass_triangles[0]
+                  << '/' << drawn.pass_triangles[1] << '/'
+                  << drawn.pass_triangles[2] << '\n'
+                  << "  display list errors: " << drawn.display_list_errors
+                  << '\n'
+                  << "  rejected vertex indices: " << drawn.rejected_indices
+                  << '\n';
+        std::cout << "  distinct TEV states: " << drawn.tev_states << '\n'
+                  << "  material read exactly: "
+                  << drawn.shading_exact_triangles << " triangles, "
+                  << drawn.shading_approximated_triangles
+                  << " approximated\n";
+        for (std::size_t id = 0;
+             id < melee_host_gx_captured_tev_state_count() ; ++id) {
+            MeleeHostGxTevState tev{};
+            if (!melee_host_gx_captured_tev_state_at(id, &tev)) {
+                continue;
+            }
+            std::cout << "  tev " << id << ": stages="
+                      << static_cast<unsigned>(tev.stage_count)
+                      << " texgens="
+                      << static_cast<unsigned>(tev.texcoord_gen_count)
+                      << " channels="
+                      << static_cast<unsigned>(tev.channel_count);
+            for (std::size_t stage = 0; stage < tev.stage_count && stage < 4;
+                 ++stage) {
+                std::cout << " [" << stage << " mode="
+                          << (tev.stages[stage].mode ==
+                                      MELEE_HOST_GX_TEV_MODE_CUSTOM
+                                  ? std::string("custom")
+                                  : std::to_string(tev.stages[stage].mode))
+                          << " map=" << tev.stages[stage].texmap
+                          << " chan=" << tev.stages[stage].color_channel
+                          << " cin=" << tev.stages[stage].color_input[0] << ','
+                          << tev.stages[stage].color_input[1] << ','
+                          << tev.stages[stage].color_input[2] << ','
+                          << tev.stages[stage].color_input[3]
+                          << " cop=" << tev.stages[stage].color_op
+                          << " cbias=" << tev.stages[stage].color_bias
+                          << " cscale=" << tev.stages[stage].color_scale
+                          << " creg=" << tev.stages[stage].color_out_reg
+                          << " ain=" << tev.stages[stage].alpha_input[0] << ','
+                          << tev.stages[stage].alpha_input[1] << ','
+                          << tev.stages[stage].alpha_input[2] << ','
+                          << tev.stages[stage].alpha_input[3]
+                          << " areg=" << tev.stages[stage].alpha_out_reg
+                          << ']';
+            }
+            std::cout << '\n';
+        }
+
+        /* The state each group of triangles ran under, which is what a viewer
+         * has to follow instead of assuming fixed passes. */
+        for (mh_u32 id = 0; id < drawn.draw_states && id < 8; ++id) {
+            MeleeHostGxDrawState state{};
+            if (!melee_host_gx_captured_draw_state_at(id, &state)) {
+                continue;
+            }
+            std::cout << "  state " << id << ": cull=" << state.cull_mode
+                      << " ztest=" << state.z_compare_enable
+                      << " zwrite=" << state.z_update_enable
+                      << " zfunc=" << state.z_func
+                      << " blend=" << state.blend_mode << '('
+                      << state.blend_src_factor << ','
+                      << state.blend_dst_factor << ')'
+                      << " alpha=" << state.alpha_compare_0 << '@'
+                      << static_cast<unsigned>(state.alpha_ref_0) << " op="
+                      << state.alpha_op << ' ' << state.alpha_compare_1 << '@'
+                      << static_cast<unsigned>(state.alpha_ref_1) << '\n';
+        }
+        if (drawn.display_list_errors != 0 || drawn.rejected_indices != 0) {
+            return 1;
+        }
+    }
+
+    if (melee_host_scene_graphics_release(model) != MELEE_HOST_OK) {
+        std::cerr << "scene release failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -670,6 +948,41 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string(argv[1]) == "--inspect-hsd") {
             return inspect_hsd(argv[2]);
         }
+        if ((argc == 4 || argc == 5) &&
+            std::string(argv[1]) == "--load-scene") {
+            mh_u32 model_index = 0;
+            if (argc == 5) {
+                model_index = static_cast<mh_u32>(std::stoul(argv[4]));
+            }
+            return load_scene(argv[2], argv[3], true, model_index);
+        }
+        if (argc == 4 && std::string(argv[1]) == "--load-joint") {
+            return load_scene(argv[2], argv[3], false, 0);
+        }
+        if ((argc == 4 || argc == 5) &&
+            std::string(argv[1]) == "--render-scene") {
+            mh_u32 model_index = 0;
+            if (argc == 5) {
+                model_index = static_cast<mh_u32>(std::stoul(argv[4]));
+            }
+            return load_scene(argv[2], argv[3], true, model_index, true);
+        }
+        if (argc == 4 && std::string(argv[1]) == "--render-joint") {
+            return load_scene(argv[2], argv[3], false, 0, true);
+        }
+#if defined(MELEE_HOST_SDL_RENDERER)
+        if ((argc == 4 || argc == 5) &&
+            std::string(argv[1]) == "--view-scene") {
+            mh_u32 model_index = 0;
+            if (argc == 5) {
+                model_index = static_cast<mh_u32>(std::stoul(argv[4]));
+            }
+            return view_scene(argv[2], argv[3], true, model_index);
+        }
+        if (argc == 4 && std::string(argv[1]) == "--view-joint") {
+            return view_scene(argv[2], argv[3], false, 0);
+        }
+#endif
         if (argc == 4 && std::string(argv[1]) == "--inspect-pobj") {
             return inspect_pobj(argv[2], argv[3]);
         }

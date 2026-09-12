@@ -45,9 +45,20 @@ typedef void (*__OSInterruptHandler)(__OSInterrupt interrupt,
 // IWYU pragma: end_exports
 
 // private macro, maybe shouldn't be defined here?
+#if defined(MELEE_HOST)
+/* These macros round addresses, so on a 64-bit host they must work at pointer
+ * width.  Casting through u32 would clear the upper half of every address the
+ * host allocator hands out.  The PowerPC path keeps the original u32 form, so
+ * the matching build is unchanged. */
+#define OFFSET(addr, align) (((uintptr_t) (addr) & ((uintptr_t) (align) - 1)))
+#define ROUND(n, a)                                                           \
+    (((uintptr_t) (n) + (uintptr_t) (a) - 1) & ~((uintptr_t) (a) - 1))
+#define TRUNC(n, a) (((uintptr_t) (n)) & ~((uintptr_t) (a) - 1))
+#else
 #define OFFSET(addr, align) (((u32) (addr) & ((align) - 1)))
 #define ROUND(n, a) (((u32) (n) + (a) - 1) & ~((a) - 1))
 #define TRUNC(n, a) (((u32) (n)) & ~((a) - 1))
+#endif
 
 u32 OSGetPhysicalMemSize(void);
 u32 OSGetConsoleSimulatedMemSize(void);

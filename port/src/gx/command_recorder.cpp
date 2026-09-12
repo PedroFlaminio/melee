@@ -27,9 +27,32 @@ struct ActiveDraw {
     mh_u8 vertex_format = 0;
     mh_u16 expected_vertices = 0;
     std::size_t captured_vertex_start = 0;
+    /* The position matrix the draw starts from, and the one the next vertex
+     * will use.  They differ when the stream carries GX_VA_PNMTXIDX, which is
+     * how a skinned PObj addresses a different joint per vertex. */
+    mh_u32 draw_matrix_row = 0;
+    mh_u32 vertex_matrix_row = 0;
+    /* The texture bound when the draw began, as an index into the captured
+     * texture table, or MELEE_HOST_GX_NO_TEXTURE. */
+    mh_u32 texture_image = MELEE_HOST_GX_NO_TEXTURE;
+    /* Index into the captured draw-state table. */
+    mh_u32 draw_state = 0;
+    /* Index into the captured TEV-state table. */
+    mh_u32 tev_state = 0;
     std::vector<MeleeHostGxPosition3f32> positions;
     std::vector<MeleeHostGxCapturedVertex> vertices;
 };
+
+/* Distinct textures seen while capturing, in the order they were first bound.
+ * A consumer uploads each once and indexes it by the id carried on the
+ * vertex. */
+std::vector<MeleeHostGxTextureDesc> captured_textures;
+/* Distinct pixel states the draws ran under, in first-use order. */
+std::vector<MeleeHostGxDrawState> captured_draw_states;
+/* Distinct TEV configurations, likewise. */
+std::vector<MeleeHostGxTevState> captured_tev_states;
+/* The position matrix row each captured vertex was drawn with. */
+std::vector<mh_u32> captured_vertex_matrix_rows;
 
 ActiveDraw active_draw;
 
@@ -48,6 +71,22 @@ struct AttributeArray {
 constexpr std::size_t kAttributeCount = static_cast<std::size_t>(GX_VA_MAX_ATTR);
 constexpr std::size_t kVertexFormatCount =
     static_cast<std::size_t>(GX_MAX_VTXFMT);
+/* The order vertex data appears in a display list, which is the hardware's
+ * layout and not the numeric order of GXAttr.  GX_VA_NBT sits in the normal
+ * slot: it describes the same field with three vectors instead of one, and the
+ * two are mutually exclusive, so a stream carrying NBT puts its index where a
+ * normal index would go.  Walking GXAttr numerically instead would consume the
+ * NBT index after the texture coordinates and desynchronize every vertex that
+ * has both. */
+constexpr std::array<GXAttr, 22> kVertexLayoutOrder{
+    GX_VA_PNMTXIDX,  GX_VA_TEX0MTXIDX, GX_VA_TEX1MTXIDX, GX_VA_TEX2MTXIDX,
+    GX_VA_TEX3MTXIDX, GX_VA_TEX4MTXIDX, GX_VA_TEX5MTXIDX, GX_VA_TEX6MTXIDX,
+    GX_VA_TEX7MTXIDX, GX_VA_POS,       GX_VA_NRM,        GX_VA_NBT,
+    GX_VA_CLR0,      GX_VA_CLR1,       GX_VA_TEX0,       GX_VA_TEX1,
+    GX_VA_TEX2,      GX_VA_TEX3,       GX_VA_TEX4,       GX_VA_TEX5,
+    GX_VA_TEX6,      GX_VA_TEX7,
+};
+
 constexpr std::size_t kUnboundedArraySize =
     std::numeric_limits<std::size_t>::max();
 
@@ -55,6 +94,32 @@ std::array<GXAttrType, kAttributeCount> vertex_descriptors{};
 std::array<std::array<AttributeFormat, kAttributeCount>, kVertexFormatCount>
     attribute_formats{};
 std::array<AttributeArray, kAttributeCount> attribute_arrays{};
+
+/* Regions the host owns and knows the extent of, which is how an array set
+ * through the original GXSetArray still gets a bound.  On the console the
+ * array simply ran into whatever followed it in the archive; the host has the
+ * archive's extent, so it can stop at the end of the file instead of reading
+ * past it. */
+struct ArrayRegion {
+    const std::byte* base;
+    std::size_t byte_length;
+};
+
+std::vector<ArrayRegion> array_regions;
+
+/* Indexed reads refused because they fell outside a bounded array. */
+std::size_t rejected_index_count = 0;
+
+std::size_t bounded_length_locked(const std::byte* base)
+{
+    for (const ArrayRegion& region : array_regions) {
+        if (base >= region.base && base < region.base + region.byte_length) {
+            return static_cast<std::size_t>(region.base + region.byte_length -
+                                            base);
+        }
+    }
+    return kUnboundedArraySize;
+}
 std::size_t display_list_errors = 0;
 
 constexpr mh_u8 kGxQuads = 0x80U;
@@ -103,6 +168,346 @@ void submit(MeleeHostGxValueType type, mh_u32 bits)
     submit_locked(type, bits);
 }
 
+/* Applies an affine transform to one captured vertex: the position through the
+ * full matrix, the normal through its normalized inverse-transpose, and the
+ * tangent and binormal as directions. */
+bool same_draw_state(const MeleeHostGxDrawState& left,
+                     const MeleeHostGxDrawState& right)
+{
+    return left.cull_mode == right.cull_mode &&
+           left.z_compare_enable == right.z_compare_enable &&
+           left.z_update_enable == right.z_update_enable &&
+           left.z_func == right.z_func &&
+           left.blend_mode == right.blend_mode &&
+           left.blend_src_factor == right.blend_src_factor &&
+           left.blend_dst_factor == right.blend_dst_factor &&
+           left.blend_logic_op == right.blend_logic_op &&
+           left.color_update_enable == right.color_update_enable &&
+           left.alpha_update_enable == right.alpha_update_enable &&
+           left.alpha_compare_0 == right.alpha_compare_0 &&
+           left.alpha_compare_1 == right.alpha_compare_1 &&
+           left.alpha_op == right.alpha_op &&
+           left.alpha_ref_0 == right.alpha_ref_0 &&
+           left.alpha_ref_1 == right.alpha_ref_1;
+}
+
+/* Projects the modelled pixel state onto the fields that decide how a triangle
+ * reaches the framebuffer, then resolves it to an index in the captured table.
+ */
+mh_u32 current_draw_state_id_locked()
+{
+    MeleeHostGxPixelState pixel{};
+    melee_host_gx_pixel_state(&pixel);
+    const MeleeHostGxDrawState state{
+        pixel.cull_mode,      pixel.z_compare_enable,
+        pixel.z_update_enable, pixel.z_func,
+        pixel.blend_mode,     pixel.blend_src_factor,
+        pixel.blend_dst_factor, pixel.blend_logic_op,
+        pixel.color_update_enable, pixel.alpha_update_enable,
+        pixel.alpha_compare_0, pixel.alpha_compare_1,
+        pixel.alpha_op,       pixel.alpha_ref_0,
+        pixel.alpha_ref_1,
+    };
+    for (std::size_t index = 0; index < captured_draw_states.size(); ++index) {
+        if (same_draw_state(captured_draw_states[index], state)) {
+            return static_cast<mh_u32>(index);
+        }
+    }
+    captured_draw_states.push_back(state);
+    return static_cast<mh_u32>(captured_draw_states.size() - 1);
+}
+
+bool same_tev_stage(const MeleeHostGxTevStage& left,
+                    const MeleeHostGxTevStage& right)
+{
+    for (std::size_t index = 0; index < 4; ++index) {
+        if (left.color_input[index] != right.color_input[index] ||
+            left.alpha_input[index] != right.alpha_input[index])
+        {
+            return false;
+        }
+    }
+    return left.mode == right.mode && left.texcoord == right.texcoord &&
+           left.texmap == right.texmap &&
+           left.color_channel == right.color_channel &&
+           left.color_op == right.color_op &&
+           left.color_bias == right.color_bias &&
+           left.color_scale == right.color_scale &&
+           left.color_out_reg == right.color_out_reg &&
+           left.color_clamp == right.color_clamp &&
+           left.alpha_op == right.alpha_op &&
+           left.alpha_bias == right.alpha_bias &&
+           left.alpha_scale == right.alpha_scale &&
+           left.alpha_out_reg == right.alpha_out_reg &&
+           left.alpha_clamp == right.alpha_clamp &&
+           left.konst_color_select == right.konst_color_select &&
+           left.konst_alpha_select == right.konst_alpha_select &&
+           left.raster_swap == right.raster_swap &&
+           left.texture_swap == right.texture_swap;
+}
+
+/* Marks the register and konst components a program actually reads.
+ *
+ * This matters because HSD_TExpSetReg builds its register values in an
+ * uninitialized local and writes only the components its expression names, so
+ * whatever the stack held reaches GX in the rest.  Those components never
+ * affect the image, since no stage reads them, but comparing them would make
+ * two draws of the same material look different from one run to the next. */
+struct ReferencedComponents {
+    mh_u8 registers[MELEE_HOST_GX_MAX_TEVREG] = {};
+    mh_u8 konst[MELEE_HOST_GX_MAX_KCOLOR] = {};
+};
+
+constexpr mh_u8 kRgbMask = 0x7;
+constexpr mh_u8 kAlphaMask = 0x8;
+
+void mark_color_arg(mh_u32 arg, const MeleeHostGxTevStage& stage,
+                    ReferencedComponents* out)
+{
+    /* CPREV/APREV through C2/A2 name a register and a side of it. */
+    if (arg < 8) {
+        const std::size_t reg = arg / 2;
+        out->registers[reg] |= (arg % 2 == 0) ? kRgbMask : kAlphaMask;
+        return;
+    }
+    if (arg != 14) { // GX_CC_KONST
+        return;
+    }
+    const mh_u32 select = stage.konst_color_select;
+    if (select >= 0x0C && select <= 0x0F) {
+        out->konst[select - 0x0C] |= kRgbMask;
+    } else if (select >= 0x10 && select <= 0x1F) {
+        const std::size_t index = (select - 0x10) % 4;
+        const mh_u8 component =
+            select < 0x14 ? 0x1 : select < 0x18 ? 0x2
+                                : select < 0x1C ? 0x4
+                                                : kAlphaMask;
+        out->konst[index] |= component;
+    }
+}
+
+void mark_alpha_arg(mh_u32 arg, const MeleeHostGxTevStage& stage,
+                    ReferencedComponents* out)
+{
+    if (arg < 4) { // APREV, A0, A1, A2
+        out->registers[arg] |= kAlphaMask;
+        return;
+    }
+    if (arg != 6) { // GX_CA_KONST
+        return;
+    }
+    const mh_u32 select = stage.konst_alpha_select;
+    if (select >= 0x10 && select <= 0x1F) {
+        const std::size_t index = (select - 0x10) % 4;
+        const mh_u8 component =
+            select < 0x14 ? 0x1 : select < 0x18 ? 0x2
+                                : select < 0x1C ? 0x4
+                                                : kAlphaMask;
+        out->konst[index] |= component;
+    }
+}
+
+ReferencedComponents referenced_components(const MeleeHostGxTevState& tev)
+{
+    ReferencedComponents referenced;
+    const std::size_t stages =
+        tev.stage_count < MELEE_HOST_GX_MAX_TEVSTAGE
+            ? tev.stage_count
+            : static_cast<std::size_t>(MELEE_HOST_GX_MAX_TEVSTAGE);
+    for (std::size_t stage = 0; stage < stages; ++stage) {
+        for (std::size_t input = 0; input < 4; ++input) {
+            mark_color_arg(tev.stages[stage].color_input[input],
+                           tev.stages[stage], &referenced);
+            mark_alpha_arg(tev.stages[stage].alpha_input[input],
+                           tev.stages[stage], &referenced);
+        }
+    }
+    return referenced;
+}
+
+/* Compared field by field rather than with memcmp: the struct has padding, and
+ * a byte comparison would make two equal configurations look different. */
+bool same_tev_state(const MeleeHostGxTevState& left,
+                    const MeleeHostGxTevState& right)
+{
+    if (left.stage_count != right.stage_count ||
+        left.texcoord_gen_count != right.texcoord_gen_count ||
+        left.channel_count != right.channel_count)
+    {
+        return false;
+    }
+    for (std::size_t stage = 0; stage < left.stage_count; ++stage) {
+        if (!same_tev_stage(left.stages[stage], right.stages[stage])) {
+            return false;
+        }
+    }
+    for (std::size_t gen = 0; gen < left.texcoord_gen_count; ++gen) {
+        const MeleeHostGxTexCoordGen& a = left.texcoord_gens[gen];
+        const MeleeHostGxTexCoordGen& b = right.texcoord_gens[gen];
+        if (a.function != b.function || a.source != b.source ||
+            a.matrix != b.matrix || a.normalize != b.normalize ||
+            a.post_matrix != b.post_matrix)
+        {
+            return false;
+        }
+    }
+    /* Only the components some stage reads; see ReferencedComponents. */
+    const ReferencedComponents referenced = referenced_components(left);
+    for (std::size_t reg = 0; reg < MELEE_HOST_GX_MAX_TEVREG; ++reg) {
+        for (std::size_t channel = 0; channel < 4; ++channel) {
+            const mh_u8 bit =
+                channel == 3 ? kAlphaMask
+                             : static_cast<mh_u8>(1U << channel);
+            if ((referenced.registers[reg] & bit) != 0 &&
+                left.registers[reg][channel] != right.registers[reg][channel])
+            {
+                return false;
+            }
+        }
+    }
+    for (std::size_t konst = 0; konst < MELEE_HOST_GX_MAX_KCOLOR; ++konst) {
+        for (std::size_t channel = 0; channel < 4; ++channel) {
+            const mh_u8 bit =
+                channel == 3 ? kAlphaMask
+                             : static_cast<mh_u8>(1U << channel);
+            if ((referenced.konst[konst] & bit) != 0 &&
+                left.konst_colors[konst][channel] !=
+                    right.konst_colors[konst][channel])
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+mh_u32 current_tev_state_id_locked()
+{
+    MeleeHostGxTevState state{};
+    melee_host_gx_tev_state(&state);
+    for (std::size_t index = 0; index < captured_tev_states.size(); ++index) {
+        if (same_tev_state(captured_tev_states[index], state)) {
+            return static_cast<mh_u32>(index);
+        }
+    }
+    captured_tev_states.push_back(state);
+    return static_cast<mh_u32>(captured_tev_states.size() - 1);
+}
+
+void transform_vertex_locked(MeleeHostGxCapturedVertex& vertex,
+                             const MeleeHostGxAffineTransform& matrix)
+{
+    const mh_f32 a = matrix.values[0][0];
+    const mh_f32 b = matrix.values[0][1];
+    const mh_f32 c = matrix.values[0][2];
+    const mh_f32 d = matrix.values[1][0];
+    const mh_f32 e = matrix.values[1][1];
+    const mh_f32 f = matrix.values[1][2];
+    const mh_f32 g = matrix.values[2][0];
+    const mh_f32 h = matrix.values[2][1];
+    const mh_f32 i = matrix.values[2][2];
+    const mh_f32 determinant =
+        a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    const auto transform_direction =
+        [=](const MeleeHostGxPosition3f32& source) {
+            return MeleeHostGxPosition3f32{
+                a * source.x + b * source.y + c * source.z,
+                d * source.x + e * source.y + f * source.z,
+                g * source.x + h * source.y + i * source.z,
+            };
+        };
+    const auto transform_normal = [=](const MeleeHostGxPosition3f32& source) {
+        if (std::fabs(determinant) < 1.0e-8F) {
+            return transform_direction(source);
+        }
+        return MeleeHostGxPosition3f32{
+            ((e * i - f * h) * source.x + (f * g - d * i) * source.y +
+             (d * h - e * g) * source.z) / determinant,
+            ((c * h - b * i) * source.x + (a * i - c * g) * source.y +
+             (b * g - a * h) * source.z) / determinant,
+            ((b * f - c * e) * source.x + (c * d - a * f) * source.y +
+             (a * e - b * d) * source.z) / determinant,
+        };
+    };
+    const auto normalize = [](MeleeHostGxPosition3f32 vector) {
+        const mh_f32 length = std::sqrt(vector.x * vector.x +
+                                        vector.y * vector.y +
+                                        vector.z * vector.z);
+        if (length > 0.0F) {
+            vector.x /= length;
+            vector.y /= length;
+            vector.z /= length;
+        }
+        return vector;
+    };
+
+    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_POSITION) != 0) {
+        const auto source = vertex.position;
+        vertex.position = {
+            a * source.x + b * source.y + c * source.z + matrix.values[0][3],
+            d * source.x + e * source.y + f * source.z + matrix.values[1][3],
+            g * source.x + h * source.y + i * source.z + matrix.values[2][3],
+        };
+    }
+    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_NORMAL) != 0) {
+        vertex.normal = normalize(transform_normal(vertex.normal));
+    }
+    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_TANGENT) != 0) {
+        vertex.tangent = normalize(transform_direction(vertex.tangent));
+    }
+    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_BINORMAL) != 0) {
+        vertex.binormal = normalize(transform_direction(vertex.binormal));
+    }
+}
+
+/* Resolves the texture bound to the first texture map into an index in the
+ * captured table, adding it the first time it is seen.  Texture map zero is
+ * the one the HSD material path binds for the basic TEV case. */
+mh_u32 current_texture_id_locked()
+{
+    MeleeHostGxTextureDesc desc{};
+    if (!melee_host_gx_bound_texture(0, &desc) || !desc.bound ||
+        desc.image == nullptr)
+    {
+        return MELEE_HOST_GX_NO_TEXTURE;
+    }
+    for (std::size_t index = 0; index < captured_textures.size(); ++index) {
+        if (captured_textures[index].image == desc.image &&
+            captured_textures[index].format == desc.format &&
+            captured_textures[index].tlut_name == desc.tlut_name)
+        {
+            return static_cast<mh_u32>(index);
+        }
+    }
+    captured_textures.push_back(desc);
+    return static_cast<mh_u32>(captured_textures.size() - 1);
+}
+
+/* GX transforms every vertex by the position matrix in effect, so the capture
+ * does the same: a skinned PObj loads one matrix per joint and names them per
+ * vertex, which no single transform applied afterwards could reproduce. */
+void transform_captured_draw_locked()
+{
+    for (std::size_t index = active_draw.captured_vertex_start;
+         index < captured_vertices.size(); ++index) {
+        const mh_u32 row = captured_vertex_matrix_rows[index];
+        if (!melee_host_gx_matrix_loaded(row)) {
+            continue;
+        }
+        MeleeHostGxAffineTransform matrix{};
+        if (!melee_host_gx_matrix(row, &matrix)) {
+            continue;
+        }
+        transform_vertex_locked(captured_vertices[index], matrix);
+    }
+    for (std::size_t index = 0; index < triangles.size(); ++index) {
+        const auto& indices = captured_triangle_indices[index];
+        triangles[index] = { { captured_vertices[indices[0]].position,
+                               captured_vertices[indices[1]].position,
+                               captured_vertices[indices[2]].position } };
+    }
+}
+
 void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
                   mh_u16 vertex_count)
 {
@@ -114,6 +519,15 @@ void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
     active_draw.vertex_format = vertex_format;
     active_draw.expected_vertices = vertex_count;
     active_draw.captured_vertex_start = captured_vertices.size();
+    /* The state layer models the matrix memory and the bound textures, so the
+     * draw reads what the game set rather than keeping a second copy. */
+    MeleeHostGxTransformState transform{};
+    melee_host_gx_transform_state(&transform);
+    active_draw.draw_matrix_row = transform.current_matrix;
+    active_draw.vertex_matrix_row = transform.current_matrix;
+    active_draw.texture_image = current_texture_id_locked();
+    active_draw.draw_state = current_draw_state_id_locked();
+    active_draw.tev_state = current_tev_state_id_locked();
     active_draw.positions.clear();
     active_draw.positions.reserve(vertex_count);
     active_draw.vertices.clear();
@@ -207,6 +621,10 @@ const std::byte* indexed_data(GXAttr attribute, mh_u16 index,
         (offset > array.byte_length ||
          array.stride > array.byte_length - offset))
     {
+        /* Counted rather than passed over quietly: the caller drops the
+         * attribute when this returns nothing, so without a count a bad index
+         * would look like a vertex that simply had no normal. */
+        ++rejected_index_count;
         return nullptr;
     }
     return array.base + offset;
@@ -234,8 +652,18 @@ void capture_position(mh_f32 x, mh_f32 y, mh_f32 z)
     MeleeHostGxCapturedVertex vertex{};
     vertex.attributes = MELEE_HOST_GX_VERTEX_POSITION;
     vertex.position = { x, y, z };
+    vertex.texture_image = active_draw.texture_image;
+    vertex.draw_state = active_draw.draw_state;
+    vertex.tev_state = active_draw.tev_state;
+    if (active_draw.texture_image != MELEE_HOST_GX_NO_TEXTURE) {
+        vertex.attributes |= MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE;
+    }
     active_draw.vertices.push_back(vertex);
     captured_vertices.push_back(vertex);
+    captured_vertex_matrix_rows.push_back(active_draw.vertex_matrix_row);
+    /* A matrix index applies to one vertex; the next falls back to the one the
+     * draw started with. */
+    active_draw.vertex_matrix_row = active_draw.draw_matrix_row;
     assemble_latest_position();
 }
 
@@ -515,6 +943,14 @@ std::size_t direct_attribute_size(GXAttr attribute,
 void decode_direct_attribute(GXAttr attribute, const std::byte* source,
                              const AttributeFormat& format)
 {
+    if (attribute == GX_VA_PNMTXIDX) {
+        /* The position-matrix index selects a row of matrix memory for this
+         * vertex alone, which is how an envelope-skinned PObj addresses one
+         * joint per vertex. */
+        active_draw.vertex_matrix_row =
+            std::to_integer<mh_u8>(source[0]);
+        return;
+    }
     if (attribute == GX_VA_POS) {
         const std::size_t size = component_size(format.component_type);
         const mh_f32 x = decode_component(source, format.component_type,
@@ -645,22 +1081,24 @@ bool parse_display_list_locked(const std::byte* cursor, std::size_t byte_count)
         begin_locked(primitive, vertex_format, vertex_count);
 
         for (mh_u16 vertex = 0; vertex < vertex_count; ++vertex) {
-            for (std::size_t index = 0; index < kAttributeCount; ++index) {
+            for (const GXAttr attribute : kVertexLayoutOrder) {
+                const std::size_t index = static_cast<std::size_t>(attribute);
                 const GXAttrType descriptor = vertex_descriptors[index];
                 if (descriptor == GX_NONE) {
                     continue;
                 }
-                const GXAttr attribute = static_cast<GXAttr>(index);
                 const AttributeFormat& format =
                     attribute_formats[vertex_format][index];
                 if (!consume_display_attribute(cursor, end, attribute,
                                                descriptor, format))
                 {
+                    transform_captured_draw_locked();
                     active_draw.active = false;
                     return false;
                 }
             }
         }
+        transform_captured_draw_locked();
         active_draw.active = false;
     }
     return true;
@@ -864,9 +1302,36 @@ extern "C" void GXSetArray(GXAttr attribute, const void* base, u8 stride)
 {
     const std::lock_guard<std::mutex> lock(command_mutex);
     if (valid_attribute(attribute)) {
+        const auto* const bytes = static_cast<const std::byte*>(base);
         attribute_arrays[static_cast<std::size_t>(attribute)] = {
-            static_cast<const std::byte*>(base), stride, kUnboundedArraySize
+            bytes, stride, bounded_length_locked(bytes)
         };
+    }
+}
+
+extern "C" void melee_host_gx_register_array_region(const void* base,
+                                                    size_t byte_length)
+{
+    if (base == nullptr || byte_length == 0) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    array_regions.push_back(
+        { static_cast<const std::byte*>(base), byte_length });
+}
+
+extern "C" void melee_host_gx_unregister_array_region(const void* base)
+{
+    if (base == nullptr) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    for (std::size_t index = 0; index < array_regions.size(); ++index) {
+        if (array_regions[index].base == base) {
+            array_regions.erase(array_regions.begin() +
+                                static_cast<std::ptrdiff_t>(index));
+            return;
+        }
     }
 }
 
@@ -899,6 +1364,12 @@ extern "C" void GXCallDisplayList(void* list, u32 byte_count)
     }
 }
 
+extern "C" size_t melee_host_gx_rejected_index_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return rejected_index_count;
+}
+
 extern "C" void melee_host_gx_reset_command_log(void)
 {
     const std::lock_guard<std::mutex> lock(command_mutex);
@@ -907,7 +1378,227 @@ extern "C" void melee_host_gx_reset_command_log(void)
     captured_vertices.clear();
     captured_triangle_indices.clear();
     display_list_errors = 0;
+    rejected_index_count = 0;
+    captured_textures.clear();
+    captured_draw_states.clear();
+    captured_tev_states.clear();
+    captured_vertex_matrix_rows.clear();
     active_draw = {};
+}
+
+extern "C" size_t melee_host_gx_captured_texture_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return captured_textures.size();
+}
+
+extern "C" bool melee_host_gx_captured_texture_at(
+    size_t index, MeleeHostGxTextureDesc* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_textures.size()) {
+        return false;
+    }
+    *output = captured_textures[index];
+    return true;
+}
+
+extern "C" bool melee_host_gx_resolve_alpha_test(
+    const MeleeHostGxDrawState* state, mh_u32* out_compare,
+    mh_u8* out_reference)
+{
+    if (state == nullptr || out_compare == nullptr ||
+        out_reference == nullptr) {
+        return false;
+    }
+    enum : mh_u32 {
+        kCompareLessEqual = 3,
+        kCompareGreaterEqual = 6,
+        kCompareAlways = 7,
+        kOpAnd = 0,
+    };
+    /* True for every alpha, so the comparison says nothing. */
+    const auto vacuous = [](mh_u32 compare, mh_u8 reference) {
+        return compare == kCompareAlways ||
+               (compare == kCompareLessEqual && reference == 255) ||
+               (compare == kCompareGreaterEqual && reference == 0);
+    };
+    const bool first_vacuous =
+        vacuous(state->alpha_compare_0, state->alpha_ref_0);
+    const bool second_vacuous =
+        vacuous(state->alpha_compare_1, state->alpha_ref_1);
+
+    if (state->alpha_op == kOpAnd) {
+        if (first_vacuous && second_vacuous) {
+            return false;
+        }
+        if (first_vacuous) {
+            *out_compare = state->alpha_compare_1;
+            *out_reference = state->alpha_ref_1;
+            return true;
+        }
+    } else if (first_vacuous && second_vacuous) {
+        return false;
+    }
+    *out_compare = state->alpha_compare_0;
+    *out_reference = state->alpha_ref_0;
+    return true;
+}
+
+extern "C" bool melee_host_gx_resolve_shading(
+    const MeleeHostGxTevState* tev, MeleeHostGxResolvedShading* out_shading)
+{
+    if (tev == nullptr || out_shading == nullptr) {
+        return false;
+    }
+    enum : mh_u32 {
+        kColorC0 = 2,
+        kColorTexture = 8,
+        kColorRaster = 10,
+        kColorKonst = 14,
+        kColorZero = 15,
+        kAlphaA0 = 1,
+        kAlphaTexture = 4,
+        kAlphaRaster = 5,
+        kAlphaZero = 7,
+        kRegPrev = 0,
+        kRegTev0 = 1,
+        kOpAdd = 0,
+        kBiasZero = 0,
+        kScaleOne = 0,
+        kKonstK0 = 0x0C,
+    };
+
+    MeleeHostGxResolvedShading shading{};
+    shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
+    shading.constant_alpha = 255;
+    shading.uses_raster_alpha = true;
+    for (std::size_t channel = 0; channel < 4; ++channel) {
+        shading.konst_color[channel] = 255;
+    }
+
+    /* Only a single stage that writes the final register and leaves the
+     * arithmetic at its neutral settings can be read off directly. */
+    if (tev->stage_count != 1) {
+        *out_shading = shading;
+        return true;
+    }
+    const MeleeHostGxTevStage& stage = tev->stages[0];
+    const bool plain_arithmetic =
+        stage.color_op == kOpAdd && stage.color_bias == kBiasZero &&
+        stage.color_scale == kScaleOne &&
+        stage.color_out_reg == kRegPrev && stage.alpha_op == kOpAdd &&
+        stage.alpha_bias == kBiasZero && stage.alpha_scale == kScaleOne &&
+        stage.alpha_out_reg == kRegPrev;
+    if (!plain_arithmetic) {
+        *out_shading = shading;
+        return true;
+    }
+
+    /* The colour side.  GX computes d + ((1 - c) * a + c * b), so a form with
+     * a and d at zero is simply b scaled by c. */
+    const bool scaled_by_raster = stage.color_input[0] == kColorZero &&
+                                  stage.color_input[2] == kColorRaster &&
+                                  stage.color_input[3] == kColorZero;
+    const bool passthrough = stage.color_input[0] == kColorZero &&
+                             stage.color_input[1] == kColorZero &&
+                             stage.color_input[2] == kColorZero;
+    if (scaled_by_raster && stage.color_input[1] == kColorTexture) {
+        shading.kind = MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR;
+    } else if (scaled_by_raster && stage.color_input[1] == kColorKonst) {
+        shading.kind = MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR;
+        /* Only a whole konst colour is expressible here; the selector also
+         * names single components and constant fractions. */
+        if (stage.konst_color_select >= kKonstK0 &&
+            stage.konst_color_select <
+                static_cast<mh_u32>(kKonstK0) +
+                    static_cast<mh_u32>(MELEE_HOST_GX_MAX_KCOLOR))
+        {
+            const std::size_t konst =
+                stage.konst_color_select - static_cast<mh_u32>(kKonstK0);
+            for (std::size_t channel = 0; channel < 4; ++channel) {
+                shading.konst_color[channel] =
+                    tev->konst_colors[konst][channel];
+            }
+        } else {
+            shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
+        }
+    } else if (passthrough && stage.color_input[3] == kColorTexture) {
+        shading.kind = MELEE_HOST_GX_SHADING_TEXTURE;
+    } else if (passthrough && stage.color_input[3] == kColorRaster) {
+        shading.kind = MELEE_HOST_GX_SHADING_COLOR;
+    } else {
+        *out_shading = shading;
+        return true;
+    }
+
+    /* The alpha side, read the same way. */
+    const bool alpha_scaled_by_raster = stage.alpha_input[0] == kAlphaZero &&
+                                        stage.alpha_input[2] == kAlphaRaster &&
+                                        stage.alpha_input[3] == kAlphaZero;
+    if (alpha_scaled_by_raster && stage.alpha_input[1] == kAlphaA0) {
+        /* HSD keeps the material alpha in the first TEV register.  The stored
+         * value is signed 10-bit, so it is clamped back to a byte here. */
+        const mh_s16 stored = tev->registers[kRegTev0][3];
+        const mh_s16 clamped = stored < 0 ? 0 : (stored > 255 ? 255 : stored);
+        shading.constant_alpha = static_cast<mh_u8>(clamped);
+        shading.uses_raster_alpha = true;
+    } else if (alpha_scaled_by_raster &&
+               stage.alpha_input[1] == kAlphaTexture) {
+        /* Texture alpha times vertex alpha, which fixed-function modulation
+         * already produces. */
+        shading.constant_alpha = 255;
+        shading.uses_raster_alpha = true;
+    } else {
+        shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
+    }
+
+    static_cast<void>(kColorC0);
+    *out_shading = shading;
+    return true;
+}
+
+extern "C" size_t melee_host_gx_captured_tev_state_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return captured_tev_states.size();
+}
+
+extern "C" bool melee_host_gx_captured_tev_state_at(
+    size_t index, MeleeHostGxTevState* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_tev_states.size()) {
+        return false;
+    }
+    *output = captured_tev_states[index];
+    return true;
+}
+
+extern "C" size_t melee_host_gx_captured_draw_state_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return captured_draw_states.size();
+}
+
+extern "C" bool melee_host_gx_captured_draw_state_at(
+    size_t index, MeleeHostGxDrawState* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_draw_states.size()) {
+        return false;
+    }
+    *output = captured_draw_states[index];
+    return true;
 }
 
 extern "C" size_t melee_host_gx_triangle_count(void)
@@ -988,70 +1679,8 @@ extern "C" void melee_host_gx_transform_vertices(
     {
         return;
     }
-    const mh_f32 a = matrix->values[0][0];
-    const mh_f32 b = matrix->values[0][1];
-    const mh_f32 c = matrix->values[0][2];
-    const mh_f32 d = matrix->values[1][0];
-    const mh_f32 e = matrix->values[1][1];
-    const mh_f32 f = matrix->values[1][2];
-    const mh_f32 g = matrix->values[2][0];
-    const mh_f32 h = matrix->values[2][1];
-    const mh_f32 i = matrix->values[2][2];
-    const mh_f32 determinant = a * (e * i - f * h) -
-                               b * (d * i - f * g) +
-                               c * (d * h - e * g);
-    const auto transform_direction = [=](const MeleeHostGxPosition3f32& source) {
-        return MeleeHostGxPosition3f32{
-            a * source.x + b * source.y + c * source.z,
-            d * source.x + e * source.y + f * source.z,
-            g * source.x + h * source.y + i * source.z,
-        };
-    };
-    const auto transform_normal = [=](const MeleeHostGxPosition3f32& source) {
-        if (std::fabs(determinant) < 1.0e-8F) {
-            return transform_direction(source);
-        }
-        return MeleeHostGxPosition3f32{
-            ((e * i - f * h) * source.x + (f * g - d * i) * source.y +
-             (d * h - e * g) * source.z) / determinant,
-            ((c * h - b * i) * source.x + (a * i - c * g) * source.y +
-             (b * g - a * h) * source.z) / determinant,
-            ((b * f - c * e) * source.x + (c * d - a * f) * source.y +
-             (a * e - b * d) * source.z) / determinant,
-        };
-    };
-    const auto normalize = [](MeleeHostGxPosition3f32 vector) {
-        const mh_f32 length = std::sqrt(vector.x * vector.x + vector.y * vector.y +
-                                        vector.z * vector.z);
-        if (length > 0.0F) {
-            vector.x /= length;
-            vector.y /= length;
-            vector.z /= length;
-        }
-        return vector;
-    };
     for (size_t index = first; index < first + count; ++index) {
-        auto& vertex = captured_vertices[index];
-        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_POSITION) != 0) {
-            const auto source = vertex.position;
-            vertex.position = {
-                matrix->values[0][0] * source.x + matrix->values[0][1] * source.y +
-                    matrix->values[0][2] * source.z + matrix->values[0][3],
-                matrix->values[1][0] * source.x + matrix->values[1][1] * source.y +
-                    matrix->values[1][2] * source.z + matrix->values[1][3],
-                matrix->values[2][0] * source.x + matrix->values[2][1] * source.y +
-                    matrix->values[2][2] * source.z + matrix->values[2][3],
-            };
-        }
-        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_NORMAL) != 0) {
-            vertex.normal = normalize(transform_normal(vertex.normal));
-        }
-        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_TANGENT) != 0) {
-            vertex.tangent = normalize(transform_direction(vertex.tangent));
-        }
-        if ((vertex.attributes & MELEE_HOST_GX_VERTEX_BINORMAL) != 0) {
-            vertex.binormal = normalize(transform_direction(vertex.binormal));
-        }
+        transform_vertex_locked(captured_vertices[index], *matrix);
     }
     for (size_t index = 0; index < triangles.size(); ++index) {
         const auto& indices = captured_triangle_indices[index];

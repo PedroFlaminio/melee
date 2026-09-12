@@ -1,0 +1,1135 @@
+#include "assets/hsd_materialize.hpp"
+
+#include <melee_host/gx.h>
+#include <melee_host/memory.h>
+
+#include <cstring>
+#include <string>
+
+namespace melee::assets {
+namespace {
+
+/* Disk field offsets.  These are the PowerPC layout the archive stores, which
+ * is the reason the host cannot cast the file into its own structs: the same
+ * fields sit elsewhere once pointers are eight bytes wide. */
+
+namespace joint_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kFlags = 0x04;
+constexpr std::uint32_t kChild = 0x08;
+constexpr std::uint32_t kNext = 0x0C;
+constexpr std::uint32_t kUnion = 0x10;
+constexpr std::uint32_t kRotation = 0x14;
+constexpr std::uint32_t kScale = 0x20;
+constexpr std::uint32_t kPosition = 0x2C;
+constexpr std::uint32_t kMtx = 0x38;
+constexpr std::uint32_t kRObjDesc = 0x3C;
+} // namespace joint_field
+
+namespace dobj_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kMObjDesc = 0x08;
+constexpr std::uint32_t kPObjDesc = 0x0C;
+} // namespace dobj_field
+
+namespace mobj_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kRenderMode = 0x04;
+constexpr std::uint32_t kTexDesc = 0x08;
+constexpr std::uint32_t kMaterial = 0x0C;
+constexpr std::uint32_t kRenderDesc = 0x10;
+constexpr std::uint32_t kPEDesc = 0x14;
+} // namespace mobj_field
+
+namespace tobj_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kId = 0x08;
+constexpr std::uint32_t kSrc = 0x0C;
+constexpr std::uint32_t kRotate = 0x10;
+constexpr std::uint32_t kScale = 0x1C;
+constexpr std::uint32_t kTranslate = 0x28;
+constexpr std::uint32_t kWrapS = 0x34;
+constexpr std::uint32_t kWrapT = 0x38;
+constexpr std::uint32_t kRepeatS = 0x3C;
+constexpr std::uint32_t kRepeatT = 0x3D;
+constexpr std::uint32_t kBlendFlags = 0x40;
+constexpr std::uint32_t kBlending = 0x44;
+constexpr std::uint32_t kMagFilt = 0x48;
+constexpr std::uint32_t kImageDesc = 0x4C;
+constexpr std::uint32_t kTlutDesc = 0x50;
+constexpr std::uint32_t kLod = 0x54;
+constexpr std::uint32_t kTev = 0x58;
+} // namespace tobj_field
+
+namespace pobj_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kVerts = 0x08;
+constexpr std::uint32_t kFlags = 0x0C;
+constexpr std::uint32_t kDisplayCount = 0x0E;
+constexpr std::uint32_t kDisplay = 0x10;
+constexpr std::uint32_t kUnion = 0x14;
+} // namespace pobj_field
+
+namespace vtx_field {
+constexpr std::uint32_t kAttr = 0x00;
+constexpr std::uint32_t kAttrType = 0x04;
+constexpr std::uint32_t kCompCnt = 0x08;
+constexpr std::uint32_t kCompType = 0x0C;
+constexpr std::uint32_t kFrac = 0x10;
+constexpr std::uint32_t kStride = 0x12;
+constexpr std::uint32_t kVertex = 0x14;
+constexpr std::uint32_t kSize = 0x18;
+} // namespace vtx_field
+
+namespace image_field {
+constexpr std::uint32_t kImagePtr = 0x00;
+constexpr std::uint32_t kWidth = 0x04;
+constexpr std::uint32_t kHeight = 0x06;
+constexpr std::uint32_t kFormat = 0x08;
+constexpr std::uint32_t kMipmap = 0x0C;
+constexpr std::uint32_t kMinLod = 0x10;
+constexpr std::uint32_t kMaxLod = 0x14;
+} // namespace image_field
+
+namespace tlut_field {
+constexpr std::uint32_t kLut = 0x00;
+constexpr std::uint32_t kFormat = 0x04;
+constexpr std::uint32_t kName = 0x08;
+constexpr std::uint32_t kEntries = 0x0C;
+} // namespace tlut_field
+
+namespace material_field {
+constexpr std::uint32_t kAmbient = 0x00;
+constexpr std::uint32_t kDiffuse = 0x04;
+constexpr std::uint32_t kSpecular = 0x08;
+constexpr std::uint32_t kAlpha = 0x0C;
+constexpr std::uint32_t kShininess = 0x10;
+} // namespace material_field
+
+namespace shape_set_field {
+constexpr std::uint32_t kFlags = 0x00;
+constexpr std::uint32_t kShapeCount = 0x02;
+constexpr std::uint32_t kVertexIndexCount = 0x04;
+constexpr std::uint32_t kVertexDesc = 0x08;
+constexpr std::uint32_t kVertexIndexList = 0x0C;
+constexpr std::uint32_t kNormalIndexCount = 0x10;
+constexpr std::uint32_t kNormalDesc = 0x14;
+constexpr std::uint32_t kNormalIndexList = 0x18;
+} // namespace shape_set_field
+
+namespace envelope_field {
+constexpr std::uint32_t kJoint = 0x00;
+constexpr std::uint32_t kWeight = 0x04;
+constexpr std::uint32_t kSize = 0x08;
+} // namespace envelope_field
+
+namespace camera_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kFlags = 0x04;
+constexpr std::uint32_t kProjectionType = 0x06;
+constexpr std::uint32_t kViewport = 0x08;
+constexpr std::uint32_t kScissor = 0x10;
+constexpr std::uint32_t kEyePosition = 0x18;
+constexpr std::uint32_t kInterest = 0x1C;
+constexpr std::uint32_t kRoll = 0x20;
+constexpr std::uint32_t kUpVector = 0x24;
+constexpr std::uint32_t kNear = 0x28;
+constexpr std::uint32_t kFar = 0x2C;
+/* The tail is the projection's own parameters: a perspective camera keeps fov
+ * and aspect, a frustum or orthographic one keeps four planes. */
+constexpr std::uint32_t kFov = 0x30;
+constexpr std::uint32_t kAspect = 0x34;
+constexpr std::uint32_t kTop = 0x30;
+constexpr std::uint32_t kBottom = 0x34;
+constexpr std::uint32_t kLeft = 0x38;
+constexpr std::uint32_t kRight = 0x3C;
+} // namespace camera_field
+
+namespace world_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kPosition = 0x04;
+constexpr std::uint32_t kRObjDesc = 0x10;
+} // namespace world_field
+
+namespace robj_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kFlags = 0x04;
+constexpr std::uint32_t kUnion = 0x08;
+} // namespace robj_field
+
+namespace lod_field {
+constexpr std::uint32_t kMinFilt = 0x00;
+constexpr std::uint32_t kLodBias = 0x04;
+constexpr std::uint32_t kBiasClamp = 0x08;
+constexpr std::uint32_t kEdgeLodEnable = 0x09;
+constexpr std::uint32_t kMaxAnisotropy = 0x0C;
+} // namespace lod_field
+
+namespace tev_field {
+constexpr std::uint32_t kOps = 0x00;
+constexpr std::uint32_t kOpCount = 0x10;
+constexpr std::uint32_t kKonst = 0x10;
+constexpr std::uint32_t kTev0 = 0x14;
+constexpr std::uint32_t kTev1 = 0x18;
+constexpr std::uint32_t kActive = 0x1C;
+} // namespace tev_field
+
+/* A scene's model table is a NULL-terminated array of DynamicModelDesc
+ * pointers whose first field is the joint.  The camera table is an inline
+ * array of SceneCameraDesc, each a descriptor pointer and an animation
+ * table. */
+constexpr std::uint32_t kSceneModels = 0x00;
+constexpr std::uint32_t kSceneCameras = 0x04;
+constexpr std::uint32_t kModelJoint = 0x00;
+constexpr std::uint32_t kSceneCameraDescSize = 0x08;
+constexpr std::uint32_t kSceneCameraDesc = 0x00;
+
+/* Display lists are handed to GXCallDisplayList in 32-byte blocks. */
+constexpr std::size_t kDisplayListBlock = 32;
+constexpr std::size_t kVertexDescriptorLimit = 64;
+constexpr std::size_t kSceneModelLimit = 4096;
+/* A PObj addresses at most ten matrices, and a vertex is weighted against at
+ * most as many joints.  These ceilings are well past that and exist only to
+ * stop a malformed list from being walked without end. */
+constexpr std::size_t kEnvelopeLimit = 64;
+constexpr std::size_t kShapeLimit = 4096;
+constexpr std::size_t kDepthLimit = 512;
+
+/* Host descriptors are larger than the disk records they come from, because
+ * every pointer field doubles in width.  Four times the data section is a
+ * generous ceiling that still fails loudly instead of growing without bound;
+ * growing would break the contiguity the ID table's truncated keys rely on. */
+constexpr std::size_t kDescriptorBudgetFactor = 4;
+constexpr std::size_t kDescriptorBudgetFloor = 4096;
+
+/* Every cycle of the descriptor graph passes through a joint, so counting
+ * joint recursion bounds the whole traversal.  Memoization already stops a
+ * cycle from repeating; this stops a long chain of distinct nodes in a
+ * malformed file from running the stack out. */
+class DepthGuard final {
+public:
+    explicit DepthGuard(std::size_t& depth) : depth_(depth) { depth_ += 1; }
+    ~DepthGuard() { depth_ -= 1; }
+    DepthGuard(const DepthGuard&) = delete;
+    DepthGuard& operator=(const DepthGuard&) = delete;
+
+private:
+    std::size_t& depth_;
+};
+
+[[noreturn]] void unsupported(const char* what)
+{
+    throw HsdArchiveError(std::string("HSD materializer does not support ") +
+                          what);
+}
+
+} // namespace
+
+HsdMaterializedArchive::HsdMaterializedArchive(
+    const HsdRuntimeArchive& archive)
+    : archive_(archive)
+{
+    const auto data = archive_.disk_view().data();
+    payload_size_ = data.size();
+    if (payload_size_ == 0) {
+        throw HsdArchiveError("HSD archive has no data section");
+    }
+    /* Display lists inside the data section are 32-byte aligned relative to
+     * its start, so the copy has to keep that alignment. */
+    payload_ = static_cast<std::byte*>(
+        melee_host_aligned_alloc(payload_size_, kDisplayListBlock));
+    if (payload_ == nullptr) {
+        throw HsdArchiveError("HSD payload copy could not be allocated");
+    }
+    std::memcpy(payload_, data.data(), payload_size_);
+    /* Vertex arrays in this copy reach GX through the original GXSetArray,
+     * which carries no length.  Declaring the region gives the decoder the
+     * only upper bound that exists: the end of the file. */
+    melee_host_gx_register_array_region(payload_, payload_size_);
+
+    descriptor_capacity_ =
+        payload_size_ * kDescriptorBudgetFactor + kDescriptorBudgetFloor;
+    descriptors_ = static_cast<std::byte*>(
+        melee_host_aligned_alloc(descriptor_capacity_, kDisplayListBlock));
+    if (descriptors_ == nullptr) {
+        melee_host_aligned_free(payload_, kDisplayListBlock);
+        payload_ = nullptr;
+        throw HsdArchiveError("HSD descriptor arena could not be allocated");
+    }
+    std::memset(descriptors_, 0, descriptor_capacity_);
+    stats_.payload_bytes = payload_size_;
+}
+
+HsdMaterializedArchive::~HsdMaterializedArchive()
+{
+    melee_host_gx_unregister_array_region(payload_);
+    melee_host_aligned_free(descriptors_, kDisplayListBlock);
+    melee_host_aligned_free(payload_, kDisplayListBlock);
+}
+
+const HsdMaterializeStats& HsdMaterializedArchive::stats() const noexcept
+{
+    return stats_;
+}
+
+void* HsdMaterializedArchive::allocate_bytes(std::size_t size,
+                                             std::size_t alignment)
+{
+    const std::size_t misalignment = descriptor_used_ % alignment;
+    const std::size_t padding =
+        misalignment == 0 ? 0 : alignment - misalignment;
+    if (padding > descriptor_capacity_ - descriptor_used_ ||
+        size > descriptor_capacity_ - descriptor_used_ - padding)
+    {
+        throw HsdArchiveError("HSD descriptor arena is exhausted");
+    }
+    descriptor_used_ += padding;
+    std::byte* const result = descriptors_ + descriptor_used_;
+    descriptor_used_ += size;
+    stats_.descriptor_bytes = descriptor_used_;
+    return result;
+}
+
+template <typename T> T* HsdMaterializedArchive::allocate()
+{
+    return static_cast<T*>(allocate_bytes(sizeof(T), alignof(T)));
+}
+
+std::optional<HsdRuntimeNode> HsdMaterializedArchive::reference(
+    HsdRuntimeNode node, std::uint32_t relative_offset) const
+{
+    if (archive_.has_reference_at(node, relative_offset)) {
+        return archive_.reference_at(node, relative_offset);
+    }
+    /* A pointer field the archive did not relocate must read as NULL.  A
+     * non-zero one is either a console address the host cannot honour or a
+     * field the schema has misread, and both have to surface here rather than
+     * reach the original loaders as a wild pointer. */
+    if (archive_.read_u32(node, relative_offset) != 0) {
+        throw HsdArchiveError(
+            "HSD pointer field holds a non-zero value with no relocation");
+    }
+    return std::nullopt;
+}
+
+void* HsdMaterializedArchive::payload(HsdRuntimeNode node,
+                                      std::size_t length) const
+{
+    if (node.data_offset > payload_size_ ||
+        length > payload_size_ - node.data_offset)
+    {
+        throw HsdArchiveError("HSD payload reference exceeds the data section");
+    }
+    return payload_ + node.data_offset;
+}
+
+char* HsdMaterializedArchive::payload_string(HsdRuntimeNode node) const
+{
+    /* Validates the terminator against the read-only view, then points at the
+     * same bytes in the host copy. */
+    const std::string_view text = archive_.read_c_string(node);
+    return static_cast<char*>(payload(node, text.size() + 1));
+}
+
+void HsdMaterializedArchive::read_vec3(HsdRuntimeNode node,
+                                       std::uint32_t relative_offset,
+                                       Vec3* out) const
+{
+    out->x = archive_.read_f32(node, relative_offset);
+    out->y = archive_.read_f32(node, relative_offset + 4);
+    out->z = archive_.read_f32(node, relative_offset + 8);
+}
+
+void HsdMaterializedArchive::read_color(HsdRuntimeNode node,
+                                        std::uint32_t relative_offset,
+                                        GXColor* out) const
+{
+    const auto bytes =
+        archive_.bytes_at({ node.data_offset + relative_offset }, 4);
+    out->r = std::to_integer<u8>(bytes[0]);
+    out->g = std::to_integer<u8>(bytes[1]);
+    out->b = std::to_integer<u8>(bytes[2]);
+    out->a = std::to_integer<u8>(bytes[3]);
+}
+
+f32* HsdMaterializedArchive::matrix(HsdRuntimeNode node)
+{
+    /* JObjLoad memcpys this into an envelope matrix, so unlike a GX payload it
+     * has to hold host-order floats. */
+    auto* const values = static_cast<f32*>(
+        allocate_bytes(sizeof(Mtx), alignof(f32)));
+    for (std::uint32_t index = 0; index < 12; ++index) {
+        values[index] = archive_.read_f32(node, index * 4);
+    }
+    return values;
+}
+
+HSD_ImageDesc* HsdMaterializedArchive::image_desc(HsdRuntimeNode node)
+{
+    const auto found = images_.find(node.data_offset);
+    if (found != images_.end()) {
+        return found->second;
+    }
+    HSD_ImageDesc* const host = allocate<HSD_ImageDesc>();
+    images_.emplace(node.data_offset, host);
+    stats_.image_descs += 1;
+
+    host->width = archive_.read_u16(node, image_field::kWidth);
+    host->height = archive_.read_u16(node, image_field::kHeight);
+    host->format =
+        static_cast<GXTexFmt>(archive_.read_u32(node, image_field::kFormat));
+    host->mipmap = archive_.read_u32(node, image_field::kMipmap);
+    host->minLOD = archive_.read_f32(node, image_field::kMinLod);
+    host->maxLOD = archive_.read_f32(node, image_field::kMaxLod);
+    if (const auto image = reference(node, image_field::kImagePtr)) {
+        host->image_ptr = payload(*image, 1);
+    }
+    return host;
+}
+
+HSD_TlutDesc* HsdMaterializedArchive::tlut_desc(HsdRuntimeNode node)
+{
+    const auto found = tluts_.find(node.data_offset);
+    if (found != tluts_.end()) {
+        return found->second;
+    }
+    HSD_TlutDesc* const host = allocate<HSD_TlutDesc>();
+    tluts_.emplace(node.data_offset, host);
+    stats_.tlut_descs += 1;
+
+    host->fmt =
+        static_cast<GXTlutFmt>(archive_.read_u32(node, tlut_field::kFormat));
+    host->tlut_name = archive_.read_u32(node, tlut_field::kName);
+    host->n_entries = archive_.read_u16(node, tlut_field::kEntries);
+    if (const auto lut = reference(node, tlut_field::kLut)) {
+        /* Each palette entry is 16 bits wide. */
+        host->lut = payload(*lut, std::size_t{ host->n_entries } * 2);
+    }
+    return host;
+}
+
+HSD_Material* HsdMaterializedArchive::material(HsdRuntimeNode node)
+{
+    HSD_Material* const host = allocate<HSD_Material>();
+    read_color(node, material_field::kAmbient, &host->ambient);
+    read_color(node, material_field::kDiffuse, &host->diffuse);
+    read_color(node, material_field::kSpecular, &host->specular);
+    host->alpha = archive_.read_f32(node, material_field::kAlpha);
+    host->shininess = archive_.read_f32(node, material_field::kShininess);
+    return host;
+}
+
+HSD_PEDesc* HsdMaterializedArchive::pixel_engine_desc(HsdRuntimeNode node)
+{
+    /* Every field is a byte, so this one only needs copying. */
+    HSD_PEDesc* const host = allocate<HSD_PEDesc>();
+    const auto bytes = archive_.bytes_at(node, sizeof(HSD_PEDesc));
+    std::memcpy(host, bytes.data(), sizeof(HSD_PEDesc));
+    return host;
+}
+
+HSD_TexLODDesc* HsdMaterializedArchive::lod_desc(HsdRuntimeNode node)
+{
+    HSD_TexLODDesc* const host = allocate<HSD_TexLODDesc>();
+    host->minFilt =
+        static_cast<GXTexFilter>(archive_.read_u32(node, lod_field::kMinFilt));
+    host->LODBias = archive_.read_f32(node, lod_field::kLodBias);
+    host->bias_clamp =
+        std::to_integer<u8>(archive_.bytes_at(
+            { node.data_offset + lod_field::kBiasClamp }, 1)[0]);
+    host->edgeLODEnable =
+        std::to_integer<u8>(archive_.bytes_at(
+            { node.data_offset + lod_field::kEdgeLodEnable }, 1)[0]);
+    host->max_anisotropy = static_cast<GXAnisotropy>(
+        archive_.read_u32(node, lod_field::kMaxAnisotropy));
+    return host;
+}
+
+HSD_TObjTevDesc* HsdMaterializedArchive::tev_desc(HsdRuntimeNode node)
+{
+    HSD_TObjTevDesc* const host = allocate<HSD_TObjTevDesc>();
+    /* The leading sixteen fields are bytes; only the colours and the active
+     * mask need decoding. */
+    const auto ops = archive_.bytes_at({ node.data_offset + tev_field::kOps },
+                                       tev_field::kOpCount);
+    std::memcpy(host, ops.data(), tev_field::kOpCount);
+    read_color(node, tev_field::kKonst, &host->konst);
+    read_color(node, tev_field::kTev0, &host->tev0);
+    read_color(node, tev_field::kTev1, &host->tev1);
+    host->active = archive_.read_u32(node, tev_field::kActive);
+    return host;
+}
+
+HSD_VtxDescList* HsdMaterializedArchive::vertex_descriptors(
+    HsdRuntimeNode node)
+{
+    const auto found = vertex_lists_.find(node.data_offset);
+    if (found != vertex_lists_.end()) {
+        return found->second;
+    }
+
+    /* The list is terminated by GX_VA_NULL, so its length has to be measured
+     * before the host copy can be sized. */
+    std::size_t count = 0;
+    while (count < kVertexDescriptorLimit) {
+        const HsdRuntimeNode entry{
+            node.data_offset +
+            static_cast<std::uint32_t>(count * vtx_field::kSize)
+        };
+        if (archive_.read_u32(entry, vtx_field::kAttr) == GX_VA_NULL) {
+            break;
+        }
+        ++count;
+    }
+    if (count == kVertexDescriptorLimit) {
+        throw HsdArchiveError("HSD vertex descriptor list has no terminator");
+    }
+
+    auto* const host = static_cast<HSD_VtxDescList*>(allocate_bytes(
+        sizeof(HSD_VtxDescList) * (count + 1), alignof(HSD_VtxDescList)));
+    vertex_lists_.emplace(node.data_offset, host);
+    stats_.vertex_descriptors += count;
+
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode entry{
+            node.data_offset +
+            static_cast<std::uint32_t>(index * vtx_field::kSize)
+        };
+        HSD_VtxDescList& out = host[index];
+        out.attr = static_cast<GXAttr>(
+            archive_.read_u32(entry, vtx_field::kAttr));
+        out.attr_type = static_cast<GXAttrType>(
+            archive_.read_u32(entry, vtx_field::kAttrType));
+        out.comp_cnt = static_cast<GXCompCnt>(
+            archive_.read_u32(entry, vtx_field::kCompCnt));
+        out.comp_type = static_cast<GXCompType>(
+            archive_.read_u32(entry, vtx_field::kCompType));
+        out.frac = std::to_integer<u8>(archive_.bytes_at(
+            { entry.data_offset + vtx_field::kFrac }, 1)[0]);
+        out.stride = archive_.read_u16(entry, vtx_field::kStride);
+        if (const auto array = reference(entry, vtx_field::kVertex)) {
+            /* An indexed array is addressed by the display list, so its
+             * length is not knowable from the descriptor.  Validating the base
+             * is all this layer can do; the GX decoder bounds each read. */
+            out.vertex = payload(*array, 1);
+        } else if (out.attr_type != GX_DIRECT) {
+            throw HsdArchiveError(
+                "indexed HSD vertex descriptor has no array reference");
+        }
+    }
+    host[count].attr = GX_VA_NULL;
+    return host;
+}
+
+HSD_ShapeSetDesc* HsdMaterializedArchive::shape_set_desc(
+    HsdRuntimeNode node)
+{
+    const auto found = shape_sets_.find(node.data_offset);
+    if (found != shape_sets_.end()) {
+        return found->second;
+    }
+    HSD_ShapeSetDesc* const host = allocate<HSD_ShapeSetDesc>();
+    shape_sets_.emplace(node.data_offset, host);
+    stats_.shape_set_descs += 1;
+
+    host->flags = archive_.read_u16(node, shape_set_field::kFlags);
+    host->nb_shape = archive_.read_u16(node, shape_set_field::kShapeCount);
+    host->nb_vertex_index = static_cast<s32>(
+        archive_.read_u32(node, shape_set_field::kVertexIndexCount));
+    host->nb_normal_index = static_cast<s32>(
+        archive_.read_u32(node, shape_set_field::kNormalIndexCount));
+    if (host->nb_shape > kShapeLimit) {
+        throw HsdArchiveError("HSD shape set declares too many shapes");
+    }
+    if (const auto verts = reference(node, shape_set_field::kVertexDesc)) {
+        host->vertex_desc = vertex_descriptors(*verts);
+    }
+    if (const auto normals = reference(node, shape_set_field::kNormalDesc)) {
+        host->normal_desc = vertex_descriptors(*normals);
+    }
+    /* One index blob per shape, addressed by shape id. */
+    if (const auto list = reference(node, shape_set_field::kVertexIndexList)) {
+        host->vertex_idx_list = payload_pointer_array(*list, host->nb_shape);
+    }
+    if (const auto list = reference(node, shape_set_field::kNormalIndexList)) {
+        host->normal_idx_list = payload_pointer_array(*list, host->nb_shape);
+    }
+    return host;
+}
+
+u8** HsdMaterializedArchive::payload_pointer_array(HsdRuntimeNode node,
+                                                   std::size_t count)
+{
+    if (count == 0) {
+        return nullptr;
+    }
+    auto* const host = static_cast<u8**>(
+        allocate_bytes(sizeof(u8*) * count, alignof(u8*)));
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto entry =
+            reference(node, static_cast<std::uint32_t>(index * 4));
+        host[index] = entry.has_value()
+                          ? static_cast<u8*>(payload(*entry, 1))
+                          : nullptr;
+    }
+    return host;
+}
+
+HSD_EnvelopeDesc* HsdMaterializedArchive::envelope_list(HsdRuntimeNode node)
+{
+    /* The list ends at the first entry without a joint. */
+    std::size_t count = 0;
+    while (count < kEnvelopeLimit) {
+        const HsdRuntimeNode entry{
+            node.data_offset +
+            static_cast<std::uint32_t>(count * envelope_field::kSize)
+        };
+        if (!reference(entry, envelope_field::kJoint).has_value()) {
+            break;
+        }
+        ++count;
+    }
+    if (count == kEnvelopeLimit) {
+        throw HsdArchiveError("HSD envelope list has no terminator");
+    }
+
+    auto* const host = static_cast<HSD_EnvelopeDesc*>(allocate_bytes(
+        sizeof(HSD_EnvelopeDesc) * (count + 1), alignof(HSD_EnvelopeDesc)));
+    stats_.envelope_descs += count;
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode entry{
+            node.data_offset +
+            static_cast<std::uint32_t>(index * envelope_field::kSize)
+        };
+        /* resolveEnvelope looks the joint up by its address once the tree has
+         * loaded, so the reference has to be the materialized joint. */
+        host[index].joint = joint_chain(*reference(entry,
+                                                  envelope_field::kJoint));
+        host[index].weight = archive_.read_f32(entry,
+                                               envelope_field::kWeight);
+    }
+    host[count].joint = nullptr;
+    host[count].weight = 0.0F;
+    return host;
+}
+
+HSD_EnvelopeDesc** HsdMaterializedArchive::envelope_array(HsdRuntimeNode node)
+{
+    const auto found = envelope_arrays_.find(node.data_offset);
+    if (found != envelope_arrays_.end()) {
+        return found->second;
+    }
+
+    /* A NULL-terminated array of envelope lists, one per matrix the PObj
+     * addresses. */
+    std::size_t count = 0;
+    while (count < kEnvelopeLimit) {
+        if (!reference(node, static_cast<std::uint32_t>(count * 4))
+                 .has_value()) {
+            break;
+        }
+        ++count;
+    }
+    if (count == kEnvelopeLimit) {
+        throw HsdArchiveError("HSD envelope array has no terminator");
+    }
+
+    auto* const host = static_cast<HSD_EnvelopeDesc**>(allocate_bytes(
+        sizeof(HSD_EnvelopeDesc*) * (count + 1),
+        alignof(HSD_EnvelopeDesc*)));
+    envelope_arrays_.emplace(node.data_offset, host);
+    for (std::size_t index = 0; index < count; ++index) {
+        host[index] = envelope_list(
+            *reference(node, static_cast<std::uint32_t>(index * 4)));
+    }
+    host[count] = nullptr;
+    return host;
+}
+
+HSD_TObjDesc* HsdMaterializedArchive::tobj_chain(HsdRuntimeNode node)
+{
+    HSD_TObjDesc* head = nullptr;
+    HSD_TObjDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = tobjs_.find(current->data_offset);
+        if (found != tobjs_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_TObjDesc* const host = allocate<HSD_TObjDesc>();
+        tobjs_.emplace(current->data_offset, host);
+        stats_.tobj_descs += 1;
+
+        if (const auto name = reference(*current, tobj_field::kClassName)) {
+            host->class_name = payload_string(*name);
+        }
+        host->id = static_cast<GXTexMapID>(
+            archive_.read_u32(*current, tobj_field::kId));
+        host->src = static_cast<GXTexGenSrc>(
+            archive_.read_u32(*current, tobj_field::kSrc));
+        read_vec3(*current, tobj_field::kRotate, &host->rotate);
+        read_vec3(*current, tobj_field::kScale, &host->scale);
+        read_vec3(*current, tobj_field::kTranslate, &host->translate);
+        host->wrap_s = static_cast<GXTexWrapMode>(
+            archive_.read_u32(*current, tobj_field::kWrapS));
+        host->wrap_t = static_cast<GXTexWrapMode>(
+            archive_.read_u32(*current, tobj_field::kWrapT));
+        host->repeat_s = std::to_integer<u8>(archive_.bytes_at(
+            { current->data_offset + tobj_field::kRepeatS }, 1)[0]);
+        host->repeat_t = std::to_integer<u8>(archive_.bytes_at(
+            { current->data_offset + tobj_field::kRepeatT }, 1)[0]);
+        host->blend_flags =
+            archive_.read_u32(*current, tobj_field::kBlendFlags);
+        host->blending = archive_.read_f32(*current, tobj_field::kBlending);
+        host->magFilt = static_cast<GXTexFilter>(
+            archive_.read_u32(*current, tobj_field::kMagFilt));
+        if (const auto image = reference(*current, tobj_field::kImageDesc)) {
+            host->imagedesc = image_desc(*image);
+        }
+        if (const auto tlut = reference(*current, tobj_field::kTlutDesc)) {
+            host->tlutdesc = tlut_desc(*tlut);
+        }
+        if (const auto lod = reference(*current, tobj_field::kLod)) {
+            host->lod = lod_desc(*lod);
+        }
+        if (const auto tev = reference(*current, tobj_field::kTev)) {
+            host->tev = tev_desc(*tev);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, tobj_field::kNext);
+    }
+    return head;
+}
+
+HSD_MObjDesc* HsdMaterializedArchive::mobj_desc(HsdRuntimeNode node)
+{
+    const auto found = mobjs_.find(node.data_offset);
+    if (found != mobjs_.end()) {
+        return found->second;
+    }
+    HSD_MObjDesc* const host = allocate<HSD_MObjDesc>();
+    mobjs_.emplace(node.data_offset, host);
+    stats_.mobj_descs += 1;
+
+    if (const auto name = reference(node, mobj_field::kClassName)) {
+        host->class_name = payload_string(*name);
+    }
+    host->rendermode = archive_.read_u32(node, mobj_field::kRenderMode);
+    if (const auto tex = reference(node, mobj_field::kTexDesc)) {
+        host->texdesc = tobj_chain(*tex);
+    }
+    if (const auto mat = reference(node, mobj_field::kMaterial)) {
+        host->mat = material(*mat);
+    }
+    if (reference(node, mobj_field::kRenderDesc).has_value()) {
+        /* Only a custom material setup function knows this block's shape, and
+         * none is ported, so its bytes cannot be decoded yet. */
+        unsupported("a material render descriptor");
+    }
+    if (const auto pe = reference(node, mobj_field::kPEDesc)) {
+        host->pedesc = pixel_engine_desc(*pe);
+    }
+    return host;
+}
+
+HSD_PObjDesc* HsdMaterializedArchive::pobj_chain(HsdRuntimeNode node)
+{
+    HSD_PObjDesc* head = nullptr;
+    HSD_PObjDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = pobjs_.find(current->data_offset);
+        if (found != pobjs_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_PObjDesc* const host = allocate<HSD_PObjDesc>();
+        pobjs_.emplace(current->data_offset, host);
+        stats_.pobj_descs += 1;
+
+        if (const auto name = reference(*current, pobj_field::kClassName)) {
+            host->class_name = payload_string(*name);
+        }
+        host->flags = archive_.read_u16(*current, pobj_field::kFlags);
+        host->n_display =
+            archive_.read_u16(*current, pobj_field::kDisplayCount);
+        if (const auto verts = reference(*current, pobj_field::kVerts)) {
+            host->verts = vertex_descriptors(*verts);
+        }
+        if (const auto display = reference(*current, pobj_field::kDisplay)) {
+            /* The block count gives an exact length, so a truncated file is
+             * caught here instead of inside the display-list interpreter. */
+            host->display = static_cast<u8*>(payload(
+                *display, std::size_t{ host->n_display } * kDisplayListBlock));
+        }
+        switch (host->flags & 0x3000) {
+        case POBJ_SKIN:
+            /* The union holds a joint reference only for a rigid skin, and
+             * PObjLoad leaves it alone either way. */
+            if (const auto rigid = reference(*current, pobj_field::kUnion)) {
+                host->u.joint = joint_chain(*rigid);
+            }
+            break;
+        case POBJ_SHAPEANIM:
+            if (const auto shapes = reference(*current, pobj_field::kUnion)) {
+                host->u.shape_set = shape_set_desc(*shapes);
+            }
+            break;
+        case POBJ_ENVELOPE:
+            if (const auto envelopes =
+                    reference(*current, pobj_field::kUnion)) {
+                host->u.envelope_p = envelope_array(*envelopes);
+            }
+            break;
+        default:
+            unsupported("an unknown PObj type");
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, pobj_field::kNext);
+    }
+    return head;
+}
+
+HSD_DObjDesc* HsdMaterializedArchive::dobj_chain(HsdRuntimeNode node)
+{
+    HSD_DObjDesc* head = nullptr;
+    HSD_DObjDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = dobjs_.find(current->data_offset);
+        if (found != dobjs_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_DObjDesc* const host = allocate<HSD_DObjDesc>();
+        dobjs_.emplace(current->data_offset, host);
+        stats_.dobj_descs += 1;
+
+        if (const auto name = reference(*current, dobj_field::kClassName)) {
+            host->class_name = payload_string(*name);
+        }
+        if (const auto mobj = reference(*current, dobj_field::kMObjDesc)) {
+            host->mobjdesc = mobj_desc(*mobj);
+        }
+        if (const auto pobj = reference(*current, dobj_field::kPObjDesc)) {
+            host->pobjdesc = pobj_chain(*pobj);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, dobj_field::kNext);
+    }
+    return head;
+}
+
+HSD_RObjDesc* HsdMaterializedArchive::robj_chain(HsdRuntimeNode node)
+{
+    HSD_RObjDesc* head = nullptr;
+    HSD_RObjDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = robjs_.find(current->data_offset);
+        if (found != robjs_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_RObjDesc* const host = allocate<HSD_RObjDesc>();
+        robjs_.emplace(current->data_offset, host);
+        stats_.robj_descs += 1;
+
+        host->flags = archive_.read_u32(*current, robj_field::kFlags);
+        switch (host->flags & ROBJ_TYPE_MASK) {
+        case REFTYPE_JOBJ:
+            /* The reference is resolved against the ID table after the tree
+             * loads, keyed on the joint address. */
+            if (const auto target = reference(*current, robj_field::kUnion)) {
+                host->u.joint = joint_chain(*target);
+            }
+            break;
+        case REFTYPE_LIMIT:
+            host->u.limit = archive_.read_f32(*current, robj_field::kUnion);
+            break;
+        case REFTYPE_IKHINT: {
+            if (const auto hint = reference(*current, robj_field::kUnion)) {
+                auto* const desc = allocate<HSD_IKHintDesc>();
+                desc->bone_length = archive_.read_f32(*hint, 0);
+                desc->rotate_x = archive_.read_f32(*hint, 4);
+                host->u.ik_hint = desc;
+            }
+            break;
+        }
+        case REFTYPE_EXP:
+            /* The descriptor holds a console function address. */
+            unsupported("an expression reference constraint");
+        case REFTYPE_BYTECODE:
+            unsupported("a bytecode reference constraint");
+        default:
+            unsupported("an unknown reference constraint type");
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, robj_field::kNext);
+    }
+    return head;
+}
+
+HSD_WObjDesc* HsdMaterializedArchive::world_desc(HsdRuntimeNode node)
+{
+    HSD_WObjDesc* const host = allocate<HSD_WObjDesc>();
+    if (const auto name = reference(node, world_field::kClassName)) {
+        host->class_name = payload_string(*name);
+    }
+    read_vec3(node, world_field::kPosition, &host->pos);
+    if (const auto robj = reference(node, world_field::kRObjDesc)) {
+        host->robjdesc = robj_chain(*robj);
+    }
+    return host;
+}
+
+HSD_CObjDesc* HsdMaterializedArchive::camera_desc(HsdRuntimeNode node)
+{
+    HSD_CObjDesc* const host = allocate<HSD_CObjDesc>();
+    stats_.camera_descs += 1;
+
+    HSD_CameraDescCommon& common = host->common;
+    if (const auto name = reference(node, camera_field::kClassName)) {
+        common.class_name = payload_string(*name);
+    }
+    common.flags = archive_.read_u16(node, camera_field::kFlags);
+    common.projection_type =
+        archive_.read_u16(node, camera_field::kProjectionType);
+    common.viewport.xmin = static_cast<s16>(
+        archive_.read_u16(node, camera_field::kViewport));
+    common.viewport.xmax = static_cast<s16>(
+        archive_.read_u16(node, camera_field::kViewport + 2));
+    common.viewport.ymin = static_cast<s16>(
+        archive_.read_u16(node, camera_field::kViewport + 4));
+    common.viewport.ymax = static_cast<s16>(
+        archive_.read_u16(node, camera_field::kViewport + 6));
+    common.scissor.left = archive_.read_u16(node, camera_field::kScissor);
+    common.scissor.right = archive_.read_u16(node, camera_field::kScissor + 2);
+    common.scissor.top = archive_.read_u16(node, camera_field::kScissor + 4);
+    common.scissor.bottom =
+        archive_.read_u16(node, camera_field::kScissor + 6);
+    if (const auto eye = reference(node, camera_field::kEyePosition)) {
+        common.eyepos = world_desc(*eye);
+    }
+    if (const auto interest = reference(node, camera_field::kInterest)) {
+        common.interest = world_desc(*interest);
+    }
+    common.roll = archive_.read_f32(node, camera_field::kRoll);
+    if (const auto up = reference(node, camera_field::kUpVector)) {
+        /* A bare Vec3 the camera loader reads, so unlike a GX payload it has
+         * to hold host-order floats. */
+        auto* const vector = allocate<Vec3>();
+        read_vec3(*up, 0, vector);
+        common.up_vector = vector;
+    }
+    common.nnear = archive_.read_f32(node, camera_field::kNear);
+    common.ffar = archive_.read_f32(node, camera_field::kFar);
+
+    switch (common.projection_type) {
+    case PROJ_PERSPECTIVE:
+        host->perspective.fov = archive_.read_f32(node, camera_field::kFov);
+        host->perspective.aspect =
+            archive_.read_f32(node, camera_field::kAspect);
+        break;
+    case PROJ_FRUSTUM:
+    case PROJ_ORTHO:
+        host->frustum.top = archive_.read_f32(node, camera_field::kTop);
+        host->frustum.bottom = archive_.read_f32(node, camera_field::kBottom);
+        host->frustum.left = archive_.read_f32(node, camera_field::kLeft);
+        host->frustum.right = archive_.read_f32(node, camera_field::kRight);
+        break;
+    default:
+        unsupported("an unknown camera projection type");
+    }
+    return host;
+}
+
+HSD_CObjDesc* HsdMaterializedArchive::scene_camera(
+    std::string_view public_symbol, std::size_t camera_index)
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    const auto cameras = reference(scene, kSceneCameras);
+    if (!cameras.has_value() || camera_index >= kSceneModelLimit) {
+        return nullptr;
+    }
+    const HsdRuntimeNode entry{
+        cameras->data_offset +
+        static_cast<std::uint32_t>(camera_index * kSceneCameraDescSize)
+    };
+    const auto desc = reference(entry, kSceneCameraDesc);
+    if (!desc.has_value()) {
+        return nullptr;
+    }
+    return camera_desc(*desc);
+}
+
+HSD_Joint* HsdMaterializedArchive::joint_chain(HsdRuntimeNode node)
+{
+    if (depth_ >= kDepthLimit) {
+        throw HsdArchiveError("HSD joint tree is deeper than the host allows");
+    }
+    const DepthGuard guard(depth_);
+
+    HSD_Joint* head = nullptr;
+    HSD_Joint* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+
+    while (current.has_value()) {
+        const auto found = joints_.find(current->data_offset);
+        if (found != joints_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
+        HSD_Joint* const host = allocate<HSD_Joint>();
+        /* Recorded before recursing, so a joint referenced from inside its own
+         * subtree resolves to this node instead of looping. */
+        joints_.emplace(current->data_offset, host);
+        stats_.joints += 1;
+
+        if (const auto name = reference(*current, joint_field::kClassName)) {
+            host->class_name = payload_string(*name);
+        }
+        const u32 flags = archive_.read_u32(*current, joint_field::kFlags);
+        host->flags = flags;
+        read_vec3(*current, joint_field::kRotation, &host->rotation);
+        read_vec3(*current, joint_field::kScale, &host->scale);
+        read_vec3(*current, joint_field::kPosition, &host->position);
+
+        if (const auto child = reference(*current, joint_field::kChild)) {
+            /* An instance joint points at a joint it shares rather than one it
+             * owns.  JObjLoad skips loading it and HSD_JObjResolveRefs looks
+             * it up by its address, which works on the host because every
+             * joint lands in the same contiguous arena. */
+            host->child = joint_chain(*child);
+        }
+        if (const auto mtx = reference(*current, joint_field::kMtx)) {
+            host->mtx = reinterpret_cast<MtxPtr>(matrix(*mtx));
+        }
+        if (const auto robj = reference(*current, joint_field::kRObjDesc)) {
+            host->robjdesc = robj_chain(*robj);
+        }
+
+        if ((flags & JOBJ_SPLINE) != 0) {
+            if (reference(*current, joint_field::kUnion).has_value()) {
+                unsupported("a spline joint");
+            }
+        } else if ((flags & JOBJ_PTCL) != 0) {
+            if (reference(*current, joint_field::kUnion).has_value()) {
+                unsupported("a particle joint");
+            }
+        } else if (const auto dobj =
+                       reference(*current, joint_field::kUnion)) {
+            host->u.dobjdesc = dobj_chain(*dobj);
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, joint_field::kNext);
+    }
+    return head;
+}
+
+HSD_Joint* HsdMaterializedArchive::joint(std::string_view public_symbol)
+{
+    return joint_chain(archive_.public_root(public_symbol));
+}
+
+std::size_t HsdMaterializedArchive::scene_model_count(
+    std::string_view public_symbol) const
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    const auto models = reference(scene, kSceneModels);
+    if (!models.has_value()) {
+        return 0;
+    }
+    std::size_t count = 0;
+    while (count < kSceneModelLimit) {
+        const std::uint32_t relative = static_cast<std::uint32_t>(count * 4);
+        if (!reference(*models, relative).has_value()) {
+            return count;
+        }
+        ++count;
+    }
+    throw HsdArchiveError("HSD scene model table has no terminator");
+}
+
+HSD_Joint* HsdMaterializedArchive::scene_model_joint(
+    std::string_view public_symbol, std::size_t model_index)
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    const auto models = reference(scene, kSceneModels);
+    if (!models.has_value()) {
+        throw HsdArchiveError("HSD scene has no model table");
+    }
+    if (model_index >= kSceneModelLimit) {
+        throw HsdArchiveError("HSD scene model index is out of range");
+    }
+    const auto model =
+        reference(*models, static_cast<std::uint32_t>(model_index * 4));
+    if (!model.has_value()) {
+        throw HsdArchiveError("HSD scene has no model at that index");
+    }
+    const auto root = reference(*model, kModelJoint);
+    if (!root.has_value()) {
+        throw HsdArchiveError("HSD scene model has no joint");
+    }
+    return joint_chain(*root);
+}
+
+} // namespace melee::assets

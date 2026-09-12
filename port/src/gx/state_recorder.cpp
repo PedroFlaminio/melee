@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <mutex>
 
 namespace {
@@ -108,6 +109,9 @@ std::array<MeleeHostGxTextureDesc, kTexMaps> bound_textures{};
 std::array<MeleeHostGxTlutDesc, kTluts> loaded_tluts{};
 std::array<MeleeHostGxLightDesc, kLights> lights{};
 std::array<std::array<float, 4>, kMatrixRows> matrix_memory{};
+/* Matrix memory starts as zeros, not identity, so a consumer that transforms
+ * by it has to know whether the game ever loaded the row it is about to use. */
+std::array<bool, kMatrixRows> matrix_loaded{};
 
 /* The default state mirrors the SDK's post-GXInit configuration for the
  * fields the port models, so a reset leaves a usable pipeline rather than
@@ -178,6 +182,7 @@ void reset_locked()
     for (auto& row : matrix_memory) {
         row = { 0.0F, 0.0F, 0.0F, 0.0F };
     }
+    matrix_loaded.fill(false);
 }
 
 bool state_initialized = false;
@@ -249,6 +254,7 @@ void store_matrix_rows(std::uint32_t id, MtxPtr matrix, std::size_t rows)
         for (std::size_t column = 0; column < 4; ++column) {
             matrix_memory[id + row][column] = matrix[row][column];
         }
+        matrix_loaded[id + row] = true;
     }
 }
 
@@ -1336,6 +1342,73 @@ void melee_host_gx_draw_sync_state(MeleeHostGxDrawSyncState* output)
     *output = draw_sync_state;
 }
 
+/* Byte size of a texture in GX memory, including every mip level when the
+ * texture is mipmapped.  Each format has a fixed block footprint, and a level
+ * always occupies whole blocks, so a 1x1 level still costs a full block. */
+u32 GXGetTexBufferSize(u16 width, u16 height, u32 format, u8 mipmap,
+                       u8 max_lod)
+{
+    unsigned block_width = 8;
+    unsigned block_height = 4;
+    unsigned block_bytes = 32;
+
+    switch (format) {
+    case GX_TF_I4:
+    case GX_TF_C4:
+    case GX_TF_CMPR:
+        block_width = 8;
+        block_height = 8;
+        block_bytes = 32;
+        break;
+    case GX_TF_I8:
+    case GX_TF_IA4:
+    case GX_TF_C8:
+        block_width = 8;
+        block_height = 4;
+        block_bytes = 32;
+        break;
+    case GX_TF_IA8:
+    case GX_TF_RGB565:
+    case GX_TF_RGB5A3:
+    case GX_TF_C14X2:
+        block_width = 4;
+        block_height = 4;
+        block_bytes = 32;
+        break;
+    case GX_TF_RGBA8:
+        block_width = 4;
+        block_height = 4;
+        block_bytes = 64;
+        break;
+    default:
+        return 0;
+    }
+    /* CMPR packs four 4x4 DXT1 blocks into one 32-byte GX block, which the
+     * 8x8 footprint above already accounts for. */
+
+    unsigned levels = 1;
+    if (mipmap != GX_FALSE) {
+        levels = static_cast<unsigned>(max_lod) + 1U;
+    }
+
+    u32 total = 0;
+    unsigned level_width = width;
+    unsigned level_height = height;
+    for (unsigned level = 0; level < levels; ++level) {
+        const unsigned blocks_across =
+            (level_width + block_width - 1) / block_width;
+        const unsigned blocks_down =
+            (level_height + block_height - 1) / block_height;
+        total += static_cast<u32>(blocks_across * blocks_down * block_bytes);
+        if (level_width == 1 && level_height == 1) {
+            break;
+        }
+        level_width = level_width > 1 ? level_width / 2 : 1;
+        level_height = level_height > 1 ? level_height / 2 : 1;
+    }
+    return total;
+}
+
 void melee_host_gx_pixel_state(MeleeHostGxPixelState* output)
 {
     const std::lock_guard<std::mutex> guard(state_mutex);
@@ -1414,6 +1487,14 @@ void melee_host_gx_copy_state(MeleeHostGxCopyState* output)
     const std::lock_guard<std::mutex> guard(state_mutex);
     ensure_initialized_locked();
     *output = copy_state;
+}
+
+bool melee_host_gx_matrix_loaded(mh_u32 row_id)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    return row_id + 3 <= kMatrixRows && matrix_loaded[row_id] &&
+           matrix_loaded[row_id + 1] && matrix_loaded[row_id + 2];
 }
 
 bool melee_host_gx_matrix(mh_u32 row_id, MeleeHostGxAffineTransform* output)

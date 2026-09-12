@@ -1146,7 +1146,15 @@ void HSD_TExpSetReg(HSD_TExp* texp)
                 }
             }
         }
+#ifdef MELEE_HOST
+        /* HSD_TExp is a union, so every member starts at offset zero and the
+         * original expression yields NULL once the list ends.  The host says
+         * that outright, because reaching through a null pointer for a member
+         * address is undefined behaviour the sanitizers report. */
+        clist = clist->next != NULL ? &clist->next->cnst : NULL;
+#else
         clist = &clist->next->cnst;
+#endif
     }
     if (changed != 0) {
         GXPixModeSync();
@@ -1215,7 +1223,15 @@ int HSD_TExpCompile(HSD_TExp* texp, HSD_TExpTevDesc** tevdesc,
         HSD_TExpTevDesc* tdesc = hsdAllocMemPiece(sizeof(HSD_TExpTevDesc));
         tdesc->desc.stage = HSD_Index2TevStage(i);
         TExp2TevDesc(order[(num - i) - 1], tdesc, &init_cprev, &init_aprev);
+#ifdef MELEE_HOST
+        /* `desc` is the first member, so the original expression evaluates to
+         * NULL on the first pass, which is the list terminator it wants.  The
+         * host spells that out because taking the address of a member of a
+         * null pointer is undefined behaviour the sanitizers report. */
+        tdesc->desc.next = *tevdesc != NULL ? &(*tevdesc)->desc : NULL;
+#else
         tdesc->desc.next = &(*tevdesc)->desc;
+#endif
         *tevdesc = tdesc;
     }
 

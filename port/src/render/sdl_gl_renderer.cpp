@@ -19,7 +19,161 @@ namespace melee::render {
 namespace {
 
 std::vector<TextureImage> texture_images;
-constexpr mh_u32 kRenderTranslucent = 1U << 30U;
+
+/* GX's compare functions are enumerated in the same order as OpenGL's, so the
+ * mapping is an offset rather than a table. */
+GLenum gl_compare(mh_u32 compare)
+{
+    return static_cast<GLenum>(GL_NEVER + (compare & 7U));
+}
+
+/* A blend factor names the other side's colour depending on which side it is
+ * used on: GX gives GX_BL_SRCCLR and GX_BL_DSTCLR the same value, and which
+ * one it means follows from whether it multiplies the source or the
+ * destination. */
+GLenum gl_blend_factor(mh_u32 factor, bool source_side)
+{
+    switch (factor) {
+    case 0: // GX_BL_ZERO
+        return GL_ZERO;
+    case 1: // GX_BL_ONE
+        return GL_ONE;
+    case 2: // GX_BL_SRCCLR as a destination factor, GX_BL_DSTCLR as a source
+        return source_side ? GL_DST_COLOR : GL_SRC_COLOR;
+    case 3:
+        return source_side ? GL_ONE_MINUS_DST_COLOR : GL_ONE_MINUS_SRC_COLOR;
+    case 4: // GX_BL_SRCALPHA
+        return GL_SRC_ALPHA;
+    case 5: // GX_BL_INVSRCALPHA
+        return GL_ONE_MINUS_SRC_ALPHA;
+    case 6: // GX_BL_DSTALPHA
+        return GL_DST_ALPHA;
+    case 7: // GX_BL_INVDSTALPHA
+        return GL_ONE_MINUS_DST_ALPHA;
+    default:
+        return source_side ? GL_ONE : GL_ZERO;
+    }
+}
+
+/* The reduction from GX's two alpha comparisons to one lives with the GX
+ * model, not here; this only maps the result onto the fixed-function test. */
+bool resolve_alpha_test(const MeleeHostGxDrawState& state, GLenum* out_func,
+                        GLclampf* out_reference)
+{
+    mh_u32 compare = 0;
+    mh_u8 reference = 0;
+    if (!melee_host_gx_resolve_alpha_test(&state, &compare, &reference)) {
+        return false;
+    }
+    *out_func = gl_compare(compare);
+    *out_reference = static_cast<GLclampf>(reference) / 255.0F;
+    return true;
+}
+
+/* How a group of triangles is coloured, read off the captured TEV program
+ * where that is possible.  A program the host cannot read exactly falls back
+ * to texture times vertex colour, which is what the viewer always did. */
+struct Shading {
+    bool use_texture = true;
+    bool replace = false;
+    float konst[4] = { 1.0F, 1.0F, 1.0F, 1.0F };
+    float constant_alpha = 1.0F;
+    bool exact = false;
+};
+
+Shading resolve_shading(const MeleeHostGxTevState& tev)
+{
+    Shading shading;
+    MeleeHostGxResolvedShading resolved{};
+    if (!melee_host_gx_resolve_shading(&tev, &resolved)) {
+        return shading;
+    }
+    shading.constant_alpha =
+        static_cast<float>(resolved.constant_alpha) / 255.0F;
+    shading.exact = resolved.kind != MELEE_HOST_GX_SHADING_APPROXIMATED;
+    switch (resolved.kind) {
+    case MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR:
+        break;
+    case MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR:
+        shading.use_texture = false;
+        for (std::size_t channel = 0; channel < 4; ++channel) {
+            shading.konst[channel] =
+                static_cast<float>(resolved.konst_color[channel]) / 255.0F;
+        }
+        break;
+    case MELEE_HOST_GX_SHADING_TEXTURE:
+        shading.replace = true;
+        break;
+    case MELEE_HOST_GX_SHADING_COLOR:
+        shading.use_texture = false;
+        break;
+    default:
+        shading.constant_alpha = 1.0F;
+        break;
+    }
+    return shading;
+}
+
+/* Applies one captured state.  Returns false when the state draws nothing at
+ * all, which GX_CULL_ALL does. */
+bool apply_draw_state(const MeleeHostGxDrawState& state, bool front_face_cw)
+{
+    glFrontFace(front_face_cw ? GL_CW : GL_CCW);
+    switch (state.cull_mode) {
+    case 0: // GX_CULL_NONE
+        glDisable(GL_CULL_FACE);
+        break;
+    case 1: // GX_CULL_FRONT
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        break;
+    case 2: // GX_CULL_BACK
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        break;
+    default: // GX_CULL_ALL
+        return false;
+    }
+
+    if (state.z_compare_enable) {
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(gl_compare(state.z_func));
+    } else {
+        glDisable(GL_DEPTH_TEST);
+    }
+    glDepthMask(state.z_update_enable ? GL_TRUE : GL_FALSE);
+
+    switch (state.blend_mode) {
+    case 1: // GX_BM_BLEND
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFunc(gl_blend_factor(state.blend_src_factor, true),
+                    gl_blend_factor(state.blend_dst_factor, false));
+        break;
+    case 3: // GX_BM_SUBTRACT, which GX fixes at destination minus source
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+        glBlendFunc(GL_ONE, GL_ONE);
+        break;
+    default: // GX_BM_NONE, and GX_BM_LOGIC which this viewer does not model
+        glDisable(GL_BLEND);
+        break;
+    }
+
+    GLenum alpha_func = GL_ALWAYS;
+    GLclampf alpha_reference = 0.0F;
+    if (resolve_alpha_test(state, &alpha_func, &alpha_reference)) {
+        glEnable(GL_ALPHA_TEST);
+        glAlphaFunc(alpha_func, alpha_reference);
+    } else {
+        glDisable(GL_ALPHA_TEST);
+    }
+
+    const GLboolean color = state.color_update_enable ? GL_TRUE : GL_FALSE;
+    const GLboolean alpha = state.alpha_update_enable ? GL_TRUE : GL_FALSE;
+    glColorMask(color, color, color, alpha);
+    return true;
+}
 
 struct Bounds {
     float minimum[3] = { std::numeric_limits<float>::max(),
@@ -85,6 +239,21 @@ GLuint create_checker_texture()
     return texture;
 }
 
+/* A neutral texture for a material that names none: modulating by white
+ * leaves the colour the program computed untouched. */
+GLuint create_white_texture()
+{
+    constexpr std::array<GLubyte, 4> pixels{ 255, 255, 255, 255 };
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, pixels.data());
+    return texture;
+}
+
 GLint wrap_mode(std::uint32_t mode)
 {
     if (mode == 1) {
@@ -142,6 +311,7 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
         gamepad_count > 0 ? SDL_OpenGamepad(gamepad_ids[0]) : nullptr;
     SDL_free(gamepad_ids);
     const GLuint checker_texture = create_checker_texture();
+    const GLuint white_texture = create_white_texture();
     std::vector<GLuint> textures;
     textures.reserve(texture_images.size());
     for (const auto& image : texture_images) {
@@ -168,7 +338,51 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
         }
     }
 
+    /* Draw order between states: everything that does not blend first, so the
+     * opaque geometry has written depth before a blended group reads it.  This
+     * is the ordering the original render passes imply, derived from the state
+     * each draw actually ran under rather than assumed. */
+    /* A group is one pixel state paired with one material program, because a
+     * triangle needs both to be drawn the way it was captured. */
+    struct Group {
+        mh_u32 draw_state;
+        mh_u32 tev_state;
+    };
+    std::vector<Group> groups;
+    for (int blended = 0; blended < 2; ++blended) {
+        for (std::size_t index = 0; index < triangle_count; ++index) {
+            MeleeHostGxCapturedTriangle triangle{};
+            if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
+                continue;
+            }
+            const mh_u32 draw_id = triangle.vertices[0].draw_state;
+            const mh_u32 tev_id = triangle.vertices[0].tev_state;
+            MeleeHostGxDrawState state{};
+            if (!melee_host_gx_captured_draw_state_at(draw_id, &state)) {
+                continue;
+            }
+            const bool is_blended =
+                state.blend_mode == 1 || state.blend_mode == 3;
+            if (is_blended != (blended != 0)) {
+                continue;
+            }
+            const bool known =
+                std::any_of(groups.begin(), groups.end(),
+                            [&](const Group& group) {
+                                return group.draw_state == draw_id &&
+                                       group.tev_state == tev_id;
+                            });
+            if (!known) {
+                groups.push_back({ draw_id, tev_id });
+            }
+        }
+    }
+
     bool running = true;
+    /* GX treats a clockwise winding as the front face.  The viewer starts
+     * there and can flip it, because a model that looks inside out is the
+     * clearest evidence the assumption is wrong for a given asset. */
+    bool front_face_cw = true;
     float yaw = 20.0F;
     float pitch = -20.0F;
     float zoom = 1.0F;
@@ -209,6 +423,9 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
                     break;
                 case SDL_SCANCODE_PAGEDOWN:
                     zoom = std::min(zoom * 1.1F, 100.0F);
+                    break;
+                case SDL_SCANCODE_F:
+                    front_face_cw = !front_face_cw;
                     break;
                 default:
                     break;
@@ -310,43 +527,65 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
         configure_projection(bounds, width, height, yaw, pitch, zoom);
         glClearColor(0.035F, 0.045F, 0.08F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, checker_texture);
-        for (int pass = 0; pass < 2; ++pass) {
-            const bool translucent_pass = pass == 1;
-            if (translucent_pass) {
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthMask(GL_FALSE);
-            } else {
-                glDisable(GL_BLEND);
-                glDepthMask(GL_TRUE);
+        /* One group per captured state, blended groups last so the opaque
+         * geometry has already written depth.  The order within a group is the
+         * order the draws happened in. */
+        for (const Group& group : groups) {
+            MeleeHostGxDrawState state{};
+            if (!melee_host_gx_captured_draw_state_at(group.draw_state,
+                                                      &state)) {
+                continue;
             }
+            if (!apply_draw_state(state, front_face_cw)) {
+                continue;
+            }
+            MeleeHostGxTevState tev{};
+            const Shading shading =
+                melee_host_gx_captured_tev_state_at(group.tev_state, &tev)
+                    ? resolve_shading(tev)
+                    : Shading{};
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE,
+                      shading.replace ? GL_REPLACE : GL_MODULATE);
             for (std::size_t index = 0; index < triangle_count; ++index) {
                 MeleeHostGxCapturedTriangle triangle{};
                 if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
                     continue;
                 }
-                const bool translucent =
-                    (triangle.vertices[0].render_mode & kRenderTranslucent) != 0;
-                if (translucent != translucent_pass) {
+                if (triangle.vertices[0].draw_state != group.draw_state ||
+                    triangle.vertices[0].tev_state != group.tev_state)
+                {
                     continue;
                 }
                 glBegin(GL_TRIANGLES);
                 for (const auto& vertex : triangle.vertices) {
+                    float red = 0.85F;
+                    float green = 0.85F;
+                    float blue = 0.9F;
+                    float alpha = 1.0F;
                     if ((vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0) {
-                        glColor4ub(vertex.color[0], vertex.color[1], vertex.color[2],
-                                   vertex.color[3]);
-                    } else {
-                        glColor4f(0.85F, 0.85F, 0.9F, 1.0F);
+                        red = static_cast<float>(vertex.color[0]) / 255.0F;
+                        green = static_cast<float>(vertex.color[1]) / 255.0F;
+                        blue = static_cast<float>(vertex.color[2]) / 255.0F;
+                        alpha = static_cast<float>(vertex.color[3]) / 255.0F;
                     }
-                    const GLuint texture =
-                        (vertex.attributes & MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE) != 0 &&
-                                vertex.texture_image < textures.size()
-                            ? textures[vertex.texture_image]
-                            : checker_texture;
-                    glBindTexture(GL_TEXTURE_2D, texture);
+                    /* The material's own constant colour and alpha, which the
+                     * TEV program multiplies in. */
+                    glColor4f(red * shading.konst[0], green * shading.konst[1],
+                              blue * shading.konst[2],
+                              alpha * shading.konst[3] *
+                                  shading.constant_alpha);
+                    const bool has_texture =
+                        shading.use_texture &&
+                        (vertex.attributes &
+                         MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE) != 0 &&
+                        vertex.texture_image < textures.size();
+                    glBindTexture(GL_TEXTURE_2D,
+                                  has_texture
+                                      ? textures[vertex.texture_image]
+                                      : (shading.use_texture ? checker_texture
+                                                             : white_texture));
                     if ((vertex.attributes & MELEE_HOST_GX_VERTEX_TEXCOORD) != 0) {
                         glTexCoord2f(vertex.texcoord[0], vertex.texcoord[1]);
                     } else {
@@ -359,10 +598,14 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error)
             }
         }
         glDepthMask(GL_TRUE);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_ALPHA_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         SDL_GL_SwapWindow(window);
     }
 
     glDeleteTextures(1, &checker_texture);
+    glDeleteTextures(1, &white_texture);
     if (!textures.empty()) {
         glDeleteTextures(static_cast<GLsizei>(textures.size()), textures.data());
     }
