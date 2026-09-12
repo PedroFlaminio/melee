@@ -30,9 +30,12 @@ struct HsdMaterial {
     std::array<std::uint8_t, 4> diffuse;
     bool has_texture;
     std::optional<HsdRuntimeNode> image_data;
+    std::optional<HsdRuntimeNode> tlut_data;
     std::uint16_t texture_width;
     std::uint16_t texture_height;
     std::uint32_t texture_format;
+    std::uint16_t tlut_entries;
+    std::uint32_t tlut_format;
     std::uint32_t texture_wrap_s;
     std::uint32_t texture_wrap_t;
 };

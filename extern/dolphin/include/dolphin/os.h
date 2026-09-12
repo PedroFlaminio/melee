@@ -174,7 +174,7 @@ void OSSetSoundMode(u32 mode);
 #endif
 #endif
 
-void OSReport(char*, ...);
+void OSReport(const char*, ...);
 DOLPHIN_ATTRIBUTE_NORETURN void OSPanic(char* file, int line, char* msg, ...);
 
 #define OSRoundUp32B(x) (((u32) (x) + 32 - 1) & ~(32 - 1))

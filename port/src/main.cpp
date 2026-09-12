@@ -12,9 +12,14 @@
 #include <dolphin/dvd.h>
 #include <dolphin/gx/GXDispList.h>
 #include <dolphin/gx/GXGeometry.h>
+#include <dolphin/pad.h>
 #include <melee_host/baselib.h>
 #include <melee_host/gx.h>
 #include <melee_host/host.h>
+#include <melee_host/input.h>
+#include <melee_host/local_match.h>
+#include <melee_host/match_rules.h>
+#include <melee_host/menu_native.h>
 
 #include <algorithm>
 #include <array>
@@ -65,6 +70,10 @@ void print_usage(const char* executable)
 {
     std::cerr << "usage:\n"
               << "  " << executable << " --diagnose\n"
+              << "  " << executable << " --inspect-match-rules\n"
+              << "  " << executable << " --reset-match-rules\n"
+              << "  " << executable << " --diagnose-native-menu\n"
+              << "  " << executable << " --diagnose-local-match\n"
               << "  " << executable << " --inspect-hsd FILE\n"
               << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
 #if defined(MELEE_HOST_SDL_RENDERER)
@@ -101,6 +110,128 @@ int diagnose()
               << "  game step: " << melee_host_status_string(step_status)
               << '\n';
     return second >= first && baselib_status == MELEE_HOST_OK ? 0 : 1;
+}
+
+int inspect_match_rules()
+{
+    MeleeHostMatchRules rules{};
+    const MeleeHostStatus status = melee_host_match_rules_get(&rules);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "match rules unavailable: "
+                  << melee_host_status_string(status) << '\n';
+        return 1;
+    }
+    std::cout << "native VS rules store\n"
+              << "  mode: " << static_cast<unsigned>(rules.mode) << '\n'
+              << "  time limit: "
+              << static_cast<unsigned>(rules.time_limit) << '\n'
+              << "  stock count: "
+              << static_cast<unsigned>(rules.stock_count) << '\n'
+              << "  handicap: " << static_cast<unsigned>(rules.handicap)
+              << '\n'
+              << "  damage ratio: "
+              << static_cast<unsigned>(rules.damage_ratio) << '\n'
+              << "  friendly fire: " << (rules.friendly_fire ? "on" : "off")
+              << '\n'
+              << "  pause: " << (rules.pause ? "on" : "off") << '\n';
+    return 0;
+}
+
+int reset_match_rules()
+{
+    const MeleeHostStatus status = melee_host_match_rules_reset_defaults();
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "match rule reset failed: "
+                  << melee_host_status_string(status) << '\n';
+        return 1;
+    }
+    return inspect_match_rules();
+}
+
+int diagnose_native_menu()
+{
+    MeleeHostContext* context = nullptr;
+    const MeleeHostConfig config{ .resource_root = nullptr, .headless = true };
+    if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+        melee_host_activate_pad_backend(context) != MELEE_HOST_OK ||
+        melee_host_native_menu_init() != MELEE_HOST_OK)
+    {
+        std::cerr << "could not initialize native menu input\n";
+        melee_host_destroy(context);
+        return 1;
+    }
+    const MeleeHostPadState input{
+        .buttons = PAD_BUTTON_A,
+        .stick_x = 0,
+        .stick_y = 0,
+        .c_stick_x = 0,
+        .c_stick_y = 0,
+        .trigger_left = 0,
+        .trigger_right = 0,
+        .connected = true,
+    };
+    mh_u32 events = 0;
+    const MeleeHostStatus submit =
+        melee_host_submit_pad_state(context, 0, &input);
+    const MeleeHostStatus step = melee_host_step(context);
+    const MeleeHostStatus update = melee_host_native_menu_update(
+        MELEE_HOST_MAX_CONTROLLERS, &events);
+    melee_host_destroy(context);
+    if (submit != MELEE_HOST_OK || step != MELEE_HOST_NOT_READY ||
+        update != MELEE_HOST_OK)
+    {
+        std::cerr << "native menu input update failed\n";
+        return 1;
+    }
+    std::cout << "native menu input\n"
+              << "  A event: "
+              << (((events & MELEE_HOST_NATIVE_MENU_A) != 0) ? "ok" : "failed")
+              << '\n'
+              << "  confirm event: "
+              << (((events & MELEE_HOST_NATIVE_MENU_CONFIRM) != 0) ? "ok"
+                                                                  : "failed")
+              << '\n';
+    return (events & (MELEE_HOST_NATIVE_MENU_A |
+                      MELEE_HOST_NATIVE_MENU_CONFIRM)) ==
+                   (MELEE_HOST_NATIVE_MENU_A | MELEE_HOST_NATIVE_MENU_CONFIRM)
+               ? 0
+               : 1;
+}
+
+int diagnose_local_match()
+{
+    if (melee_host_match_rules_reset_defaults() != MELEE_HOST_OK) {
+        std::cerr << "could not initialize native VS rules\n";
+        return 1;
+    }
+    const MeleeHostStatus prepare =
+        melee_host_prepare_local_two_player_match(2, 8, 3);
+    MeleeHostPreparedMatch match{};
+    const MeleeHostStatus inspect = melee_host_prepared_match_get(&match);
+    const MeleeHostStatus initialize =
+        melee_host_initialize_prepared_player_state();
+    MeleeHostPlayerState first{};
+    MeleeHostPlayerState second{};
+    const MeleeHostStatus first_status = melee_host_player_state_get(0, &first);
+    const MeleeHostStatus second_status =
+        melee_host_player_state_get(1, &second);
+    if (prepare != MELEE_HOST_OK || inspect != MELEE_HOST_OK ||
+        initialize != MELEE_HOST_OK || first_status != MELEE_HOST_OK ||
+        second_status != MELEE_HOST_OK)
+    {
+        std::cerr << "could not prepare native VS start data\n";
+        return 1;
+    }
+    std::cout << "native local VS start data\n"
+              << "  players: " << static_cast<unsigned>(match.player_count)
+              << "\n  characters: " << static_cast<int>(match.characters[0])
+              << ", " << static_cast<int>(match.characters[1])
+              << "\n  stage: " << match.stage_kind
+              << "\n  match kind: " << static_cast<unsigned>(match.match_kind)
+              << "\n  timer seconds: " << match.time_limit_seconds
+              << "\n  materialized slots: " << static_cast<int>(first.character)
+              << ", " << static_cast<int>(second.character) << '\n';
+    return 0;
 }
 
 int inspect_hsd(const std::filesystem::path& path)
@@ -177,7 +308,7 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
                           return (geometry.material.render_mode & (1U << 30U)) != 0;
                       }));
     std::map<std::uint32_t, std::size_t> texture_formats;
-    std::map<std::uint32_t, mh_u32> texture_ids;
+    std::map<std::uint64_t, mh_u32> texture_ids;
 #if defined(MELEE_HOST_SDL_RENDERER)
     std::vector<melee::render::TextureImage> renderer_textures;
 #endif
@@ -185,13 +316,16 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
     for (const auto& geometry : geometries) {
         if (geometry.material.image_data.has_value()) {
             ++texture_formats[geometry.material.texture_format];
+            const bool indexed = geometry.material.texture_format == 8 ||
+                                 geometry.material.texture_format == 9 ||
+                                 geometry.material.texture_format == 10;
             if (geometry.material.texture_format == 0 ||
                 geometry.material.texture_format == 1 ||
                 geometry.material.texture_format == 2 ||
                 geometry.material.texture_format == 3 ||
                 geometry.material.texture_format == 4 ||
                 geometry.material.texture_format == 5 ||
-                geometry.material.texture_format == 6 ||
+                geometry.material.texture_format == 6 || indexed ||
                 geometry.material.texture_format == 14)
             {
                 const std::size_t byte_count = melee::assets::gx_texture_data_size(
@@ -200,13 +334,34 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
                     geometry.material.texture_format);
                 const auto image = runtime.bytes_at(*geometry.material.image_data,
                                                     byte_count);
-                const auto decoded = melee::assets::decode_gx_texture(
-                    image, geometry.material.texture_width,
-                    geometry.material.texture_height,
-                    geometry.material.texture_format);
+                melee::assets::DecodedTexture decoded{};
+                std::uint64_t texture_key = geometry.material.image_data->data_offset;
+                if (indexed) {
+                    if (!geometry.material.tlut_data.has_value() ||
+                        geometry.material.tlut_entries == 0)
+                    {
+                        continue;
+                    }
+                    const std::size_t tlut_size =
+                        static_cast<std::size_t>(geometry.material.tlut_entries) * 2;
+                    const auto tlut = runtime.bytes_at(*geometry.material.tlut_data,
+                                                       tlut_size);
+                    decoded = melee::assets::decode_gx_texture_with_tlut(
+                        image, geometry.material.texture_width,
+                        geometry.material.texture_height,
+                        geometry.material.texture_format, tlut,
+                        geometry.material.tlut_format);
+                    texture_key |= static_cast<std::uint64_t>(
+                        geometry.material.tlut_data->data_offset) << 32U;
+                } else {
+                    decoded = melee::assets::decode_gx_texture(
+                        image, geometry.material.texture_width,
+                        geometry.material.texture_height,
+                        geometry.material.texture_format);
+                }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 const auto insertion = texture_ids.emplace(
-                    geometry.material.image_data->data_offset,
+                    texture_key,
                     static_cast<mh_u32>(renderer_textures.size()));
                 if (insertion.second) {
                     renderer_textures.push_back({
@@ -277,9 +432,19 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
         melee_host_gx_apply_material(
             first_vertex, melee_host_gx_captured_vertex_count() - first_vertex,
             geometry.material.diffuse.data(),
-            geometry.material.image_data.has_value() &&
-                    texture_ids.contains(geometry.material.image_data->data_offset)
-                ? texture_ids.at(geometry.material.image_data->data_offset)
+            geometry.material.image_data.has_value() && texture_ids.contains(
+                static_cast<std::uint64_t>(geometry.material.image_data->data_offset) |
+                (geometry.material.tlut_data.has_value()
+                     ? static_cast<std::uint64_t>(
+                           geometry.material.tlut_data->data_offset) << 32U
+                     : 0U))
+                ? texture_ids.at(static_cast<std::uint64_t>(
+                                     geometry.material.image_data->data_offset) |
+                                 (geometry.material.tlut_data.has_value()
+                                      ? static_cast<std::uint64_t>(
+                                            geometry.material.tlut_data->data_offset)
+                                            << 32U
+                                      : 0U))
                 : MELEE_HOST_GX_NO_TEXTURE,
             geometry.material.render_mode);
         display_bytes += display.size();
@@ -313,7 +478,18 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
     if (preview) {
         std::string error;
         melee::render::set_texture_images(std::move(renderer_textures));
-        if (!melee::render::show_captured_geometry(&error)) {
+        MeleeHostContext* context = nullptr;
+        const MeleeHostConfig config{ .resource_root = nullptr, .headless = false };
+        if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+            melee_host_activate_pad_backend(context) != MELEE_HOST_OK)
+        {
+            melee_host_destroy(context);
+            std::cerr << "could not initialize SDL input context\n";
+            return 1;
+        }
+        const bool rendered = melee::render::show_captured_geometry(context, &error);
+        melee_host_destroy(context);
+        if (!rendered) {
             std::cerr << "geometry preview failed: " << error << '\n';
             return 1;
         }
@@ -382,6 +558,18 @@ int main(int argc, char** argv)
     try {
         if (argc == 2 && std::string(argv[1]) == "--diagnose") {
             return diagnose();
+        }
+        if (argc == 2 && std::string(argv[1]) == "--inspect-match-rules") {
+            return inspect_match_rules();
+        }
+        if (argc == 2 && std::string(argv[1]) == "--reset-match-rules") {
+            return reset_match_rules();
+        }
+        if (argc == 2 && std::string(argv[1]) == "--diagnose-native-menu") {
+            return diagnose_native_menu();
+        }
+        if (argc == 2 && std::string(argv[1]) == "--diagnose-local-match") {
+            return diagnose_local_match();
         }
         if (argc == 3 && std::string(argv[1]) == "--inspect-hsd") {
             return inspect_hsd(argv[2]);

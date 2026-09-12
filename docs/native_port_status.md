@@ -89,11 +89,43 @@ Atualizado em 12 de setembro de 2026.
   faz upload das imagens suportadas e usa a textura correta em cada triangulo.
 - [x] Primeiro mapeamento de estado GX: `RENDER_XLU` por PObj controla blend
   alpha e escrita no depth buffer; o caso TEV basico usa textura × cor de vertice.
+- [x] Renderer executa passes separados de opacos e translucidos para preservar
+  depth dos objetos opacos antes do blend alpha.
 - [x] Primeiro subconjunto de materiais GX concluido para os formatos presentes
   em `GmPause.dat` (I4/IA4), do HSD ate o backend SDL/OpenGL.
+- [x] Texturas paletizadas GX `C4`, `C8` e `C14X2`: decodificacao TLUT
+  (`IA8`, `RGB565`, `RGB5A3`), schema HSD de `HSD_TlutDesc` e associacao da
+  paleta ao preview SDL/OpenGL, com limites validados.
+- [x] Entrada SDL no preview: teclado ou primeiro SDL Gamepad alimenta o pad 0
+  do snapshot host a cada tick, consumivel pelo `PADRead` original; hot-plug
+  troca com seguranca entre gamepad e teclado.
+- [x] Backend SDL/SDL_GameController para alimentar a entrada do host.
+- [x] Adaptador puro de snapshot GameCube para os bits de navegacao usados por
+  `Menu_GetAllInputs`, com botoes, analogo e gatilhos cobertos por teste.
 - [x] Testes sinteticos de disco e HSD.
 - [x] Primeiros modulos originais compilados nativamente: RNG, tempo, vetores,
   controlador, memoria, objalloc/list e fila `devcom` da baselib.
+- [x] Nucleo vertical de luta compilado nativamente: configuracao de partida
+  (`gmmain.c`/`gmmain_lib.c`), jogadores (`player.c`), lutadores
+  (`fighter.c`) e terreno (`ground.c`). Ainda nao e ligado ao executavel.
+- [x] Rota de menu e VS compilada nativamente: `mnmain.c`, `gmscene.c`,
+  `gmvsmode.c`, `gmvsmelee.c` e `gmvs.c`.
+- [x] Fachada C ABI para o armazenamento original de regras VS: leitura,
+  escrita e restauração dos defaults de `gmMainLib_DefaultGameRules`, testadas
+  sem expor structs PPC ao C++ host.
+- [x] Preparação de `StartMeleeData` original para uma luta VS local de dois
+  jogadores, com regras atuais, personagens e estágio validados por uma ABI
+  host segura. A transição para a cena ainda depende das facades de runtime.
+- [x] Inicialização completa dos seis slots originais de jogador: estado base,
+  tabela de stale moves, estatísticas de ataque e estado de bônus; os dois
+  jogadores preparados são materializados nos slots antes da criação de
+  objetos Fighter.
+- [x] Caminho de input de menu executado: snapshot host → HSD Pad →
+  `gm_EvaluateAllControllerInputs` original → mapeamento de eventos compativel
+  com `mn_80229624`, com A/confirmacao cobertos por teste integrado.
+- [x] Compatibilidade host de 64 bits para asserts de layout PPC, diagnostico
+  `OSPanic`, tempo e declaracoes Dolphin compartilhadas, sem alterar o caminho
+  matching.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -101,15 +133,16 @@ Atualizado em 12 de setembro de 2026.
 - [ ] Compilar todo o codigo relevante sem assembly PPC.
 - [ ] Resource manager runtime consumindo o manifesto extraido.
 - [ ] Cancelamento, streaming e prioridade completa da API DVD.
-- [ ] Backend SDL/SDL_GameController para alimentar a entrada do host.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas.
+- [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
+  loop de frame (roteiro em `docs/fight_flow_port.md`).
 
 ## Proximos gates
 
 1. Inicializar o primeiro grafo de audio sem DSP/ARAM fisico.
 2. Compilar o primeiro fluxo de menu sobre as facades host.
-3. Implementar TLUT e texturas paletizadas (`C4`, `C8`, `C14X2`) como extensao
-   do renderer de materiais.
+3. Carregar uma cena real que use TLUT no preview e cobrir seu asset em teste
+   de integracao.
 
 ## Limitacoes atuais
 

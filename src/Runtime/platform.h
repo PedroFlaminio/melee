@@ -151,7 +151,13 @@ typedef bool (*Predicate)(void);
 #define _Static_assert static_assert
 #endif
 #endif
-#ifdef M2CTX
+#if defined(M2CTX) || defined(MELEE_HOST)
+/*
+ * The original game targets a 32-bit PowerPC ABI.  Native host builds use
+ * pointer-sized fields, so its compile-time binary-layout proofs do not hold.
+ * Host parsers use explicit on-disk schemas instead of casting asset bytes to
+ * these runtime structs; retain the assertions for matching builds only.
+ */
 #define STATIC_ASSERT(cond)
 #elif defined(__MWERKS__)
 #define STATIC_ASSERT(cond)                                                   \
@@ -191,6 +197,9 @@ typedef bool (*Predicate)(void);
 #define M_TAU 6.283185307179586
 #if defined(MELEE_HOST) && !defined(M_PI)
 #define M_PI 3.14159265358979323846
+#endif
+#ifndef M_PI_2
+#define M_PI_2 (M_PI / 2)
 #endif
 #define M_PI_3 (M_PI / 3)
 

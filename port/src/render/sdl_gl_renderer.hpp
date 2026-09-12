@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <vector>
 
+struct MeleeHostContext;
+
 namespace melee::render {
 
 struct TextureImage {
@@ -16,7 +18,8 @@ struct TextureImage {
 };
 
 void set_texture_images(std::vector<TextureImage> images);
-[[nodiscard]] bool show_captured_geometry(std::string* error);
+[[nodiscard]] bool show_captured_geometry(MeleeHostContext* context,
+                                           std::string* error);
 
 } // namespace melee::render
 

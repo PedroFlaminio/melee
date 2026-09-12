@@ -16,7 +16,13 @@ constexpr std::uint32_t kGxIA8 = 3;
 constexpr std::uint32_t kGxRgb565 = 4;
 constexpr std::uint32_t kGxRgb5A3 = 5;
 constexpr std::uint32_t kGxRgba8 = 6;
+constexpr std::uint32_t kGxC4 = 8;
+constexpr std::uint32_t kGxC8 = 9;
+constexpr std::uint32_t kGxC14X2 = 10;
 constexpr std::uint32_t kGxCmpr = 14;
+constexpr std::uint32_t kGxTlutIa8 = 0;
+constexpr std::uint32_t kGxTlutRgb565 = 1;
+constexpr std::uint32_t kGxTlutRgb5A3 = 2;
 
 std::size_t ceil_div(std::size_t value, std::size_t divisor)
 {
@@ -69,6 +75,38 @@ std::array<std::uint8_t, 4> rgb565(std::uint16_t value)
              expand((value >> 5U) & 0x3FU, 6), expand(value & 0x1FU, 5), 255 };
 }
 
+std::array<std::uint8_t, 4> tlut_color(std::span<const std::byte> tlut,
+                                       std::size_t index,
+                                       std::uint32_t format)
+{
+    const std::size_t offset = index * 2;
+    if (offset + 2 > tlut.size()) {
+        throw HsdArchiveError("GX TLUT index exceeds palette");
+    }
+    const std::uint16_t value = read_be16(tlut, offset);
+    switch (format) {
+    case kGxTlutIa8: {
+        const auto intensity = static_cast<std::uint8_t>(value & 0xFFU);
+        return { intensity, intensity, intensity,
+                 static_cast<std::uint8_t>(value >> 8U) };
+    }
+    case kGxTlutRgb565:
+        return rgb565(value);
+    case kGxTlutRgb5A3:
+        if ((value & 0x8000U) != 0) {
+            return { expand((value >> 10U) & 0x1FU, 5),
+                     expand((value >> 5U) & 0x1FU, 5),
+                     expand(value & 0x1FU, 5), 255 };
+        }
+        return { expand((value >> 8U) & 0xFU, 4),
+                 expand((value >> 4U) & 0xFU, 4),
+                 expand(value & 0xFU, 4),
+                 expand((value >> 12U) & 0x7U, 3) };
+    default:
+        throw HsdArchiveError("unsupported GX TLUT format");
+    }
+}
+
 } // namespace
 
 std::size_t gx_texture_data_size(std::uint16_t width, std::uint16_t height,
@@ -79,11 +117,14 @@ std::size_t gx_texture_data_size(std::uint16_t width, std::uint16_t height,
     }
     switch (format) {
     case kGxI4:
+    case kGxC4:
         return ceil_div(width, 8) * ceil_div(height, 8) * 32;
     case kGxI8:
     case kGxIA4:
+    case kGxC8:
         return ceil_div(width, 8) * ceil_div(height, 4) * 32;
     case kGxIA8:
+    case kGxC14X2:
         return ceil_div(width, 4) * ceil_div(height, 4) * 32;
     case kGxRgb5A3:
     case kGxRgb565:
@@ -95,6 +136,55 @@ std::size_t gx_texture_data_size(std::uint16_t width, std::uint16_t height,
     default:
         throw HsdArchiveError("unsupported GX texture format");
     }
+}
+
+DecodedTexture decode_gx_texture_with_tlut(
+    std::span<const std::byte> data, std::uint16_t width,
+    std::uint16_t height, std::uint32_t format,
+    std::span<const std::byte> tlut, std::uint32_t tlut_format)
+{
+    if (format != kGxC4 && format != kGxC8 && format != kGxC14X2) {
+        throw HsdArchiveError("GX texture format does not use a TLUT");
+    }
+    const std::size_t expected = gx_texture_data_size(width, height, format);
+    if (data.size() < expected) {
+        throw HsdArchiveError("GX texture data is truncated");
+    }
+    if ((tlut.size() & 1U) != 0) {
+        throw HsdArchiveError("GX TLUT has an odd byte count");
+    }
+
+    DecodedTexture output{ width, height,
+                           std::vector<std::uint8_t>(
+                               static_cast<std::size_t>(width) * height * 4) };
+    const std::size_t tile_width = format == kGxC14X2 ? 4U : 8U;
+    const std::size_t tile_height = format == kGxC4 ? 8U : 4U;
+    std::size_t cursor = 0;
+    for (std::size_t tile_y = 0; tile_y < height; tile_y += tile_height) {
+        for (std::size_t tile_x = 0; tile_x < width; tile_x += tile_width) {
+            for (std::size_t y = 0; y < tile_height; ++y) {
+                for (std::size_t x = 0; x < tile_width; ++x) {
+                    std::size_t index;
+                    if (format == kGxC4) {
+                        const auto packed = std::to_integer<std::uint8_t>(
+                            data[cursor + (y * 8 + x) / 2]);
+                        index = (x & 1U) == 0 ? packed >> 4U : packed & 0xFU;
+                    } else if (format == kGxC8) {
+                        index = std::to_integer<std::uint8_t>(
+                            data[cursor + y * 8 + x]);
+                    } else {
+                        index = read_be16(data, cursor + (y * 4 + x) * 2) &
+                                0x3FFFU;
+                    }
+                    const auto color = tlut_color(tlut, index, tlut_format);
+                    write_rgba(&output, tile_x + x, tile_y + y, color[0],
+                               color[1], color[2], color[3]);
+                }
+            }
+            cursor += 32;
+        }
+    }
+    return output;
 }
 
 DecodedTexture decode_gx_texture(std::span<const std::byte> data,

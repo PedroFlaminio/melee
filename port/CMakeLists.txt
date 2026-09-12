@@ -84,6 +84,21 @@ melee_host_enable_sanitizers(melee_host)
 add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbtime.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbvector.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain_lib.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmscene.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1A36.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvs.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvsmelee.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvsmode.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmain.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c
+    ${CMAKE_SOURCE_DIR}/src/melee/pl/player.c
+    ${CMAKE_SOURCE_DIR}/src/melee/pl/plattack.c
+    ${CMAKE_SOURCE_DIR}/src/melee/pl/plbonus.c
+    ${CMAKE_SOURCE_DIR}/src/melee/pl/plstale.c
+    ${CMAKE_SOURCE_DIR}/src/melee/pl/pl_040D.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/fighter.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/aobj.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/controller.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/devcom.c
@@ -93,7 +108,11 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/objalloc.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/list.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/mtx.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/rumble.c
     src/game/baselib_bootstrap.c
+    src/game/local_match.c
+    src/game/match_rules.c
+    src/game/menu_native.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/pad/PadClamp.c
 )
@@ -104,6 +123,21 @@ target_include_directories(melee_game_core PUBLIC
 )
 melee_host_set_legacy_warnings(melee_game_core)
 melee_host_enable_sanitizers(melee_game_core)
+# The player bootstrap is a legacy translation unit with references to the
+# unported fighter and stage graph.  Sanitizer global metadata retains that
+# graph even when --gc-sections discards the functions.  Keep the host-facing
+# boundary instrumented while this island remains independently linked.
+if(MELEE_HOST_ENABLE_SANITIZERS)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/melee/pl/player.c
+        ${CMAKE_SOURCE_DIR}/src/melee/pl/plattack.c
+        ${CMAKE_SOURCE_DIR}/src/melee/pl/plbonus.c
+        ${CMAKE_SOURCE_DIR}/src/melee/pl/plstale.c
+        ${CMAKE_SOURCE_DIR}/src/melee/pl/pl_040D.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address,undefined"
+    )
+endif()
 target_link_libraries(melee_game_core PUBLIC melee_host)
 if(NOT MSVC)
     target_compile_options(melee_game_core PRIVATE -ffunction-sections -fdata-sections)
@@ -117,6 +151,9 @@ target_include_directories(melee-pc PRIVATE
 )
 melee_host_set_warnings(melee-pc)
 melee_host_enable_sanitizers(melee-pc)
+if(UNIX AND NOT APPLE)
+    target_link_options(melee-pc PRIVATE -Wl,--gc-sections)
+endif()
 
 option(MELEE_HOST_BUILD_SDL_RENDERER "Build the SDL/OpenGL geometry preview" ON)
 if(MELEE_HOST_BUILD_SDL_RENDERER)
@@ -151,6 +188,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/dolphin_mtx_test.cpp
         tests/fobj_test.cpp
         tests/list_test.cpp
+        tests/local_match_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
         tests/test_main.cpp
@@ -164,6 +202,22 @@ if(MELEE_HOST_BUILD_TESTS)
     endif()
 
     add_test(NAME melee-host-tests COMMAND melee-host-tests)
+    # Local game assets are intentionally untracked.  When available, retain
+    # an end-to-end regression for the TLUT material path without making CI
+    # depend on proprietary data.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/GmRegClr.dat")
+        add_test(
+            NAME melee-host-tlut-asset
+            COMMAND melee-pc --inspect-pobj
+                    ${CMAKE_SOURCE_DIR}/assets-local/GmRegClr.dat
+                    ScGamRegClear_scene_data
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-tlut-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
     if(MELEE_HOST_ENABLE_SANITIZERS)
         # LeakSanitizer cannot run under the traced execution environment used
         # by some CI runners. AddressSanitizer and UBSan remain enabled.

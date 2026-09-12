@@ -116,14 +116,16 @@ HsdMaterial decode_material(const HsdRuntimeArchive& archive,
                             std::optional<HsdRuntimeNode> mobj)
 {
     constexpr HsdMaterial default_material{
-        0, { 255, 255, 255, 255 }, false, std::nullopt, 0, 0, 0, 0, 0
+        0, { 255, 255, 255, 255 }, false, std::nullopt, std::nullopt,
+        0, 0, 0, 0, 0, 0, 0
     };
     if (!mobj.has_value()) {
         return default_material;
     }
     const auto tobj = optional_reference(archive, *mobj, 8);
     HsdMaterial material{ archive.read_u32(*mobj, 4), { 255, 255, 255, 255 },
-                          tobj.has_value(), std::nullopt, 0, 0, 0, 0, 0 };
+                          tobj.has_value(), std::nullopt, std::nullopt,
+                          0, 0, 0, 0, 0, 0, 0 };
     const auto material_desc = optional_reference(archive, *mobj, 0xC);
     if (material_desc.has_value()) {
         const auto diffuse =
@@ -151,6 +153,12 @@ HsdMaterial decode_material(const HsdRuntimeArchive& archive,
     material.texture_width = archive.read_u16(*image, 4);
     material.texture_height = archive.read_u16(*image, 6);
     material.texture_format = archive.read_u32(*image, 8);
+    const auto tlut = optional_reference(archive, *tobj, 0x50);
+    if (tlut.has_value()) {
+        material.tlut_data = optional_reference(archive, *tlut, 0);
+        material.tlut_format = archive.read_u32(*tlut, 4);
+        material.tlut_entries = archive.read_u16(*tlut, 0xC);
+    }
     return material;
 }
 

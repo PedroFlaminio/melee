@@ -76,10 +76,10 @@ std::vector<std::byte> make_db_common_archive()
 std::vector<std::byte> make_scene_archive()
 {
     constexpr std::string_view symbol = "scene";
-    constexpr std::uint32_t data_size = 0x1C0;
-    constexpr std::array<std::uint32_t, 12> relocations{
+    constexpr std::uint32_t data_size = 0x200;
+    constexpr std::array<std::uint32_t, 14> relocations{
         0x00, 0x20, 0x30, 0x50, 0x88, 0x8C, 0xA8, 0xB0, 0xC8, 0xCC, 0xF4,
-        0x1AC
+        0x1AC, 0x1B0, 0x1D0
     };
     constexpr std::uint32_t file_size =
         32 + data_size + static_cast<std::uint32_t>(relocations.size()) * 4 +
@@ -124,10 +124,14 @@ std::vector<std::byte> make_scene_archive()
     bytes[data_begin + 0x106] = std::byte{ 192 }; // diffuse B
     bytes[data_begin + 0x107] = std::byte{ 255 }; // diffuse A
     field32(0x10C, 0x3F000000); // HSD_Material.alpha = 0.5
-    field32(0x1AC, 0x1B0); // HSD_TObjDesc.imagedesc
-    field16(0x1B4, 32);    // HSD_ImageDesc.width
-    field16(0x1B6, 16);    // HSD_ImageDesc.height
-    field32(0x1B8, 5);     // HSD_ImageDesc.format = GX_RGB5A3
+    field32(0x1AC, 0x1C0); // HSD_TObjDesc.imagedesc
+    field32(0x1B0, 0x1D0); // HSD_TObjDesc.tlutdesc
+    field16(0x1C4, 32);    // HSD_ImageDesc.width
+    field16(0x1C6, 16);    // HSD_ImageDesc.height
+    field32(0x1C8, 5);     // HSD_ImageDesc.format = GX_RGB5A3
+    field32(0x1D0, 0x1E0); // HSD_TlutDesc.lut
+    field32(0x1D4, 1);     // HSD_TlutDesc.format = GX_TL_RGB565
+    field16(0x1DC, 2);     // HSD_TlutDesc.n_entries
 
     field32(0xE0, 9);     // GX_VA_POS
     field32(0xE4, 2);     // GX_INDEX8
@@ -214,9 +218,13 @@ TEST_CASE("scene schema traverses Joint DObj and PObj as validated offsets")
     REQUIRE(geometry.material.diffuse[2] == 192);
     REQUIRE(geometry.material.diffuse[3] == 128);
     REQUIRE(!geometry.material.image_data.has_value());
+    REQUIRE(geometry.material.tlut_data.has_value());
+    REQUIRE(geometry.material.tlut_data->data_offset == 0x1E0);
     REQUIRE(geometry.material.texture_width == 32);
     REQUIRE(geometry.material.texture_height == 16);
     REQUIRE(geometry.material.texture_format == 5);
+    REQUIRE(geometry.material.tlut_entries == 2);
+    REQUIRE(geometry.material.tlut_format == 1);
     REQUIRE(geometry.material.texture_wrap_s == 0);
     REQUIRE(geometry.material.texture_wrap_t == 0);
     REQUIRE(archive.has_reference_at({ 0xE0 }, 0x14));

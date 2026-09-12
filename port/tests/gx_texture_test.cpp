@@ -101,3 +101,43 @@ TEST_CASE("GX CMPR decoder follows the 8 by 8 tiled subblocks")
     REQUIRE(image.rgba[3] == 255);
     REQUIRE(melee::assets::gx_texture_data_size(8, 8, 14) == 32);
 }
+
+TEST_CASE("GX C4 decoder uses a RGB565 TLUT in tiled order")
+{
+    std::array<std::byte, 32> data{};
+    data[0] = std::byte{ 0x01 };
+    std::array<std::byte, 32> tlut{};
+    tlut[2] = std::byte{ 0xF8 };
+    tlut[3] = std::byte{ 0x00 };
+    const auto image = melee::assets::decode_gx_texture_with_tlut(
+        data, 8, 8, 8, tlut, 1);
+
+    REQUIRE(image.rgba[0] == 0);
+    REQUIRE(image.rgba[4] == 255);
+    REQUIRE(image.rgba[5] == 0);
+    REQUIRE(image.rgba[6] == 0);
+    REQUIRE(image.rgba[7] == 255);
+    REQUIRE(melee::assets::gx_texture_data_size(8, 8, 8) == 32);
+}
+
+TEST_CASE("GX C8 and C14X2 decoders preserve TLUT alpha")
+{
+    std::array<std::byte, 32> c8{};
+    c8[0] = std::byte{ 1 };
+    std::array<std::byte, 4> ia8_tlut{
+        std::byte{ 0 }, std::byte{ 0 }, std::byte{ 64 }, std::byte{ 200 }
+    };
+    const auto indexed = melee::assets::decode_gx_texture_with_tlut(
+        c8, 8, 4, 9, ia8_tlut, 0);
+    REQUIRE(indexed.rgba[0] == 200);
+    REQUIRE(indexed.rgba[3] == 64);
+
+    std::array<std::byte, 32> c14{};
+    c14[0] = std::byte{ 0x00 };
+    c14[1] = std::byte{ 0x01 };
+    const auto wide = melee::assets::decode_gx_texture_with_tlut(
+        c14, 4, 4, 10, ia8_tlut, 0);
+    REQUIRE(wide.rgba[0] == 200);
+    REQUIRE(wide.rgba[3] == 64);
+    REQUIRE(melee::assets::gx_texture_data_size(4, 4, 10) == 32);
+}

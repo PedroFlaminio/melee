@@ -4,6 +4,8 @@
 
 #include <placeholder.h>
 
+#include <dolphin/dvd.h>
+
 #include "forward.h"
 #include "gm_unsplit.h"
 #include "gmhomerun.h"

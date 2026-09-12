@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+#ifndef _DOLPHIN_OS_H_
 typedef s64 OSTime;
 typedef u32 OSTick;
 
@@ -34,6 +35,7 @@ OSTick OSGetTick(void);
 OSTime OSGetTime(void);
 void OSTicksToCalendarTime(OSTime ticks, OSCalendarTime* output);
 OSTime OSCalendarTimeToTicks(OSCalendarTime* input);
+#endif
 
 #ifdef __cplusplus
 }

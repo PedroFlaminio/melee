@@ -35,6 +35,11 @@ void DCStoreRangeNoSync(void* address, u32 length)
     (void) length;
 }
 
+BOOL OSGetResetSwitchState(void)
+{
+    return FALSE;
+}
+
 void ARQPostRequest(ARQRequest* request, u32 owner, u32 type, u32 priority,
                     ARQAddress source, ARQAddress dest, u32 length,
                     ARQCallback callback)
@@ -58,6 +63,18 @@ void OSReport(const char* format, ...)
     va_start(arguments, format);
     vfprintf(stderr, format, arguments);
     va_end(arguments);
+}
+
+void OSPanic(char* file, int line, char* message, ...)
+{
+    va_list arguments;
+
+    fprintf(stderr, "OS panic at %s:%d: ", file, line);
+    va_start(arguments, message);
+    vfprintf(stderr, message, arguments);
+    va_end(arguments);
+    fputc('\n', stderr);
+    abort();
 }
 
 void __assert(const char* file, u32 line, const char* condition)

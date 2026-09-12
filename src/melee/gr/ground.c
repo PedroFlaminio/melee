@@ -2,6 +2,8 @@
 
 #include <Runtime/platform.h>
 
+#include <dolphin/os.h>
+
 #include <math.h>
 
 #include "grbattle.h"

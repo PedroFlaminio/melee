@@ -1,6 +1,8 @@
 #include <melee_host/host.h>
 #include <melee_host/input.h>
 
+#include <dolphin/pad.h>
+
 #include "assets/virtual_disc.hpp"
 
 #include <algorithm>
@@ -166,6 +168,84 @@ extern "C" MeleeHostStatus melee_host_input_snapshot(
     const std::lock_guard<std::mutex> lock(context->input_mutex);
     *out_snapshot = context->current_input;
     return MELEE_HOST_OK;
+}
+
+extern "C" mh_u16 melee_host_menu_input_from_pad(const MeleeHostPadState* state)
+{
+    if (state == nullptr || !state->connected) {
+        return 0;
+    }
+    constexpr mh_s8 threshold = 40;
+    mh_u16 result = 0;
+    if ((state->buttons & PAD_BUTTON_UP) != 0 || state->stick_y > threshold) {
+        result |= MELEE_HOST_MENU_UP;
+    }
+    if ((state->buttons & PAD_BUTTON_DOWN) != 0 || state->stick_y < -threshold) {
+        result |= MELEE_HOST_MENU_DOWN;
+    }
+    if ((state->buttons & PAD_BUTTON_LEFT) != 0 || state->stick_x < -threshold) {
+        result |= MELEE_HOST_MENU_LEFT;
+    }
+    if ((state->buttons & PAD_BUTTON_RIGHT) != 0 || state->stick_x > threshold) {
+        result |= MELEE_HOST_MENU_RIGHT;
+    }
+    if ((state->buttons & PAD_BUTTON_A) != 0) {
+        result |= MELEE_HOST_MENU_CONFIRM | MELEE_HOST_MENU_A;
+    }
+    if ((state->buttons & PAD_BUTTON_B) != 0) {
+        result |= MELEE_HOST_MENU_BACK;
+    }
+    if ((state->buttons & PAD_BUTTON_START) != 0) {
+        result |= MELEE_HOST_MENU_START;
+    }
+    if ((state->buttons & PAD_BUTTON_X) != 0) {
+        result |= MELEE_HOST_MENU_X;
+    }
+    if ((state->buttons & PAD_BUTTON_Y) != 0) {
+        result |= MELEE_HOST_MENU_Y;
+    }
+    if (state->trigger_left >= 64) {
+        result |= MELEE_HOST_MENU_L_TRIGGER;
+    }
+    if (state->trigger_right >= 64) {
+        result |= MELEE_HOST_MENU_R_TRIGGER;
+    }
+    return result;
+}
+
+extern "C" void melee_host_menu_input_filter_reset(
+    MeleeHostMenuInputFilter* filter)
+{
+    if (filter != nullptr) {
+        *filter = {};
+    }
+}
+
+extern "C" mh_u16 melee_host_menu_input_filter_update(
+    MeleeHostMenuInputFilter* filter, mh_u16 held_input)
+{
+    if (filter == nullptr) {
+        return 0;
+    }
+    constexpr mh_u16 directional = MELEE_HOST_MENU_UP | MELEE_HOST_MENU_DOWN |
+                                   MELEE_HOST_MENU_LEFT | MELEE_HOST_MENU_RIGHT;
+    constexpr mh_u16 action = static_cast<mh_u16>(~directional);
+    mh_u16 result = static_cast<mh_u16>(held_input & action & ~filter->previous);
+    const mh_u16 held_directional = held_input & directional;
+    const mh_u16 previous_directional = filter->previous & directional;
+    if (held_directional == 0 || held_directional != previous_directional) {
+        filter->directional_held = 0;
+        result |= held_directional;
+    } else {
+        ++filter->directional_held;
+        if (filter->directional_held >= 15 &&
+            (filter->directional_held - 15) % 4 == 0)
+        {
+            result |= held_directional;
+        }
+    }
+    filter->previous = held_input;
+    return result;
 }
 
 extern "C" mh_u64 melee_host_tick_count(const MeleeHostContext* context)
