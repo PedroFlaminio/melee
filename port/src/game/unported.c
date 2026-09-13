@@ -57,20 +57,13 @@ void grDatFiles_801C5FC0(HSD_Archive* archive, void* data, size_t length)
     MELEE_HOST_UNPORTED("grDatFiles_801C5FC0");
 }
 
-/* gmtitlemode.c's onExit picks the mode that follows the title screen.  The
- * title state's table names it, so the link needs what it calls, but the host
- * does not run the state's on_exit yet. */
-bool gm_80173754(u8 arg0, u8 arg1)
+/* lb_8001B14C lists the save files on a mounted memory card and keeps the ones
+ * whose company and game code match the disc's.  The host never mounts a card,
+ * and it does not read the disc header yet. */
+struct DVDDiskID* DVDGetCurrentDiskID(void)
 {
-    (void) arg0;
-    (void) arg1;
-    MELEE_HOST_UNPORTED("gm_80173754");
-    return false;
-}
-
-void gm_80173EEC(void)
-{
-    MELEE_HOST_UNPORTED("gm_80173EEC");
+    MELEE_HOST_UNPORTED("DVDGetCurrentDiskID");
+    return NULL;
 }
 
 /* gm_801A4D34 runs gm_801A4970, the debug pause and report handler, and checks

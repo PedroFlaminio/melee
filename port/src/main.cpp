@@ -2066,6 +2066,73 @@ int main(int argc, char** argv)
                                    run.last_frame_triangles > 0;
             return timed_out ? 0 : 1;
         }
+        if ((argc == 3 || argc == 4) &&
+            std::string(argv[1]) == "--run-title-mode") {
+            struct TitleModeInput {
+                MeleeHostContext* context = nullptr;
+                mh_u32 start_frame = 0;
+                mh_u32 frames = 0;
+            };
+            TitleModeInput input;
+            if (argc == 4) {
+                input.start_frame = static_cast<mh_u32>(std::stoul(argv[3]));
+            }
+            MeleeHostContext* context = nullptr;
+            const std::string root = argv[2];
+            const MeleeHostConfig config{ .resource_root = root.c_str(),
+                                          .headless = true };
+            melee_host_os_time_freeze();
+            if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+                melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
+                melee_host_activate_pad_backend(context) != MELEE_HOST_OK ||
+                melee_host_boot_memory_init(0) != MELEE_HOST_OK ||
+                melee_host_boot_load_dol_data(
+                    (root + "/sys/main.dol").c_str()) != MELEE_HOST_OK) {
+                std::cerr << "boot failed\n";
+                melee_host_destroy(context);
+                return 1;
+            }
+            input.context = context;
+            /* A connected pad that holds START for three frames from
+             * start_frame, so the title sees a press and then a release.  The
+             * state reaches PADRead at the host step before the next pad
+             * sample. */
+            const MeleeHostGxFrameSink press_start = [](void* user_data) {
+                auto* const state = static_cast<TitleModeInput*>(user_data);
+                state->frames += 1;
+                MeleeHostPadState pad{};
+                pad.connected = true;
+                if (state->start_frame != 0 &&
+                    state->frames >= state->start_frame &&
+                    state->frames < state->start_frame + 3)
+                {
+                    pad.buttons = static_cast<mh_u16>(PAD_BUTTON_START);
+                }
+                static_cast<void>(
+                    melee_host_submit_pad_state(state->context, 0, &pad));
+            };
+            /* GameModeKind values from melee/gm/forward.h. */
+            constexpr mh_u32 kModeTitle = 0x00;
+            constexpr mh_u32 kModeMenu = 0x01;
+            constexpr mh_u32 kModeOpeningMovie = 0x18;
+            MeleeHostGameModeReport report{};
+            const MeleeHostStatus ran = melee_host_game_run_mode(
+                kModeTitle, press_start, &input, &report);
+            melee_host_destroy(context);
+            if (ran != MELEE_HOST_OK) {
+                std::cerr << "the title mode did not run: "
+                          << melee_host_status_string(ran) << '\n';
+                return 1;
+            }
+            const mh_u32 expected =
+                input.start_frame != 0 ? kModeMenu : kModeOpeningMovie;
+            std::cout << "ran the title mode through runGameMode\n"
+                      << "  drawn frames: " << report.drawn_frames << '\n'
+                      << "  next mode: 0x" << std::hex << report.next_mode
+                      << " (expected 0x" << expected << ")" << std::dec
+                      << '\n';
+            return report.next_mode == expected ? 0 : 1;
+        }
         if ((argc == 4 || argc == 5) &&
             std::string(argv[1]) == "--load-scene") {
             mh_u32 model_index = 0;

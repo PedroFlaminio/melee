@@ -288,6 +288,16 @@ unsigned long OSGetResetCode(void)
     return 0;
 }
 
+/* gm_801A4014 resets the console only while the game is resetting, which
+ * starts at the reset button; the host has neither the button nor a reset. */
+void OSResetSystem(int reset, u32 resetCode, BOOL forceMenu)
+{
+    (void) reset;
+    (void) resetCode;
+    (void) forceMenu;
+    OSPanic(__FILE__, __LINE__, "OSResetSystem is not ported to the host");
+}
+
 void ARQPostRequest(ARQRequest* request, u32 owner, u32 type, u32 priority,
                     ARQAddress source, ARQAddress dest, u32 length,
                     ARQCallback callback)

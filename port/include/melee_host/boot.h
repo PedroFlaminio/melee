@@ -109,6 +109,27 @@ MeleeHostStatus melee_host_title_scene_run(MeleeHostGxFrameSink frame_sink,
  * there. */
 void melee_host_title_scene_request_exit(void);
 
+/* Whether the host's mode table (port/src/game/game_tables.c) has this
+ * GameModeKind. */
+bool melee_host_game_mode_available(mh_u32 mode);
+
+typedef struct MeleeHostGameModeReport {
+    /* Frames drawn while the mode ran. */
+    mh_u32 drawn_frames;
+    /* What runGameMode returned: the GameModeKind the mode left pending. */
+    mh_u32 next_mode;
+} MeleeHostGameModeReport;
+
+/* runGameMode for one mode of the host table: its preload, each state it
+ * routes through until one asks for a new mode, and its unload, with each
+ * state's preload, entry, frame loop and exit, and the memory card wait that
+ * ends every state.  Each drawn frame's GX capture goes to `frame_sink`, when
+ * there is one, and is then cleared.  A mode the table lacks is refused. */
+MeleeHostStatus melee_host_game_run_mode(mh_u32 mode,
+                                         MeleeHostGxFrameSink frame_sink,
+                                         void* user_data,
+                                         MeleeHostGameModeReport* out_report);
+
 #ifdef __cplusplus
 }
 #endif

@@ -172,10 +172,175 @@ u32 FIOFwrite(int handle, void* data, u32 size)
     return 0;
 }
 
-/* The memory card slots. */
+/* The memory card slots, both empty.  The SDK answers CARDProbe with FALSE,
+ * and every other call on a channel with no card attached with
+ * CARD_RESULT_NOCARD, before any callback would run; so does the host. */
 
-int CARDProbe(long chan)
+int CARDProbe(s32 chan)
 {
     (void) chan;
     return FALSE;
+}
+
+s32 CARDProbeEx(s32 chan, s32* memSize, s32* sectorSize)
+{
+    (void) chan;
+    (void) memSize;
+    (void) sectorSize;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDMountAsync(s32 chan, void* workArea, CARDCallback detachCallback,
+                   CARDCallback attachCallback)
+{
+    (void) chan;
+    (void) workArea;
+    (void) detachCallback;
+    (void) attachCallback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDUnmount(s32 chan)
+{
+    (void) chan;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDCheckAsync(s32 chan, CARDCallback callback)
+{
+    (void) chan;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDFormatAsync(s32 chan, CARDCallback callback)
+{
+    (void) chan;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDFreeBlocks(s32 chan, s32* byteNotUsed, s32* filesNotUsed)
+{
+    (void) chan;
+    (void) byteNotUsed;
+    (void) filesNotUsed;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDRenameAsync(s32 chan, const char* oldName, const char* newName,
+                    CARDCallback callback)
+{
+    (void) chan;
+    (void) oldName;
+    (void) newName;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDDeleteAsync(s32 chan, char* fileName, CARDCallback callback)
+{
+    (void) chan;
+    (void) fileName;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDCreateAsync(s32 chan, const char* fileName, u32 size,
+                    CARDFileInfo* fileInfo, CARDCallback callback)
+{
+    (void) chan;
+    (void) fileName;
+    (void) size;
+    (void) fileInfo;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDOpen(s32 chan, char* fileName, CARDFileInfo* fileInfo)
+{
+    (void) chan;
+    (void) fileName;
+    (void) fileInfo;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDFastOpen(s32 chan, s32 fileNo, CARDFileInfo* fileInfo)
+{
+    (void) chan;
+    (void) fileNo;
+    (void) fileInfo;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDClose(CARDFileInfo* fileInfo)
+{
+    (void) fileInfo;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDGetStatus(s32 chan, s32 fileNo, CARDStat* stat)
+{
+    (void) chan;
+    (void) fileNo;
+    (void) stat;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDSetStatusAsync(s32 chan, s32 fileNo, CARDStat* stat,
+                       CARDCallback callback)
+{
+    (void) chan;
+    (void) fileNo;
+    (void) stat;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDRead(struct CARDFileInfo* fileInfo, void* buf, s32 length, s32 offset)
+{
+    (void) fileInfo;
+    (void) buf;
+    (void) length;
+    (void) offset;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDReadAsync(CARDFileInfo* fileInfo, void* buf, s32 length, s32 offset,
+                  CARDCallback callback)
+{
+    (void) fileInfo;
+    (void) buf;
+    (void) length;
+    (void) offset;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDWrite(struct CARDFileInfo* fileInfo, void* buf, s32 length,
+              s32 offset)
+{
+    (void) fileInfo;
+    (void) buf;
+    (void) length;
+    (void) offset;
+    return CARD_RESULT_NOCARD;
+}
+
+s32 CARDWriteAsync(struct CARDFileInfo* fileInfo, void* buf, s32 length,
+                   s32 offset, void (*callback)(s32, s32))
+{
+    (void) fileInfo;
+    (void) buf;
+    (void) length;
+    (void) offset;
+    (void) callback;
+    return CARD_RESULT_NOCARD;
+}
+
+/* Nothing was ever transferred. */
+s32 CARDGetXferredBytes(s32 chan)
+{
+    (void) chan;
+    return 0;
 }

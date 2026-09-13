@@ -97,4 +97,8 @@
 /* 1A4340 */ bool gm_Is1PMode(u8 mode);
 /* 1A4510 */ void gm_801A4510(void);
 
+#ifdef MELEE_HOST
+/* 1A43A0 */ u8 runGameMode(u8 mode);
+#endif
+
 #endif

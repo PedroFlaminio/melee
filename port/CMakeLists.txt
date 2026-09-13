@@ -205,6 +205,18 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3933.c
     ${CMAKE_SOURCE_DIR}/src/melee/db/dbscreenshot.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbcardgame.c
+    # The end of a game mode's routing reaches the memory card layer, and the
+    # title state's exit reaches gm_1736.c.  The host's mode and scene tables
+    # stand in for gmscdata.c.
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbcardnew.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3A94.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B27.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B2B.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B2E.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_4D11.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1736.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ty/tydisplay.c
+    src/game/game_tables.c
     src/game/unported.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     src/os/os_heap.c

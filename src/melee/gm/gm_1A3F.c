@@ -75,7 +75,13 @@ ASSERT_SIZE(struct stateMachine, 0x14);
  *
  * @returns The next pending #GameModeKind (#GameRouting::pending_mode).
  */
+#ifdef MELEE_HOST
+/* The host runs a game mode from outside the scene manager's loop, so it
+ * needs this linkage; gm_1A3F.h declares it there. */
+/* 1A43A0 */ u8 runGameMode(u8 mode);
+#else
 /* 1A43A0 */ static u8 runGameMode(u8 mode);
+#endif
 
 /* 479D30 */ static struct stateMachine state_machine;
 

@@ -102,8 +102,15 @@ typedef struct CardQueueEntry {
 
 /* 3A949C */ static void hsd_803A949C(s32 chan, s32 arg1);
 /* 3ACB74 */ static s32 fn_803ACB74(s32 seq_a, s32 seq_b);
+#ifdef MELEE_HOST
+/* hsd_3A94.h names hsd_804D1148 inside the host's card block; the 0x300 bytes
+ * after it keep the view this file declares for them. */
+#define hsd_804D2348                                                          \
+    (*(__baselib_UnkType003*) hsd_HostCardBlock_804D1138.x2348)
+#else
 /* 4D1148 */ extern u32 hsd_804D1148[0x80][0x9];
 /* 4D2348 */ extern __baselib_UnkType003 hsd_804D2348;
+#endif
 /* 4D7980 */ extern volatile s32 hsd_804D7980;
 /* 4D7984 */ extern volatile s32 hsd_804D7984;
 /* 4D7988 */ extern s32 hsd_804D7988;

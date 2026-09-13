@@ -103,6 +103,14 @@ extern "C" MeleeHostStatus melee_host_dvd_step_backend(void)
     return melee_host_step(context);
 }
 
+/* The disc is whatever the active backend reads, so it is present exactly
+ * while a backend is active. */
+extern "C" BOOL DVDCheckDisk(void)
+{
+    const std::lock_guard<std::mutex> lock(dvd_mutex);
+    return active_context != nullptr ? TRUE : FALSE;
+}
+
 extern "C" s32 DVDConvertPathToEntrynum(const char* path)
 {
     if (path == nullptr) {
