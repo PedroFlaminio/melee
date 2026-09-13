@@ -3,8 +3,10 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <vector>
 
 extern "C" {
+#include <dolphin/gx/GXCommandList.h>
 #include <dolphin/gx/GXVert.h>
 #include <dolphin/gx/GXGeometry.h>
 #include <dolphin/gx/GXLighting.h>
@@ -197,6 +199,7 @@ TEST_CASE("host GX evaluates two independent raster lighting channels")
 {
     melee_host_gx_state_reset();
     melee_host_gx_reset_command_log();
+    GXSetNumChans(2);
 
     GXLightObj light{};
     GXInitLightColor(&light, GXColor{ 100, 200, 50, 255 });
@@ -788,124 +791,6 @@ TEST_CASE("the alpha test reduces to the comparison that carries information")
     REQUIRE(reference == 64);
 }
 
-namespace {
-
-/* Builds the single-stage program shape HSD's expression compiler emits, with
- * the arithmetic left at its neutral settings. */
-MeleeHostGxTevState one_stage(mh_u32 color_a, mh_u32 color_b, mh_u32 color_c,
-                              mh_u32 color_d, mh_u32 alpha_a, mh_u32 alpha_b,
-                              mh_u32 alpha_c, mh_u32 alpha_d)
-{
-    MeleeHostGxTevState tev{};
-    tev.stage_count = 1;
-    tev.texcoord_gen_count = 1;
-    tev.channel_count = 1;
-    MeleeHostGxTevStage& stage = tev.stages[0];
-    stage.mode = MELEE_HOST_GX_TEV_MODE_CUSTOM;
-    stage.color_input[0] = color_a;
-    stage.color_input[1] = color_b;
-    stage.color_input[2] = color_c;
-    stage.color_input[3] = color_d;
-    stage.alpha_input[0] = alpha_a;
-    stage.alpha_input[1] = alpha_b;
-    stage.alpha_input[2] = alpha_c;
-    stage.alpha_input[3] = alpha_d;
-    stage.color_op = GX_TEV_ADD;
-    stage.alpha_op = GX_TEV_ADD;
-    stage.color_out_reg = GX_TEVPREV;
-    stage.alpha_out_reg = GX_TEVPREV;
-    return tev;
-}
-
-} // namespace
-
-TEST_CASE("the material program the game emits most reads as texture x colour")
-{
-    // GX computes d + ((1 - c) * a + c * b), so a = d = zero makes the stage
-    // b scaled by c: the texture scaled by the rasterized colour.  The alpha
-    // side multiplies the rasterized alpha by the material alpha HSD leaves in
-    // the first TEV register.  This is the program 651 of the disc's
-    // single-stage materials use.
-    MeleeHostGxTevState tev =
-        one_stage(GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO, GX_CA_ZERO,
-                  GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    tev.registers[GX_TEVREG0][3] = 128;
-
-    MeleeHostGxResolvedShading shading{};
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR);
-    REQUIRE(shading.constant_alpha == 128);
-    REQUIRE(shading.uses_raster_alpha);
-}
-
-TEST_CASE("an untextured material reads as its constant colour times colour")
-{
-    MeleeHostGxTevState tev =
-        one_stage(GX_CC_ZERO, GX_CC_KONST, GX_CC_RASC, GX_CC_ZERO, GX_CA_ZERO,
-                  GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    tev.stages[0].konst_color_select = GX_TEV_KCSEL_K1;
-    tev.konst_colors[1][0] = 10;
-    tev.konst_colors[1][1] = 20;
-    tev.konst_colors[1][2] = 30;
-    tev.konst_colors[1][3] = 40;
-    tev.registers[GX_TEVREG0][3] = 255;
-
-    MeleeHostGxResolvedShading shading{};
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR);
-    REQUIRE(shading.konst_color[0] == 10);
-    REQUIRE(shading.konst_color[3] == 40);
-
-    // A selector naming a single component or a constant fraction is not a
-    // whole colour, so it cannot be read off this way.
-    tev.stages[0].konst_color_select = GX_TEV_KCSEL_1_2;
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_APPROXIMATED);
-}
-
-TEST_CASE("a program the host cannot read off says so rather than guessing")
-{
-    // Several stages combine results the host does not track separately, and
-    // the reduction must not pretend otherwise.
-    MeleeHostGxTevState tev =
-        one_stage(GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO, GX_CA_ZERO,
-                  GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    tev.stage_count = 3;
-    MeleeHostGxResolvedShading shading{};
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_APPROXIMATED);
-
-    // A single stage whose arithmetic is not neutral is out of reach too: a
-    // scale or a bias changes the result.
-    tev = one_stage(GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO,
-                    GX_CA_ZERO, GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    tev.stages[0].color_scale = GX_CS_SCALE_2;
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_APPROXIMATED);
-
-    // So is a stage that writes somewhere other than the final register.
-    tev = one_stage(GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO,
-                    GX_CA_ZERO, GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    tev.stages[0].color_out_reg = GX_TEVREG1;
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_APPROXIMATED);
-}
-
-TEST_CASE("a stage that only passes a value through reads as that value")
-{
-    MeleeHostGxTevState tev =
-        one_stage(GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC, GX_CA_ZERO,
-                  GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    MeleeHostGxResolvedShading shading{};
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_TEXTURE);
-
-    tev = one_stage(GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_RASC,
-                    GX_CA_ZERO, GX_CA_A0, GX_CA_RASA, GX_CA_ZERO);
-    REQUIRE(melee_host_gx_resolve_shading(&tev, &shading));
-    REQUIRE(shading.kind == MELEE_HOST_GX_SHADING_COLOR);
-}
-
 TEST_CASE("draws under different material programs are captured separately")
 {
     melee_host_gx_state_reset();
@@ -943,4 +828,220 @@ TEST_CASE("draws under different material programs are captured separately")
     REQUIRE(triangle.vertices[0].tev_state == 1);
     REQUIRE(melee_host_gx_captured_triangle_at(2, &triangle));
     REQUIRE(triangle.vertices[0].tev_state == 0);
+}
+
+namespace {
+
+void push_be_u32(std::vector<u8>* out, u32 value)
+{
+    out->push_back(static_cast<u8>(value >> 24U));
+    out->push_back(static_cast<u8>(value >> 16U));
+    out->push_back(static_cast<u8>(value >> 8U));
+    out->push_back(static_cast<u8>(value));
+}
+
+void push_be_f32(std::vector<u8>* out, f32 value)
+{
+    push_be_u32(out, std::bit_cast<u32>(value));
+}
+
+} // namespace
+
+TEST_CASE("texgen carries a coordinate through the post-transform matrix")
+{
+    // HSD keeps every texture transform in a GX_PTTEXMTXn matrix and asks for
+    // GX_IDENTITY first, so this is the path every textured material takes.
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+    GXSetNumTexGens(1);
+    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY,
+                      GX_FALSE, GX_PTTEXMTX0);
+    f32 post[3][4] = {
+        { 2.0F, 0.0F, 0.0F, 0.5F },
+        { 0.0F, 3.0F, 0.0F, 0.0F },
+        { 0.0F, 0.0F, 1.0F, 0.0F },
+    };
+    GXLoadTexMtxImm(post, GX_PTTEXMTX0, GX_MTX3x4);
+
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    for (int corner = 0; corner < 3; ++corner) {
+        GXPosition3f32(0.0F, 0.0F, 0.0F);
+        GXTexCoord2f32(0.25F, 0.5F);
+    }
+    GXEnd();
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.texgen[0][0] == 1.0F);
+    REQUIRE(vertex.texgen[0][1] == 1.5F);
+    REQUIRE(vertex.texgen[0][2] == 1.0F);
+    // The raw coordinate is still what the stream carried.
+    REQUIRE(vertex.texcoord[0] == 0.25F);
+}
+
+TEST_CASE("a normal texgen transforms the raw normal and normalizes it")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+    GXSetNumTexGens(1);
+    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_NRM, GX_TEXMTX0,
+                      GX_TRUE, GX_PTIDENTITY);
+    f32 stretch[3][4] = {
+        { 4.0F, 0.0F, 0.0F, 0.0F },
+        { 0.0F, 1.0F, 0.0F, 0.0F },
+        { 0.0F, 0.0F, 1.0F, 0.0F },
+    };
+    GXLoadTexMtxImm(stretch, GX_TEXMTX0, GX_MTX3x4);
+    // The position matrix moves the vertex but texgen reads the raw normal.
+    f32 position[3][4] = {
+        { 0.0F, 0.0F, 1.0F, 5.0F },
+        { 0.0F, 1.0F, 0.0F, 0.0F },
+        { -1.0F, 0.0F, 0.0F, 0.0F },
+    };
+    GXLoadPosMtxImm(position, GX_PNMTX0);
+    GXLoadNrmMtxImm(position, GX_PNMTX0);
+
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    for (int corner = 0; corner < 3; ++corner) {
+        GXPosition3f32(0.0F, 0.0F, 0.0F);
+        GXNormal3f32(1.0F, 1.0F, 0.0F);
+    }
+    GXEnd();
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    const f32 length = std::sqrt(17.0F);
+    REQUIRE(std::fabs(vertex.texgen[0][0] - 4.0F / length) < 1.0e-5F);
+    REQUIRE(std::fabs(vertex.texgen[0][1] - 1.0F / length) < 1.0e-5F);
+    REQUIRE(std::fabs(vertex.texgen[0][2]) < 1.0e-5F);
+    REQUIRE(vertex.position.x == 5.0F);
+}
+
+TEST_CASE("a texture matrix index in the stream applies to one vertex")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+    GXSetNumTexGens(1);
+    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX0,
+                      GX_FALSE, GX_PTIDENTITY);
+    f32 shift[3][4] = {
+        { 1.0F, 0.0F, 0.0F, 1.0F },
+        { 0.0F, 1.0F, 0.0F, 0.0F },
+        { 0.0F, 0.0F, 1.0F, 0.0F },
+    };
+    GXLoadTexMtxImm(shift, GX_TEXMTX1, GX_MTX3x4);
+
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_TEX0MTXIDX, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+
+    std::vector<u8> list{ static_cast<u8>(GX_DRAW_TRIANGLES), 0x00, 0x03 };
+    const std::array<u8, 3> matrices{ GX_TEXMTX1, GX_TEXMTX0, GX_IDENTITY };
+    for (u8 matrix : matrices) {
+        list.push_back(matrix);
+        push_be_f32(&list, 0.0F);
+        push_be_f32(&list, 0.0F);
+        push_be_f32(&list, 0.0F);
+        push_be_f32(&list, 0.25F);
+        push_be_f32(&list, 0.75F);
+    }
+    GXCallDisplayList(list.data(), static_cast<u32>(list.size()));
+    GXClearVtxDesc();
+
+    REQUIRE(melee_host_gx_display_list_error_count() == 0);
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.texgen[0][0] == 1.25F);
+    REQUIRE(vertex.texgen[0][1] == 0.75F);
+    // GX_TEXMTX0 was never loaded, which reads as identity like GX_IDENTITY.
+    REQUIRE(melee_host_gx_captured_vertex_at(1, &vertex));
+    REQUIRE(vertex.texgen[0][0] == 0.25F);
+    REQUIRE(melee_host_gx_captured_vertex_at(2, &vertex));
+    REQUIRE(vertex.texgen[0][0] == 0.25F);
+}
+
+TEST_CASE("a draw's texture set names the texture of each map it samples")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    static u8 first_image[32] ATTRIBUTE_ALIGN(32) = { 0 };
+    static u8 second_image[32] ATTRIBUTE_ALIGN(32) = { 0 };
+    static u8 unused_image[32] ATTRIBUTE_ALIGN(32) = { 0 };
+    GXTexObj first;
+    GXTexObj second;
+    GXTexObj unused;
+    GXInitTexObj(&first, first_image, 8, 8, GX_TF_I8, GX_REPEAT, GX_REPEAT,
+                 GX_FALSE);
+    GXInitTexObj(&second, second_image, 8, 8, GX_TF_I8, GX_REPEAT, GX_REPEAT,
+                 GX_FALSE);
+    GXInitTexObj(&unused, unused_image, 8, 8, GX_TF_I8, GX_REPEAT, GX_REPEAT,
+                 GX_FALSE);
+    GXLoadTexObj(&first, GX_TEXMAP0);
+    GXLoadTexObj(&second, GX_TEXMAP2);
+    GXLoadTexObj(&unused, GX_TEXMAP5);
+    GXSetNumTevStages(2);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD0, GX_TEXMAP2, GX_COLOR0A0);
+
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    GXPosition3f32(0.0F, 0.0F, 0.0F);
+    GXPosition3f32(1.0F, 0.0F, 0.0F);
+    GXPosition3f32(0.0F, 1.0F, 0.0F);
+    GXEnd();
+
+    REQUIRE(melee_host_gx_captured_texture_set_count() == 1);
+    std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP> set{};
+    REQUIRE(melee_host_gx_captured_texture_set_at(0, set.data()));
+    MeleeHostGxTextureDesc desc{};
+    REQUIRE(melee_host_gx_captured_texture_at(set[0], &desc));
+    REQUIRE(desc.image == first_image);
+    REQUIRE(melee_host_gx_captured_texture_at(set[2], &desc));
+    REQUIRE(desc.image == second_image);
+    // A map no stage samples stays out of the set, bound or not.
+    REQUIRE(set[1] == MELEE_HOST_GX_NO_TEXTURE);
+    REQUIRE(set[5] == MELEE_HOST_GX_NO_TEXTURE);
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.texture_set == 0);
+}
+
+TEST_CASE("without lighting channels the rasterized colour is the vertex's")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    for (int corner = 0; corner < 3; ++corner) {
+        GXPosition3f32(0.0F, 0.0F, 0.0F);
+        GXColor4u8(10, 20, 30, 40);
+    }
+    GXEnd();
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.raster_color[0][0] == 10);
+    REQUIRE(vertex.raster_color[0][3] == 40);
+    // With fewer than two channels the second repeats the first.
+    REQUIRE(vertex.raster_color[1][2] == 30);
+
+    // One unlit channel whose material is a register: the first colour is
+    // that register, and the second still repeats it.
+    melee_host_gx_reset_command_log();
+    GXSetNumChans(1);
+    GXSetChanMatColor(GX_COLOR0A0, GXColor{ 90, 80, 70, 60 });
+    GXSetChanAmbColor(GX_COLOR0A0, GXColor{ 0, 0, 0, 0 });
+    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0,
+                  GX_DF_NONE, GX_AF_NONE);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    for (int corner = 0; corner < 3; ++corner) {
+        GXPosition3f32(0.0F, 0.0F, 0.0F);
+        GXColor4u8(10, 20, 30, 40);
+    }
+    GXEnd();
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.raster_color[1][0] == vertex.raster_color[0][0]);
 }

@@ -135,6 +135,28 @@ static int ReverbHIModify(struct AXFX_REVHI_WORK* rv, float coloration,
                           crosstalk);
 }
 
+#ifdef MELEE_HOST
+/* The crosstalk and reverb loops are PowerPC assembly.  They run from the
+ * mixer's aux callback, and the host has no mixer yet; portable versions come
+ * with it. */
+/* Not static: axfx.h declares it with external linkage. */
+void DoCrossTalk(long* l, long* r, float cross, float invcross)
+{
+    (void) l;
+    (void) r;
+    (void) cross;
+    (void) invcross;
+    OSPanic(__FILE__, __LINE__, "reverb DoCrossTalk is not ported to the host");
+}
+
+static void HandleReverb(long* sptr, struct AXFX_REVHI_WORK* rv, long k)
+{
+    (void) sptr;
+    (void) rv;
+    (void) k;
+    OSPanic(__FILE__, __LINE__, "reverb HandleReverb is not ported to the host");
+}
+#else
 const static double i2fMagic = 4503601774854144.0;
 const static float value0_6 = 0.6f;
 
@@ -610,6 +632,7 @@ L_00000C7C:
 	blr
     // clang-format on
 }
+#endif
 
 static void ReverbHICallback(long* left, long* right, long* surround,
                              struct AXFX_REVHI_WORK* rv)

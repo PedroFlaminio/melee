@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include <dolphin/os.h>
+
 #include "fighter.h"
 #include "forward.h"
 #include "ft_0877.h"

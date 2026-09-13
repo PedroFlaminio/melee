@@ -297,8 +297,14 @@ void hsd_80391E18(const u8* list, f32 x1, f32 y1, f32 x2, f32 y2)
 
         GXBegin(0xA8, 0, 2);
 
+#ifdef MELEE_HOST
+        /* The same two floats, through the vertex call the host records
+         * instead of the hardware FIFO. */
+        GXPosition2f32(prev_x, prev_y);
+#else
         GXWGFifo.f32 = prev_x;
         GXWGFifo.f32 = prev_y;
+#endif
 
         prev_x = t * dx + x1;
         prev_y = t * dy + y1;
@@ -416,9 +422,13 @@ GlyphEntry lbl_80408898[4] = {
     { 0xB3808000, hsd_80392194 },
 };
 
+#ifndef MELEE_HOST
+/* On the host these bytes come from the user's main.dol at boot; see
+ * port/src/game/dol_data.c. */
 DebugFontGlyph HSD_DebugFontAtlas[] = {
 #include <sysdolphin/baselib/debug_font.inc>
 };
+#endif
 
 void hsd_803921B8(void* bitmap, s32 x, s32 y, s32 dst, s32 w, s32 h,
                   s32 stride, void* tbl)

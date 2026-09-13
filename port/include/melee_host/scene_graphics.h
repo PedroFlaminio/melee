@@ -136,11 +136,14 @@ typedef struct MeleeHostSceneRenderStats {
      * has to follow rather than assume. */
     mh_u32 draw_states;
     mh_u32 tev_states;
-    /* Triangles whose material program the host could read off exactly, and
-     * those it had to approximate.  The second number is the honest measure of
-     * how far the image is from what the asset describes. */
-    mh_u32 shading_exact_triangles;
-    mh_u32 shading_approximated_triangles;
+    /* Triangles whose TEV program the per-fragment evaluator reproduces
+     * completely, and those using a feature it does not model yet (see
+     * port/src/gx/tev.hpp).  The second number is the honest measure of how
+     * far the image is from what the asset describes. */
+    mh_u32 tev_evaluated_triangles;
+    mh_u32 tev_unmodelled_triangles;
+    /* Distinct combinations of textures the draws' stages sampled. */
+    mh_u32 texture_sets;
     /* Whether the scene's own camera was used.  False means the host's stand-in
      * view was used instead, either because the caller asked for it or because
      * the scene names no camera. */

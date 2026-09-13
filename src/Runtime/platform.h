@@ -177,6 +177,16 @@ typedef bool (*Predicate)(void);
 #define ASSERT_OFFSET(expr, member, offset)
 #endif
 
+/// Ends a variadic list of pointers.  The original code writes a plain 0, and
+/// a 64-bit callee reading that terminator back through va_arg as a pointer
+/// can find garbage in its upper half when it was passed on the stack.  The
+/// host passes a real null pointer; the PowerPC build keeps the same token.
+#if defined(MELEE_HOST)
+#define VA_END_PTR ((void*) 0)
+#else
+#define VA_END_PTR 0
+#endif
+
 #define RETURN_IF(cond)                                                       \
     do {                                                                      \
         if ((cond)) {                                                         \

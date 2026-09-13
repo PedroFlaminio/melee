@@ -27,6 +27,10 @@ struct lb_804329F0_t {
 
 /* 4329F0 */ static struct lb_804329F0_t lb_804329F0;
 
+#ifndef MELEE_HOST
+/* On the host the disc wait is port/src/game/boot_memory.c: a read finishes
+ * when the host scheduler steps, and there is no drive error screen, reset
+ * button or memory card to poll yet. */
 void lb_8001955C(void)
 {
     if (HSD_PadGetResetSwitch()) {
@@ -49,6 +53,7 @@ void lb_800195D0(void)
     lb_800192A8(lb_8001955C);
     lb_8001CC84();
 }
+#endif
 
 void fn_800195FC(void)
 {

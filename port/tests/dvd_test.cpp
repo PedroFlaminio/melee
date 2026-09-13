@@ -112,6 +112,39 @@ TEST_CASE("synchronous Dolphin DVD facade reads indexed resources")
     melee_host_destroy(context);
 }
 
+TEST_CASE("a DVD read may end short of one transfer unit past the file")
+{
+    TemporaryDirectory temporary;
+    std::ofstream(temporary.path() / "Pl" / "PlFx.dat", std::ios::binary) << "native";
+    write_index(temporary.path());
+    const std::string root = temporary.path().string();
+    const MeleeHostConfig config{ .resource_root = root.c_str(), .headless = true };
+    MeleeHostContext* context = nullptr;
+    REQUIRE(melee_host_create(&config, &context) == MELEE_HOST_OK);
+    REQUIRE(melee_host_activate_dvd_backend(context) == MELEE_HOST_OK);
+
+    DVDFileInfo file{};
+    REQUIRE(DVDFastOpen(7, &file) != 0);
+    // lbFile rounds a six-byte file up to one 32-byte unit.  The SDK accepts
+    // a read ending less than DVD_MIN_TRANSFER_SIZE past the file, and what
+    // lies beyond it on the disc is padding.
+    std::array<char, 32> bytes{};
+    bytes.fill('x');
+    REQUIRE(DVDReadPrio(&file, bytes.data(), 32, 0, 2) == 32);
+    REQUIRE(std::string_view(bytes.data(), 6) == "native");
+    REQUIRE(bytes[6] == 0);
+    REQUIRE(bytes[31] == 0);
+    // A read reaching a whole unit past the file is out of range, as is one
+    // starting beyond it.
+    std::array<char, 38> too_long{};
+    REQUIRE(DVDReadPrio(&file, too_long.data(), 38, 0, 2) ==
+            DVD_RESULT_FATAL_ERROR);
+    REQUIRE(DVDReadPrio(&file, bytes.data(), 1, 7, 2) ==
+            DVD_RESULT_FATAL_ERROR);
+    REQUIRE(DVDClose(&file) != 0);
+    melee_host_destroy(context);
+}
+
 TEST_CASE("asynchronous DVD reads complete on the next simulation tick")
 {
     TemporaryDirectory temporary;

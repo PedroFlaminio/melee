@@ -1,4 +1,5 @@
 #include "assets/hsd_archive.hpp"
+#include "gx/tev.hpp"
 #include "assets/gx_texture.hpp"
 #include "assets/hsd_runtime_archive.hpp"
 #include "assets/schemas/db_common.hpp"
@@ -11,11 +12,16 @@
 
 #include <dolphin/dvd.h>
 #include <dolphin/gx/GXDispList.h>
+#include <dolphin/gx/GXStruct.h>
+#include <dolphin/gx/GXTev.h>
 #include <dolphin/gx/GXGeometry.h>
 #include <dolphin/gx/GXManage.h>
 #include <dolphin/pad.h>
 #include <dolphin/vi.h>
+#include <melee_host/archive_probe.h>
 #include <melee_host/baselib.h>
+#include <melee_host/boot.h>
+#include <melee_host/hsd_archive.h>
 #include <melee_host/gx.h>
 #include <melee_host/host.h>
 #include <melee_host/input.h>
@@ -82,6 +88,9 @@ void print_usage(const char* executable)
               << "  " << executable << " --diagnose-local-match\n"
               << "  " << executable << " --diagnose-scene-runtime [FRAMES]\n"
               << "  " << executable << " --inspect-hsd FILE\n"
+              << "  " << executable << " --load-archive FILE [SYMBOL...]\n"
+              << "  " << executable << " --sweep-archives DIRECTORY\n"
+              << "  " << executable << " --boot-title-archive DIRECTORY\n"
               << "  " << executable << " --inspect-pobj FILE SYMBOL\n"
               << "  " << executable
               << " --load-scene FILE SYMBOL [MODEL_INDEX]\n"
@@ -105,6 +114,9 @@ void print_usage(const char* executable)
               << "  " << executable
               << " --view-scene FILE SYMBOL [MODEL_INDEX]\n"
               << "  " << executable << " --view-joint FILE SYMBOL\n"
+              << "  " << executable
+              << " --tev-conformance-scene FILE SYMBOL [MODEL_INDEX]\n"
+              << "  " << executable << " --tev-conformance-joint FILE SYMBOL\n"
 #endif
               << "  " << executable << " --inspect-resources DIRECTORY\n"
               << "  " << executable << " --read-resource DIRECTORY PATH\n";
@@ -503,7 +515,7 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
                     renderer_textures.push_back({
                         decoded.width, decoded.height,
                         geometry.material.texture_wrap_s,
-                        geometry.material.texture_wrap_t, decoded.rgba
+                        geometry.material.texture_wrap_t, decoded.rgba, false
                     });
                 }
 #else
@@ -514,6 +526,11 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
         }
     }
 
+    /* The schema path binds no GX texture and lights nothing: the material it
+     * decoded reaches the vertices through melee_host_gx_apply_material.  A
+     * modulate stage is the program that combines the two. */
+    melee_host_gx_state_reset();
+    GXSetTevOp(GX_TEVSTAGE0, GX_MODULATE);
     melee_host_gx_reset_command_log();
     std::size_t display_bytes = 0;
     for (const auto& geometry : geometries) {
@@ -703,7 +720,7 @@ void decode_captured_textures(mh_u32 count,
     for (mh_u32 id = 0; id < count; ++id) {
         MeleeHostGxTextureDesc desc{};
         melee::render::TextureImage image{ 1, 1, 0, 0,
-                                           { 255, 255, 255, 255 } };
+                                           { 255, 255, 255, 255 }, false };
         if (melee_host_gx_captured_texture_at(id, &desc) &&
             desc.image != nullptr)
         {
@@ -730,7 +747,8 @@ void decode_captured_textures(mh_u32 count,
                 }
                 if (!decoded.rgba.empty()) {
                     image = { decoded.width, decoded.height, desc.wrap_s,
-                              desc.wrap_t, std::move(decoded.rgba) };
+                              desc.wrap_t, std::move(decoded.rgba),
+                              desc.mag_filter != 0 };
                     *decoded_count += 1;
                 }
             } catch (const std::exception& error) {
@@ -803,6 +821,54 @@ int view_scene(const char* path, const char* symbol, bool scene_model,
     melee_host_scene_graphics_release(model);
     if (!shown) {
         std::cerr << "preview failed: " << error << '\n';
+        return 1;
+    }
+    return 0;
+}
+
+/* Draws a model through the original display path, then holds the generated
+ * TEV shaders to the CPU reference for every program and pixel state the
+ * capture used.  A mismatch means the GLSL and melee::gx::evaluate_tev
+ * disagree about what the asset's material computes. */
+int tev_conformance(const char* path, const char* symbol, bool scene_model,
+                    mh_u32 model_index)
+{
+    MeleeHostSceneModel model = 0;
+    const MeleeHostStatus status =
+        scene_model
+            ? melee_host_scene_graphics_load_model(path, symbol, model_index,
+                                                   &model)
+            : melee_host_scene_graphics_load_joint(path, symbol, &model);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "scene load failed: "
+                  << melee_host_status_string(status) << ": "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+    MeleeHostSceneRenderStats drawn{};
+    const bool rendered =
+        melee_host_scene_graphics_render(model, MELEE_HOST_SCENE_VIEW_WORLD,
+                                         &drawn) == MELEE_HOST_OK;
+    melee_host_scene_graphics_release(model);
+    if (!rendered) {
+        std::cerr << "scene render failed: "
+                  << melee_host_scene_graphics_last_error() << '\n';
+        return 1;
+    }
+
+    melee::render::TevConformanceReport report;
+    std::string error;
+    if (!melee::render::run_tev_conformance(64, &report, &error)) {
+        std::cerr << "TEV conformance did not run: " << error << '\n';
+        return 1;
+    }
+    std::cout << "TEV conformance for " << symbol << '\n'
+              << "  programs: " << report.programs << " (of "
+              << drawn.tev_states << " captured)\n"
+              << "  cases: " << report.cases << '\n'
+              << "  mismatches: " << report.mismatches << '\n';
+    if (report.mismatches != 0) {
+        std::cout << "  first: " << report.first_mismatch << '\n';
         return 1;
     }
     return 0;
@@ -1167,6 +1233,226 @@ int animate_named(const char* model_path, const char* model_symbol,
     return moved == 0 ? 1 : 0;
 }
 
+struct ArchiveKindTally {
+    mh_u32 symbols = 0;
+    mh_u32 translated = 0;
+    mh_u32 load_attempted = 0;
+    mh_u32 loaded = 0;
+    mh_u64 objects = 0;
+};
+
+struct ArchiveProbeReport {
+    std::array<ArchiveKindTally, MELEE_HOST_HSD_SYMBOL_KIND_COUNT> kinds{};
+    std::vector<std::string> failures;
+    mh_u32 failed = 0;
+    std::string file;
+    bool verbose = false;
+};
+
+void record_archive_symbol(const MeleeHostArchiveProbeSymbol* result,
+                           void* user_data)
+{
+    auto& report = *static_cast<ArchiveProbeReport*>(user_data);
+    ArchiveKindTally& tally = report.kinds[result->kind];
+    tally.symbols += 1;
+    tally.translated += static_cast<mh_u32>(result->translated);
+    tally.load_attempted += static_cast<mh_u32>(result->load_attempted);
+    tally.loaded += static_cast<mh_u32>(result->loaded);
+    tally.objects += result->objects;
+
+    const bool supported = result->kind != MELEE_HOST_HSD_SYMBOL_UNSUPPORTED;
+    const bool failed =
+        supported && (result->translated == 0 ||
+                      (result->load_attempted != 0 && result->loaded == 0));
+    std::string error = result->error != nullptr ? result->error : "";
+    /* A refusal from the host archive already leads with the symbol. */
+    const std::string prefix = std::string(result->symbol) + ": ";
+    if (error.starts_with(prefix)) {
+        error.erase(0, prefix.size());
+    }
+    if (report.verbose) {
+        std::cout << "  " << result->symbol << " ["
+                  << melee_host_hsd_symbol_kind_name(result->kind) << "] ";
+        if (!supported) {
+            std::cout << "no host translation for this kind";
+        } else if (result->translated == 0) {
+            std::cout << "refused: " << error;
+        } else if (result->load_attempted == 0) {
+            std::cout << "translated";
+        } else if (result->loaded != 0) {
+            std::cout << "loaded, " << result->objects << " objects";
+        } else {
+            std::cout << "loader failed: " << error;
+        }
+        std::cout << '\n';
+    }
+    if (failed) {
+        report.failed += 1;
+        if (report.failures.size() < 20) {
+            report.failures.push_back(report.file + ": " + result->symbol +
+                                      ": " + error);
+        }
+    }
+}
+
+void print_archive_report(const ArchiveProbeReport& report)
+{
+    std::cout << "  kind              symbols translated  loaded objects\n";
+    for (std::size_t kind = 0; kind < report.kinds.size(); ++kind) {
+        const ArchiveKindTally& tally = report.kinds[kind];
+        if (tally.symbols == 0) {
+            continue;
+        }
+        std::cout << "  " << std::left << std::setw(17)
+                  << melee_host_hsd_symbol_kind_name(
+                         static_cast<MeleeHostHsdSymbolKind>(kind))
+                  << std::right << std::setw(8) << tally.symbols
+                  << std::setw(11) << tally.translated;
+        if (tally.load_attempted != 0) {
+            std::cout << std::setw(8) << tally.loaded << std::setw(8)
+                      << tally.objects;
+        }
+        std::cout << '\n';
+    }
+    std::cout << "  failed: " << report.failed << '\n';
+    for (const std::string& failure : report.failures) {
+        std::cout << "    " << failure << '\n';
+    }
+}
+
+/* One file, the symbols a lbArchive_LoadSymbols call would name, or all of
+ * them. */
+int load_archive(const char* path, const std::vector<const char*>& symbols)
+{
+    ArchiveProbeReport report;
+    report.file = std::filesystem::path(path).filename().string();
+    report.verbose = true;
+    std::cout << "parsed " << path << " through HSD_ArchiveParse\n";
+    const MeleeHostStatus status = melee_host_archive_probe_file(
+        path, symbols.data(), static_cast<mh_u32>(symbols.size()),
+        record_archive_symbol, &report);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "archive load failed: "
+                  << melee_host_archive_probe_last_error() << '\n';
+        return 1;
+    }
+    print_archive_report(report);
+    return report.failed == 0 ? 0 : 1;
+}
+
+/* Every file on the disc that is one archive, every public symbol in it. */
+int sweep_archives(const std::filesystem::path& root)
+{
+    std::vector<std::filesystem::path> paths;
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(root)) {
+        const std::string extension = entry.path().extension().string();
+        if (entry.is_regular_file() &&
+            (extension == ".dat" || extension == ".usd")) {
+            paths.push_back(entry.path());
+        }
+    }
+    std::sort(paths.begin(), paths.end());
+
+    ArchiveProbeReport report;
+    mh_u32 archives = 0;
+    mh_u32 not_single = 0;
+    mh_u32 unreadable = 0;
+    for (const auto& path : paths) {
+        /* A file of several archives laid end to end is not loaded whole by
+         * lbArchive; its members reach the parse through other paths. */
+        std::ifstream stream(path, std::ios::binary);
+        std::array<unsigned char, 4> head{};
+        stream.read(reinterpret_cast<char*>(head.data()),
+                    static_cast<std::streamsize>(head.size()));
+        const std::uintmax_t declared =
+            (static_cast<std::uintmax_t>(head[0]) << 24U) |
+            (static_cast<std::uintmax_t>(head[1]) << 16U) |
+            (static_cast<std::uintmax_t>(head[2]) << 8U) | head[3];
+        if (!stream || declared != std::filesystem::file_size(path)) {
+            not_single += 1;
+            continue;
+        }
+        report.file = path.filename().string();
+        if (melee_host_archive_probe_file(path.string().c_str(), nullptr, 0,
+                                          record_archive_symbol, &report) !=
+            MELEE_HOST_OK)
+        {
+            unreadable += 1;
+            if (report.failures.size() < 20) {
+                report.failures.push_back(
+                    report.file + ": " + melee_host_archive_probe_last_error());
+            }
+            continue;
+        }
+        archives += 1;
+    }
+
+    std::cout << "swept " << root.string() << ": " << archives
+              << " archives, " << not_single
+              << " files that are not a single archive, " << unreadable
+              << " unreadable\n";
+    print_archive_report(report);
+    return report.failed == 0 && unreadable == 0 ? 0 : 1;
+}
+
+/* The title screen's archive through the game's own loader, after the memory
+ * sequence gmMain runs. */
+int boot_title_archive(const std::filesystem::path& root)
+{
+    MeleeHostContext* context = nullptr;
+    const std::string root_string = root.string();
+    const MeleeHostConfig config{ .resource_root = root_string.c_str(),
+                                  .headless = true };
+    if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+        melee_host_activate_dvd_backend(context) != MELEE_HOST_OK) {
+        std::cerr << "could not initialize the virtual DVD\n";
+        melee_host_destroy(context);
+        return 1;
+    }
+    if (melee_host_boot_memory_init(0) != MELEE_HOST_OK) {
+        std::cerr << "the boot memory sequence failed\n";
+        melee_host_destroy(context);
+        return 1;
+    }
+    MeleeHostBootMemoryStats memory{};
+    static_cast<void>(melee_host_boot_memory_stats(&memory));
+    std::cout << "booted memory through HSD_InitComponent, lbMemory and lbHeap\n"
+              << "  arena bytes: " << memory.arena_bytes << '\n'
+              << "  lb heaps created: " << memory.lb_heaps_created
+              << " of 6\n";
+
+    MeleeHostTitleArchiveReport report{};
+    const MeleeHostStatus status = melee_host_boot_load_title_archive(&report);
+    melee_host_destroy(context);
+    if (status != MELEE_HOST_OK) {
+        std::cerr << "title archive load failed: "
+                  << melee_host_status_string(status) << '\n';
+        return 1;
+    }
+    std::cout << "loaded GmTtAll.usd through lbArchive_LoadSymbols\n"
+              << "  file bytes: " << report.file_bytes << '\n'
+              << "  symbols resolved: " << report.symbols_resolved
+              << " of 12\n"
+              << "  title JObjs: " << report.title_jobjs << " (animated "
+              << report.title_animated_jobjs << ")\n"
+              << "  background JObjs: " << report.background_jobjs
+              << " (animated " << report.background_animated_jobjs << ")\n"
+              << "  lights: " << report.lights << '\n'
+              << "  camera loaded: " << static_cast<int>(report.camera_loaded)
+              << '\n'
+              << "  fog loaded: " << static_cast<int>(report.fog_loaded)
+              << '\n'
+              << "  title mark image: "
+              << static_cast<int>(report.mark_has_image) << '\n';
+    const bool complete = report.symbols_resolved == 12 &&
+                          report.title_jobjs != 0 &&
+                          report.background_jobjs != 0 &&
+                          report.lights != 0 && report.camera_loaded != 0 &&
+                          report.fog_loaded != 0 && report.mark_has_image != 0;
+    return complete ? 0 : 1;
+}
+
 int load_scene(const char* path, const char* symbol, bool scene_model,
                mh_u32 model_index, bool render = false,
                MeleeHostSceneView view = MELEE_HOST_SCENE_VIEW_SCENE_CAMERA)
@@ -1246,10 +1532,11 @@ int load_scene(const char* path, const char* symbol, bool scene_model,
                   << "  rejected vertex indices: " << drawn.rejected_indices
                   << '\n';
         std::cout << "  distinct TEV states: " << drawn.tev_states << '\n'
-                  << "  material read exactly: "
-                  << drawn.shading_exact_triangles << " triangles, "
-                  << drawn.shading_approximated_triangles
-                  << " approximated\n";
+                  << "  texture sets: " << drawn.texture_sets << '\n'
+                  << "  TEV evaluated per fragment: "
+                  << drawn.tev_evaluated_triangles << " triangles, "
+                  << drawn.tev_unmodelled_triangles
+                  << " with unmodelled features\n";
         for (std::size_t id = 0;
              id < melee_host_gx_captured_tev_state_count() ; ++id) {
             MeleeHostGxTevState tev{};
@@ -1285,6 +1572,11 @@ int load_scene(const char* path, const char* symbol, bool scene_model,
                           << tev.stages[stage].alpha_input[3]
                           << " areg=" << tev.stages[stage].alpha_out_reg
                           << ']';
+            }
+            const auto unmodelled = melee::gx::tev_unmodelled_features(tev);
+            if (unmodelled != melee::gx::kTevUnmodelledNone) {
+                std::cout << " unmodelled="
+                          << melee::gx::describe_tev_unmodelled(unmodelled);
             }
             std::cout << '\n';
         }
@@ -1354,6 +1646,34 @@ int main(int argc, char** argv)
         if (argc == 3 && std::string(argv[1]) == "--inspect-hsd") {
             return inspect_hsd(argv[2]);
         }
+        if (argc >= 3 && std::string(argv[1]) == "--load-archive") {
+            return load_archive(
+                argv[2], std::vector<const char*>(argv + 3, argv + argc));
+        }
+        if (argc == 3 && std::string(argv[1]) == "--sweep-archives") {
+            return sweep_archives(argv[2]);
+        }
+        if (argc == 3 && std::string(argv[1]) == "--boot-title-archive") {
+            return boot_title_archive(argv[2]);
+        }
+        if (argc == 3 && std::string(argv[1]) == "--boot-title-scene") {
+            MeleeHostContext* context = nullptr;
+            const std::string root = argv[2];
+            const MeleeHostConfig config{ .resource_root = root.c_str(),
+                                          .headless = true };
+            if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+                melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
+                melee_host_boot_memory_init(0) != MELEE_HOST_OK ||
+                melee_host_boot_load_dol_data(
+                    (root + "/sys/main.dol").c_str()) != MELEE_HOST_OK) {
+                std::cerr << "boot failed\n";
+                melee_host_destroy(context);
+                return 1;
+            }
+            melee_host_title_scene_enter();
+            melee_host_destroy(context);
+            return 0;
+        }
         if ((argc == 4 || argc == 5) &&
             std::string(argv[1]) == "--load-scene") {
             mh_u32 model_index = 0;
@@ -1412,6 +1732,17 @@ int main(int argc, char** argv)
         }
         if (argc == 4 && std::string(argv[1]) == "--view-joint") {
             return view_scene(argv[2], argv[3], false, 0);
+        }
+        if ((argc == 4 || argc == 5) &&
+            std::string(argv[1]) == "--tev-conformance-scene") {
+            mh_u32 model_index = 0;
+            if (argc == 5) {
+                model_index = static_cast<mh_u32>(std::stoul(argv[4]));
+            }
+            return tev_conformance(argv[2], argv[3], true, model_index);
+        }
+        if (argc == 4 && std::string(argv[1]) == "--tev-conformance-joint") {
+            return tev_conformance(argv[2], argv[3], false, 0);
         }
 #endif
         if (argc == 4 && std::string(argv[1]) == "--inspect-pobj") {

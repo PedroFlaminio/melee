@@ -1,6 +1,6 @@
 # Status do port nativo
 
-Atualizado em 12 de setembro de 2026.
+Atualizado em 13 de setembro de 2026.
 
 ## Concluido
 
@@ -307,8 +307,8 @@ Atualizado em 12 de setembro de 2026.
   o que o jogo faz e entrega espaco de vista.
 - [x] Preview SDL/OpenGL alimentado pelo caminho de display original, nao mais
   pelo schema de leitura separado: `melee-pc --view-scene FILE SYMBOL` e
-  `--view-joint FILE SYMBOL`. O joint do Mario rende 6.328 triangulos com 31 de
-  31 texturas decodificadas, e `GmPause.dat` 130 triangulos com 9 de 9.
+  `--view-joint FILE SYMBOL`. O joint do Mario rende 6.328 triangulos com 32 de
+  32 texturas decodificadas, e `GmPause.dat` 130 triangulos com 9 de 9.
 - [x] Estado de pixel capturado por draw. Cada draw registra o estado que o
   GX tinha em vigor - culling, teste e escrita de profundidade com a funcao de
   comparacao, modo e fatores de blend, compare de alpha e mascaras de cor e
@@ -348,22 +348,56 @@ Atualizado em 12 de setembro de 2026.
   modelo reporta **4** programas, igual nos dois builds e estavel entre
   execucoes. O codigo original nao foi alterado: no console ele le a mesma
   sujeira de pilha.
-- [x] Reducao simbolica do programa TEV a forma que da para renderizar direto.
-  Um unico estagio que escreve o registrador final com a aritmetica neutra e
-  lido como `textura x cor`, `konst x cor`, `textura` ou `cor`, com a constante
-  de alpha que o HSD deixa no primeiro registrador. Qualquer outra coisa resolve
-  como aproximada, o que nao e falha: e o consumidor sendo obrigado a dizer que
-  escolheu um substituto.
-- [x] Cobertura medida, nao suposta: dos 3.368.616 triangulos do disco,
-  **676.893 (20%) tem o material lido exatamente** e o resto e aproximado. A
-  maioria dos programas tem mais de um estagio - 1112 de um estagio contra 2574
-  de dois a oito na amostra levantada. Os numeros aparecem em cada render, por
-  simbolo.
-- [x] O preview agrupa por par de estado de pixel e programa de material, nao
-  so por estado de pixel, porque um triangulo precisa dos dois para ser
-  desenhado como foi capturado. Onde o programa foi lido exatamente ele aplica
-  a forma correta; onde nao, cai em textura x cor de vertice, que e o que o
-  visualizador sempre fez.
+- [x] TEV avaliado por fragmento. `port/src/gx/tev.cpp` executa um programa
+  capturado como o hardware combina: entradas a/b/c de 8 bits e d de 11 bits
+  com sinal, o lerp que estica c de 255 para 256, arredondamento de 128 na soma
+  e 127 na subtracao, bias e escala antes do deslocamento, clamp em 0..255 ou
+  -1024..1023, os quatro modos de comparacao (R8, GR16, BGR24, RGB8/A8),
+  konst por fracao, cor inteira ou componente, as swap tables do `GXInit` e os
+  registradores que um estagio escreve servindo aos seguintes. A mesma
+  semantica gera o GLSL: a estrutura do programa vira codigo e registradores e
+  konst viram uniforms, entao o texto do shader e a propria chave do cache. As
+  duas alpha compare e a logica que as combina rodam no shader, sem reducao.
+  Substitui a reducao simbolica anterior (`resolve_shading`), que so lia um
+  estagio e aproximava 80% dos triangulos.
+- [x] Referencia de CPU testada contra a formula do hardware (lerp e
+  arredondamento, bias/escala/subtracao com e sem clamp, registrador de 11 bits
+  entre estagios, comparacoes empacotadas, konst, textura ausente, canal nulo e
+  swap), e GLSL conferido contra ela na GPU: `melee-pc --tev-conformance-scene`
+  e `--tev-conformance-joint` desenham cada par de programa e estado de pixel
+  capturado num alvo de um pixel, com entradas aleatorias, e exigem o mesmo
+  pixel, descarte incluido.
+- [x] Captura do que o TEV le. Todo `GX_VA_TEX0..7` do stream e guardado e o
+  texgen de `GXSetTexCoordGen2` roda por vertice: a fonte (posicao, normal,
+  binormal, tangente ou coordenada crua) passa pela matriz de textura, e
+  normalizada quando pedido e passa pela matriz pos-transformacao, com s/t/q
+  para a divisao acontecer por fragmento. `GX_VA_TEXnMTXIDX` escolhe a matriz de
+  um vertice so, e SRTG le a cor ja iluminada. Cada draw registra um conjunto
+  de texturas com a textura de cada mapa que algum estagio amostra.
+- [x] Memoria de matrizes com 128 linhas. As matrizes pos-transformacao
+  (`GX_PTTEXMTX0` a `GX_PTIDENTITY`) ficam acima de 64, e o HSD guarda nelas
+  toda transformacao de textura, pedindo `GX_IDENTITY` na primeira matriz; com
+  64 linhas elas eram descartadas e toda UV escalada ou animada saia errada.
+- [x] Reset do GX espelha o `GXInit`: ordens TEV dos oito primeiros estagios no
+  proprio mapa e coordenada, um texgen 2x4 identidade por coordenada, estagio 0
+  em REPLACE, konst 1/4 e canais sem luz com material do vertice sobre registro
+  branco. `GXSetTevOp` grava as entradas e operacoes da expansao da SDK, e nao
+  so o modo. Com zero canais a cor rasterizada e a do vertice (branca sem ela),
+  e com menos de dois o segundo canal repete o primeiro.
+- [x] Luzes substitutas no render da fachada: uma ambiente e uma infinita,
+  criadas e registradas pelo `HSD_LObj` original na mesma vista da geometria.
+  Sem elas todo material iluminado saia preto, porque o ambiente do canal e o
+  ambiente do material vezes a luz ambiente corrente.
+- [x] Preview SDL/OpenGL reescrito sobre shaders: um draw GL por sequencia de
+  triangulos com o mesmo estado de pixel, programa TEV e conjunto de texturas,
+  as sequencias com blend depois das opacas preservando a ordem, e
+  `MELEE_HOST_SCREENSHOT=arquivo.bmp` renderiza um quadro fora da tela.
+- [x] Varredura do disco pelo caminho novo: nos 647 simbolos de cena e de joint
+  (690 modelos, 3.400.842 triangulos, zero erro de display list, zero indice
+  recusado), **3.342.083 triangulos (98,3%) tem o TEV avaliado por inteiro**;
+  os 58.759 restantes, em 55 simbolos, amostram uma coordenada de bump. A
+  conformidade rodou nos 678 modelos com geometria: 277.632 casos e **zero
+  divergencia** entre GLSL e referencia.
 - [x] Materializacao de animacao. `HSD_AnimJoint`, `HSD_MatAnimJoint`,
   `HSD_ShapeAnimJoint`, `HSD_AObjDesc`, `HSD_FObjDesc`, `HSD_MatAnim`,
   `HSD_TexAnim` com suas tabelas de imagem e de paleta, `HSD_RenderAnim`,
@@ -426,9 +460,8 @@ Atualizado em 12 de setembro de 2026.
   desmontar a arvore.
 - [x] Avaliacao host dos canais de iluminacao GX. Cada vertice capturado
   recebe `COLOR0A0` e `COLOR1A1` separados, calculados a partir de ambiente,
-  material, normal, luzes, difuso e atenuacao do estado GX; o preview seleciona
-  o canal pedido pelo primeiro estagio TEV. A equacao ainda nao substitui o
-  rasterizador por fragmento exigido pelos programas TEV de varios estagios.
+  material, normal, luzes, difuso e atenuacao do estado GX; os dois chegam ao
+  shader como cores rasterizadas, e cada estagio escolhe a sua pela ordem TEV.
 - [x] Fronteira deterministica de frame para o runtime de cena: executa
   `HSD_GObj_RunProcs`, entrega uma fence `GXDrawDone` pendente e por fim avanca
   um retrace VI quando o video ja foi inicializado. A ordem e coberta por teste
@@ -442,6 +475,101 @@ Atualizado em 12 de setembro de 2026.
   deterministica de AX/AI e offsets ARAM alinhados; a limpeza ARAM inicial e
   redundante nesse espaco virtual zerado e nao agenda DMA. O caminho de
   voz/DSP ainda nao e acionado nem produz audio.
+- [x] API de arquivo HSD do sysdolphin implementada pelo host
+  (`port/src/assets/hsd_host_archive.cpp`): `HSD_ArchiveParse`,
+  `HSD_ArchiveGetPublicAddress`, `HSD_ArchiveGetExtern` e
+  `HSD_ArchiveLocateExtern`, com as assinaturas originais, no lugar de
+  `archive.c`. O original reloca o arquivo no lugar e devolve um ponteiro para
+  dentro dele, o que em 64 bits sobrescreveria o campo seguinte. Aqui o parse
+  valida o arquivo, e o simbolo publico e reconstruido em layout host pelo
+  materializador na primeira vez que e pedido. O arquivo nao diz o tipo de um
+  simbolo; o jogo sabe pelo nome que pede, e o host le o mesmo do sufixo
+  (`_joint`, `_animjoint`, `_matanim_joint`, `_shapeanim_joint`, `_camera`,
+  `_scene_lights`, `_fog`, `_sobjdesc`, `_figatree`). Sufixo sem traducao e
+  recusado com relatorio, em vez de devolvido como ponteiro para bytes
+  big-endian. O mesmo simbolo pedido duas vezes devolve o mesmo descritor.
+- [x] A identidade do arquivo e o buffer, nao o `HSD_Archive`: `ftdata.c` faz o
+  parse de cada acao num `HSD_Archive` na pilha e continua usando o resultado
+  depois que o quadro some. Os descritores vivem ate o mesmo buffer ser
+  parseado de novo, que e quando o console sobrescreveria os bytes de onde
+  vieram. As tabelas big-endian do cabecalho ficam NULL no `HSD_Archive`, para
+  que nada fora da camada as leia como se fossem nativas; `data` continua
+  sendo `src + 0x20`, porque `lbArchive_80016EFC` libera `data - 0x20`.
+- [x] Externs. `lbArchive_InitializeDAT` resolve todo extern para NULL logo
+  depois do parse, e a cadeia de referencias passa pelos proprios campos de
+  ponteiro. O host percorre a cadeia e declara esses campos nulos ao
+  materializador, que antes os recusaria como ponteiro nao relocado com valor.
+- [x] Novos descritores no materializador: camera publica, tabela de luzes
+  (`HSD_LightDesc` por tipo, lendo posicao, interesse e o union de parametros
+  so para os tipos que `LObjLoad` le, com `HSD_LightPointDesc`,
+  `HSD_LightSpotDesc` ou `HSD_LightAttn` conforme as flags de atenuacao, e
+  `HSD_LightAnim` com animacao de posicao e de interesse), fog
+  (`HSD_FogDesc` e `HSD_FogAdjDesc`) e sprite (`HSD_SObjDesc`, imagem e
+  paleta). O `LightList` de `sc/types.h` e declarado dentro de `SceneDesc`,
+  o que em C++ vira outro tipo; o host usa uma copia de mesmo layout.
+- [x] A lista exata de simbolos que `gmTitle_801A1AC0` passa a
+  `lbArchive_LoadSymbols`, contra `GmTtAll.usd`: os 12 traduzem, e os joints,
+  a camera, as luzes e o fog carregam pelos loaders originais (37 JObjs,
+  2 LObjs). Virou o teste `melee-host-title-archive-asset`.
+- [x] Varredura do disco pela API de arquivo (`melee-pc --sweep-archives`): dos
+  894 arquivos `.dat`/`.usd`, 861 sao um unico arquivo HSD. Neles, **1.509 de
+  1.511** simbolos publicos de tipos traduziveis traduzem, e os 725 joints,
+  12 cameras, 17 tabelas de luz e 8 fogs traduzidos carregam pelos loaders
+  originais (14.212 JObjs e 51 LObjs construidos e liberados). As duas recusas
+  sao as tabelas de luz de `TyLight.dat`, cuja posicao e restrita por um joint
+  de spline, que o materializador ja recusava. Os outros 5.519 simbolos sao de
+  tipos sem traducao e ficam de fora sem erro: 4.191 imagens e paletas soltas
+  (`_CMPR_image`, `_image`, `_tlut`, `_tlut_desc`), cerca de 600 de dados de
+  estagio (`map_head`, `coll_data`, `grGroundParam`, `itemdata`,
+  `ALDYakuAll`, `yakumono_param`, `map_plit`, `quake_model_set`), 58 `ftData*`,
+  43 `_scene_data`, 36 `SIS_*` e 18 `_scene_models`.
+- [x] `lobj.h` declara a classe de luz como `hsdLobj`, mas `lobj.c` a define
+  como `hsdLObj`; nada no jogo usa a grafia do header. O port declara o nome
+  real localmente em vez de editar o header.
+- [x] Sequencia de memoria do boot executada no host
+  (`port/src/game/boot_memory.c`): arena do tamanho da memoria do console,
+  `HSD_SetInitParameter`, `HSD_AllocateXFB`, `HSD_AllocateFifo`,
+  `HSD_InitComponent`, `lbMemory_8001564C`, `lbHeap_80015F3C` e
+  `lbHeap_80015900`, na ordem de `gmMain` seguida do fim do setup de heap de
+  uma cena. Ficam criados o heap principal e o de ARAM (2 dos 6 slots do
+  lbHeap), que e o estado do console antes de uma cena manter os heaps de cena.
+- [x] `lbmemory.c`, `lbheap.c`, `lbfile.c`, `lblanguage.c` e `lbarchive.c`
+  compilados nativamente. `lbmemory.c` fazia toda a aritmetica de endereco em
+  `u32` e ligava a pilha de handles de heap escrevendo nos offsets PowerPC
+  `base + 0x638` a `0x688`; em 64 bits a primeira chamada ja escreveria fora
+  dos handles. Sob `MELEE_HOST` os enderecos vao em largura de ponteiro, a
+  pilha e ligada por indice e a separacao entre ARAM e RAM usa o teto de 16 MB
+  da ARAM no lugar de `0x80000000`; os textos de assert ficam intactos, porque
+  `HSD_ASSERT` os grava no DOL. `lbheap.c` guardava o fim de um heap em `s32`.
+  Os callbacks de devcom de `lbfile.c` e `lbmemory.c` recebem `HSD_DevComArg`,
+  e `lbArchiveRelocate` recusa no host em vez de relocar. Verificado: as quatro
+  unidades, compiladas com `cc -m32 -O2 -DMUST_MATCH` antes e depois a partir
+  do mesmo caminho, geram objetos identicos byte a byte.
+- [x] `OSRoundUp32B` e `OSRoundDown32B` arredondavam por `u32`, e
+  `HSD_AllocateXFB`, `HSD_AllocateFifo` e `HSD_OSInit` passam enderecos por
+  elas: `OSInitAlloc` recebia a base da arena com a metade alta zerada. Sob
+  `MELEE_HOST` arredondam em largura de ponteiro, como `ROUND` e `TRUNC`; sem
+  o define, `initialize.c` e `lbarchive.c` pre-processam identicos.
+- [x] ARAM do host como pilha, igual a SDK: `ARFree` devolve o bloco mais
+  recente e seu tamanho, e `ARGetSize` reporta os 16 MB.
+- [x] `DVDReadPrio` aceita leitura que termina menos de
+  `DVD_MIN_TRANSFER_SIZE` (32 bytes) depois do fim do arquivo, como o
+  `dvdfs.c` da SDK, e preenche com zero o que no disco seria padding. `lbFile`
+  arredonda o tamanho pedido para 32 bytes; com o host recusando, o devcom
+  marcava erro, nao chamava o callback e `waitForDisc` girava para sempre.
+  `GmTtAll.usd` tem 276.257 bytes, um byte alem de um multiplo de 32.
+- [x] `lb_800195D0`, a espera de disco de `lbfile.c`, e uma fachada do host:
+  da um passo no escalonador ao qual o DVD esta ligado, que e quando uma
+  leitura termina no host. Sem backend ativo entra em panic em vez de girar.
+- [x] Tela de titulo pelo carregador do proprio jogo
+  (`melee-pc --boot-title-archive`): a chamada `lbArchive_LoadSymbols` de
+  `gmTitle_801A1AC0`, com o mesmo arquivo e a mesma lista, le `GmTtAll.usd`
+  pelo heap 0 do lbHeap, `lbFile`, a fila devcom e o DVD do host, e os 12
+  simbolos resolvem. Os loaders originais constroem 31 JObjs do logo (21 com
+  animacao), 6 do fundo (5 com animacao), 2 luzes, a camera e o fog, e o
+  sprite do logo tem imagem. Virou o teste
+  `melee-host-boot-title-archive-asset`, em processo proprio porque move a
+  arena do OS.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -449,15 +577,20 @@ Atualizado em 12 de setembro de 2026.
 - [ ] Compilar todo o codigo relevante sem assembly PPC.
 - [ ] Resource manager runtime consumindo o manifesto extraido.
 - [ ] Cancelamento, streaming e prioridade completa da API DVD.
-- [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas.
+- [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas. A API de
+  arquivo ja atende joints, animacoes, cameras, luzes, fog e sprites; faltam
+  `_scene_data` (a tabela de fogs de `SceneDesc` nao e o array terminado por
+  NULL que o schema supunha: seguir as entradas cai em valores nao relocados),
+  imagens e paletas soltas, dados de estagio, `ftData*` e `SIS_*`.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
   loop de frame (roteiro em `docs/fight_flow_port.md`). O escalonador de frame
   ja roda; falta a camada de objetos graficos que alimenta os callbacks de
   render.
-- [ ] Avaliar os programas TEV de varios estagios, que sao 80% dos triangulos.
-  Os dois canais rasterizados separados e sua iluminacao por vertice ja existem;
-  o bloqueio restante e a avaliacao por fragmento, porque o TEV e por pixel e
-  o preview atual e de funcao fixa.
+- [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
+  fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
+  binormal, e hoje a coordenada de origem passa sem perturbacao.
+- [ ] Fog, que o shader ainda nao aplica, e as luzes descritas pela propria
+  cena, que o materializador ainda nao traduz.
 
   A camada formava um unico bloco: os onze arquivos se referenciam
   mutuamente, entao adicionar qualquer um exigia adicionar todos.
@@ -469,12 +602,19 @@ Atualizado em 12 de setembro de 2026.
 
 ## Proximos gates
 
-1. Avaliar TEV de varios estagios por fragmento e apresentar o resultado em um
-   framebuffer host.
-2. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
+1. Tela de titulo montada pelo codigo original: compilar `gmtitle.c` e rodar
+   `gm_Scene_Title_OnEnter`, que ja tem o arquivo, a memoria e o disco de que
+   precisa. Faltam as fachadas que ele chama: audio (`lbAudioAx_*`), filme
+   (`lbMthp_8001F614`), texto (`HSD_SisLib_*`), `lbspdisplay.c`
+   (`lb_80013B14`, `lb_80011AC4`, `lb_80011E24`) e as rotinas de menu e de
+   demo do titulo; e o terminador `0` da lista variadica, que precisa ser NULL
+   em 64 bits.
+2. Laco de frame desenhando pelos GX links dos GObjs e apresentado pelo
+   SDL/OpenGL com a camera e a projecao do jogo, em vez da camera orbital do
+   preview.
+3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
    confundir isso com uma saida DSP real.
-3. Chamar o fluxo de cena pelo executavel, em vez de expor apenas o diagnostico
-   que ja executa `HSD_GObj_RunProcs`, a fence GX e o retrace VI.
+4. Fechar o que o TEV por fragmento nao cobre: bump, fog e copias de EFB.
 
 ## Limitacoes atuais
 
@@ -484,19 +624,25 @@ Atualizado em 12 de setembro de 2026.
 - AX, CARD, streaming DVD e THP ainda nao estao implementados. AX/AI/ARAM so
   possuem a fachada minima necessaria para `HSD_SynthInit`; PAD e DVD
   assincrono tem pontes basicas; os backends completos ainda faltam.
-- O estado GX e registrado, nao rasterizado. Nenhum pixel e produzido por ele:
-  o que existe de imagem vem do preview SDL/OpenGL sobre geometria decodificada
-  separadamente.
-- O runtime GObj executa processos e ja pode possuir objetos graficos reais.
-  As cenas do disco carregam e desenham pela camada de objetos, mas nenhuma foi
-  apresentada: o recorder GX registra a geometria e nao produz pixels.
-- O preview e um renderer OpenGL proprio alimentado pela geometria e pelo
-  estado capturados. Ele segue culling, profundidade, blend, compare de alpha e
-  mascara de cor, e a cor de 20% dos triangulos vem do programa de material
-  lido; nos outros 80% ela e uma aproximacao declarada.
-- A captura guarda as saidas de iluminacao `COLOR0A0` e `COLOR1A1` por vertice,
-  e o preview escolhe o canal do primeiro estagio TEV. Isto ainda nao equivale
-  a executar o programa TEV completo por fragmento.
+- O estado GX e registrado, nao rasterizado pelo host: a imagem vem do preview
+  SDL/OpenGL, que desenha a geometria capturada com o programa TEV de cada draw
+  avaliado num shader gerado.
+- O runtime GObj executa processos e ja pode possuir objetos graficos reais,
+  mas as cenas so sao apresentadas pelos diagnosticos `--view-*`, nao pelo
+  laco de frame do jogo.
+- O preview segue culling, profundidade, blend, mascara de cor e as duas alpha
+  compare, e a cor vem do TEV por fragmento. Ele nao aplica fog, nao le mipmaps
+  (a minificacao usa o filtro de magnificacao), nao modela TEV indireto nem
+  `GXSetTevSwapModeTable` (usa as tabelas do `GXInit`, que o codigo compilado
+  nunca troca) e chama as funcoes GL 2.0+ por `GL_GLEXT_PROTOTYPES`, o que so
+  resolve no Linux.
+- A iluminacao continua por vertice, como no GX; o que e por fragmento e o TEV.
+  Um modelo solto e iluminado pelas luzes substitutas, nao pelas do estagio,
+  entao a cor de um personagem no preview nao e a de uma luta.
+- Na captura em espaco de mundo o joint do Mario aparece de cabeca para baixo
+  no preview, enquanto trofeus e cenas aparecem na orientacao certa. A camera
+  reproduz a mesma sequencia `glFrustum`/`glRotate` de antes; a causa nao foi
+  investigada.
 - `GX_BM_LOGIC` e `GX_CULL_ALL` nao sao modelados pelo preview: o primeiro cai
   para sem blend, o segundo descarta o grupo. Nenhum simbolo do disco usa os
   dois, entao isso nunca foi exercitado por dado real.
@@ -552,3 +698,38 @@ Atualizado em 12 de setembro de 2026.
   build host, mas precisa de atencao quando entrar.
 - A build matching nao foi executada porque `orig/GALE01/sys/main.dol` nao esta
   presente; as mudancas compartilhadas estao isoladas por `MELEE_HOST`.
+- A API de arquivo do host nao ve o heap do jogo. Um buffer liberado sem ser
+  parseado de novo deixa seus descritores vivos ate
+  `melee_host_hsd_archive_release`, entao a memoria cresce por arquivo
+  carregado ate o endereco ser reutilizado. Quando o fluxo de cena entrar, a
+  destruicao dos heaps de cena precisa liberar o que foi parseado dentro deles.
+- `HSD_ArchiveLocateExtern` com endereco nao nulo e recusado: ligar o extern
+  exigiria escrever um ponteiro host num descritor que so existe quando o
+  simbolo e pedido. O codigo compilado so chama com NULL.
+- `lbArchiveRelocate`, que `ftdata.c` usa para animacoes mantidas em ARAM,
+  ainda reloca no lugar com aritmetica de 32 bits e precisa de um caminho host
+  antes de `ftdata.c` entrar no build.
+- O materializador ignora o ponteiro de parametros de uma luz infinita e a
+  posicao de uma luz ambiente, porque `LObjLoad` nao os le; os arquivos do
+  disco trazem o primeiro relocado.
+- `HSD_MemAlloc` no host usa o alocador do host, nao o heap do OS que
+  `HSD_InitComponent` cria. Destruir os heaps de uma cena, que no console
+  libera tudo o que ela alocou, nao libera objetos HSD no host; cada troca de
+  cena vai vazar ate `HSD_MemAlloc` passar a usar o heap OSAlloc corrente.
+- A espera de disco do host so da passos no escalonador. Tela de erro de
+  drive, reset e cartao nao existem. Uma leitura que falha marca o erro
+  estatico do devcom, que nao chama o callback, e o jogo espera para sempre; a
+  flag e `static` e o host ainda nao a enxerga.
+- O boot pula `lbAudioAx_8002838C` (a ARAM comeca mais baixo que no console),
+  `lbDvd_80018F68` (nao ha cache de preload) e `GXInit` (a FIFO e reservada na
+  arena, mas nao entregue). `lbdvd.c` nao compila: `lbArchive_80016F80`,
+  `lbArchive_80017040`, `lbArchive_800171CC` e `lbFile_800168A0` citam o cache
+  de preload e so ligam enquanto ninguem os chama. No build com sanitizers,
+  `lbarchive.c` e `lbfile.c` compilam sem instrumentacao pelo mesmo motivo.
+- `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
+  de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
+  separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
+- Listas variadicas terminadas por `0`, como a de `gmTitle_801A1AC0`, sao
+  lidas de volta como ponteiro por `va_arg`; em 64 bits isso e comportamento
+  indefinido. Quando essas unidades entrarem no build, o terminador precisa
+  ser NULL sob `MELEE_HOST`.

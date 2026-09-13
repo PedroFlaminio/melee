@@ -71,6 +71,23 @@ static void HSD_SynthSFXSampleLoadCallback(int result,
     s32 i;
 
     if (HSD_Synth_804D7738 == 0) {
+#ifdef MELEE_HOST
+        /* The console lays this file's sample descriptors out in the buffer
+         * by PowerPC sizes, writing 32-bit list nodes over them in place.
+         * The host has no mixer to play them yet, so it keeps the
+         * bookkeeping that happens once both reads are done (the load
+         * callback and the bank space the samples take) and builds no
+         * descriptors.  No effect from the file can then be found, which the
+         * synth treats as nothing to play. */
+        int bankID = HSD_Synth_804C2A60[0].bankID;
+
+        (void) addr;
+        if (HSD_Synth_804C2A60[0].x8 != NULL) {
+            HSD_Synth_804C2A60[0].x8(HSD_Synth_804C2A60[0].entrynum,
+                                     HSD_Synth_804C2A60[0].xC);
+        }
+        hsd_SynthSFXBank[bankID] += hsd_SynthSFXLoadBuf[1];
+#else
         s32 j;
         s32 header_size = hsd_SynthSFXLoadBuf[0];
         u32 data_bytes = header_size - 0x10;
@@ -151,6 +168,7 @@ static void HSD_SynthSFXSampleLoadCallback(int result,
                                      HSD_Synth_804C2A60[0].xC);
         }
         hsd_SynthSFXBank[bankID] += hsd_SynthSFXLoadBuf[1];
+#endif
     } else {
         if (HSD_Synth_804D7730 != NULL) {
             HSD_AudioFree(HSD_Synth_804D7730);
@@ -177,6 +195,19 @@ static void HSD_SynthSFXHeaderLoadCallback(int result,
     if (HSD_Synth_804D7738 == 0) {
         int bankID = HSD_Synth_804C2A60[0].bankID;
 
+#ifdef MELEE_HOST
+        /* The header's words are big-endian on the disc. */
+        {
+            int word;
+            for (word = 0; word < (int) ARRAY_SIZE(hsd_SynthSFXLoadBuf);
+                 word++)
+            {
+                u32 v = hsd_SynthSFXLoadBuf[word];
+                hsd_SynthSFXLoadBuf[word] = (v >> 24) | ((v >> 8) & 0xFF00U) |
+                                            ((v << 8) & 0xFF0000U) | (v << 24);
+            }
+        }
+#endif
         HSD_ASSERTREPORT(0xCD,
                          hsd_SynthSFXBankHead[bankID + 1] -
                                  hsd_SynthSFXBank[bankID] >=
@@ -184,6 +215,14 @@ static void HSD_SynthSFXHeaderLoadCallback(int result,
                          "Can't load SFX file; bank(id=%d) buffer overflow.\n",
                          HSD_Synth_804C2A60[0].bankID);
 
+#ifdef MELEE_HOST
+        /* Nothing to read into the heap or ARAM; see the sample callback. */
+        (void) alloc_size;
+        (void) header_size;
+        HSD_Synth_804D7730 = NULL;
+        HSD_SynthSFXSampleLoadCallback(0, 0, NULL, 0);
+        return;
+#endif
         alloc_size =
             hsd_SynthSFXLoadBuf[2] * 8 + sizeof(struct SfxLoadStreamNode);
         header_size = hsd_SynthSFXLoadBuf[0];
@@ -438,7 +477,13 @@ void HSD_SynthSFXBankDeflag(int bank_id)
         offset += vpb->userContext;
         vpb = vpb->next;
     }
+#ifdef MELEE_HOST
+    /* Thirty-two entries past the group lists is hsd_SynthSFXBank on the
+     * console, where each list head is four bytes.  Named directly here. */
+    hsd_SynthSFXBank[bank_id] = (int) offset;
+#else
     HSD_Synth_804C2AE0[bank_id + 0x80 / 4] = (void*) offset;
+#endif
 }
 
 void HSD_SynthSFXBankDeflagSync(void)

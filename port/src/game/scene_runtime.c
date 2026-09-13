@@ -1,6 +1,7 @@
 #include <melee_host/scene_runtime.h>
 
 #include <melee_host/baselib.h>
+#include <melee_host/dolphin_os.h>
 #include <melee_host/gx.h>
 #include <melee_host/video.h>
 
@@ -109,6 +110,10 @@ MeleeHostStatus melee_host_scene_runtime_run_frame(void)
     if (!runtime_initialized) {
         return MELEE_HOST_NOT_READY;
     }
+    /* Alarms that came due since the last frame, before the frame's own
+     * processes, which is where the console's interrupt would have delivered
+     * them at the latest. */
+    melee_host_os_fire_alarms();
     HSD_GObj_RunProcs();
     /* This is the deterministic host frame boundary: game processes update
      * first, a completed GX fence is then delivered, and VI presents the

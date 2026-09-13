@@ -9,6 +9,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace melee::assets {
 
@@ -33,8 +34,29 @@ struct HsdMaterializeStats {
     std::size_t figa_tracks;
     std::size_t shape_set_descs;
     std::size_t envelope_descs;
+    std::size_t light_descs;
+    std::size_t fog_descs;
+    std::size_t sobj_descs;
     std::size_t descriptor_bytes;
     std::size_t payload_bytes;
+};
+
+/* The `LightList` src/melee/sc/types.h declares inside SceneDesc.  C gives a
+ * nested struct file scope and C++ does not, so under C++ that name would be a
+ * different type from the one sc/forward.h declares.  The host names its own
+ * copy of the two pointers instead, which is the same layout. */
+struct MaterializedLightList {
+    HSD_LightDesc* desc;
+    HSD_LightAnim** anims;
+};
+
+/* One entry of lbRumbleData, which lb_013B.c reads as
+ * struct Fighter_804D653C_t: a rumble command list and the priority
+ * HSD_PadRumbleAdd is given with it. */
+struct MaterializedRumbleEntry {
+    void* commands;
+    u8 priority;
+    u8 unk5;
 };
 
 /*
@@ -111,6 +133,31 @@ public:
     [[nodiscard]] std::size_t
     scene_model_count(std::string_view public_symbol) const;
 
+    /* A camera named on its own, which is how a menu or the title keeps one
+     * when there is no SceneDesc around it. */
+    [[nodiscard]] HSD_CObjDesc* camera(std::string_view public_symbol);
+
+    /* The NULL-terminated table a `*_scene_lights` symbol names, one light
+     * list per entry, which is what lb_80011AC4 walks. */
+    [[nodiscard]] MaterializedLightList**
+    scene_lights(std::string_view public_symbol);
+
+    [[nodiscard]] HSD_FogDesc* fog(std::string_view public_symbol);
+
+    /* An image and optional palette drawn as a screen sprite. */
+    [[nodiscard]] HSD_SObjDesc* sobj_desc(std::string_view public_symbol);
+
+    /* lbRumbleData: a table with neither count nor terminator, which runs as
+     * long as each record's command pointer is relocated. */
+    [[nodiscard]] MaterializedRumbleEntry*
+    rumble_table(std::string_view public_symbol);
+
+    /* Declares a pointer field that HSD_ArchiveLocateExtern resolved to NULL.
+     * The file threads the extern's chain through those fields, so until it
+     * is declared a field holds the next link: a non-zero value with no
+     * relocation, which would be refused. */
+    void declare_null_field(std::uint32_t data_offset);
+
     [[nodiscard]] const HsdMaterializeStats& stats() const noexcept;
 
 private:
@@ -134,6 +181,10 @@ private:
     HSD_TObjDesc* tobj_chain(HsdRuntimeNode node);
     HSD_RObjDesc* robj_chain(HsdRuntimeNode node);
     HSD_CObjDesc* camera_desc(HsdRuntimeNode node);
+    HSD_LightDesc* light_desc_chain(HsdRuntimeNode node);
+    HSD_LightAnim* light_anim_chain(HsdRuntimeNode node);
+    HSD_WObjAnim* world_anim(HsdRuntimeNode node);
+    HSD_FogAdjDesc* fog_adj_desc(HsdRuntimeNode node);
     [[nodiscard]] std::optional<HsdRuntimeNode> scene_model_anim_entry(
         std::string_view public_symbol, std::size_t model_index,
         std::uint32_t table_offset, std::size_t anim_index);
@@ -187,6 +238,7 @@ private:
     std::unordered_map<std::uint32_t, HSD_MatAnimJoint*> mat_anim_joints_;
     std::unordered_map<std::uint32_t, HSD_ShapeAnimJoint*> shape_anim_joints_;
     std::unordered_map<std::uint32_t, HSD_AObjDesc*> aobj_descs_;
+    std::unordered_set<std::uint32_t> null_fields_;
     HsdMaterializeStats stats_{};
 };
 

@@ -21,7 +21,11 @@ struct LBMgr {
     u8* dst;       // 0x2C
     u32 size;      // 0x30
     u32 offset;    // 0x34
+#ifdef MELEE_HOST
+    HSD_DevComArg cb_arg;
+#else
     u32 cb_arg;    // 0x38
+#endif
     HSD_DevComCallback cb;
 };
 
@@ -42,7 +46,18 @@ struct Allocator {
     u8 x6EC[0x6F0 - 0x6EC];
 };
 
-/* 015320 */ static void lbMemory_80015320(int, int, void*, bool);
+#ifdef MELEE_HOST
+/* Addresses at pointer width.  ARAM offsets stay within the 16 MB that
+ * lbMemory_8001564C gives the ARAM heap and host memory never sits that low,
+ * so that bound separates the two the way 0x80000000 does on the console. */
+typedef uintptr_t lbMemAddr;
+#define LBMEM_ARAM_LIMIT 0x01000000U
+#else
+typedef u32 lbMemAddr;
+#define LBMEM_ARAM_LIMIT 0x80000000U
+#endif
+
+/* 015320 */ static void lbMemory_80015320(int, HSD_DevComArg, void*, bool);
 
 struct Allocator lbMemory_804318B0;
 #define _p(x) (lbMemory_804318B0.x)
@@ -65,9 +80,18 @@ static inline Handle* new_handle(void* arenaLo, void* arenaHi)
     Handle* h;
     HSD_ASSERT(0x7B, _p(free_heap));
 
+#ifdef MELEE_HOST
+    /* An ARAM heap must lie inside the ARAM arena, whose upper bound is
+     * exclusive: a heap reaching the top of ARAM ends at the limit itself. */
+    if ((lbMemAddr) arenaHi <= LBMEM_ARAM_LIMIT) {
+        HSD_ASSERT(0x80, (lbMemAddr) arenaLo >= (lbMemAddr) _p(a_arenaLo) &&
+                             (lbMemAddr) arenaHi <= (lbMemAddr) _p(a_arenaHi));
+    }
+#else
     if (((u32) arenaLo < 0x80000000U) && ((u32) arenaHi < 0x80000000U)) {
         HSD_ASSERT(0x80, (u32)arenaLo >= (u32)_p(a_arenaLo) && (u32)arenaHi <= (u32)_p(a_arenaHi));
     }
+#endif
 
     POP_HANDLE(&_p(free_heap), h);
     h->x0_next = NULL;
@@ -98,17 +122,17 @@ void lbMemory_80014EEC(Handle* handle)
 
 u32 lbMemory_80014F7C(Handle* h)
 {
-    u32 r0;
-    u32 r4 = (u32) h->x4_lo;
+    lbMemAddr r0;
+    lbMemAddr r4 = (lbMemAddr) h->x4_lo;
     Handle* iter = (Handle*) &h->xC_prev;
     u32 sum = 0;
 
 loop:
     iter = iter->x0_next;
-    r0 = (u32) ((iter != NULL) ? iter->x4_lo : h->x8_hi);
+    r0 = (lbMemAddr) ((iter != NULL) ? iter->x4_lo : h->x8_hi);
     sum += r0 - r4;
     if (iter != NULL) {
-        r4 = (u32) iter->x4_lo + (u32) iter->x8_hi;
+        r4 = (lbMemAddr) iter->x4_lo + (lbMemAddr) iter->x8_hi;
         goto loop;
     }
     return sum;
@@ -134,7 +158,7 @@ Handle* lbMemory_80014FC8(Handle* arg0, size_t size)
 
     while (1) {
         end = (iter->x0_next != NULL) ? iter->x0_next->x4_lo : arg0->x8_hi;
-        available_space = (u32) end - (u32) start;
+        available_space = (lbMemAddr) end - (lbMemAddr) start;
         if (available_space >= size) {
             leftover = available_space;
             leftover = leftover - size;
@@ -148,7 +172,7 @@ Handle* lbMemory_80014FC8(Handle* arg0, size_t size)
             break;
         } else {
             iter = iter->x0_next;
-            start = (void*) ((u32) iter->x4_lo + (u32) iter->x8_hi);
+            start = (void*) ((lbMemAddr) iter->x4_lo + (lbMemAddr) iter->x8_hi);
         }
     }
     HSD_ASSERT(0xE9, memp_kouho);
@@ -228,15 +252,16 @@ u32 lbMemory_8001529C(Handle* h, void (*arg1)(u32), u32 arg2)
     for (iter = h->xC_prev; iter != NULL; iter = iter->x0_next) {
         lo = iter->x4_lo;
         if (lo != *r7) {
-            lbMemory_80015320(0, (int) iter, NULL, false);
+            lbMemory_80015320(0, (HSD_DevComArg) iter, NULL, false);
             return 1;
         }
-        *r7 = (void*) ((u32) lo + (u32) iter->x8_hi);
+        *r7 = (void*) ((lbMemAddr) lo + (lbMemAddr) iter->x8_hi);
     }
     return 0;
 }
 
-static void start_ram_copy(u32 old, u32 current, u32 size, Handle* next)
+static void start_ram_copy(lbMemAddr old, lbMemAddr current, u32 size,
+                           Handle* next)
 {
     struct LBMgr* p = &_p(x6A0_mgr);
     int enabled = OSDisableInterrupts();
@@ -246,26 +271,30 @@ static void start_ram_copy(u32 old, u32 current, u32 size, Handle* next)
     p->dst = (u8*) current;
     p->size = size;
     p->offset = 0;
+#ifdef MELEE_HOST
+    p->cb_arg = (HSD_DevComArg) next;
+#else
     p->cb_arg = (u32) next;
+#endif
     p->cb = lbMemory_80015320;
     OSRestoreInterrupts(enabled);
     OSCreateAlarm(&p->alarm);
     OSSetAlarm(&p->alarm, OSMillisecondsToTicks(3), fn_80015184);
 }
 
-static void lbMemory_80015320(int arg0, int _handle, void* arg2,
+static void lbMemory_80015320(int arg0, HSD_DevComArg _handle, void* arg2,
                               bool cancelflag)
 {
     void* null_or_old;
     Handle* handle = (Handle*) _handle;
     void** currentp;
     void* old;
-    u32 current;
+    lbMemAddr current;
     void* copy_src;
     void* loaded_old;
 
     currentp = &_p(x6E4);
-    current = (u32) _p(x6E4);
+    current = (lbMemAddr) _p(x6E4);
     null_or_old = NULL;
 
     HSD_ASSERT(0x188, !cancelflag);
@@ -275,23 +304,25 @@ static void lbMemory_80015320(int arg0, int _handle, void* arg2,
         if ((old = loaded_old) != (void*) current) {
             null_or_old = old;
             handle->x4_lo = (void*) current;
-            *currentp = (void*) ((u32) handle->x4_lo + (u32) handle->x8_hi);
+            *currentp = (void*) ((lbMemAddr) handle->x4_lo +
+                                 (lbMemAddr) handle->x8_hi);
             copy_src = null_or_old;
 
-            if ((u32) handle->x4_lo < 0x80000000U) {
-                HSD_DevComRequest(0, (u32) copy_src, current,
+            if ((lbMemAddr) handle->x4_lo < LBMEM_ARAM_LIMIT) {
+                HSD_DevComRequest(0, (lbMemAddr) copy_src, current,
                                   OSRoundUp32B(handle->x8_hi), 0x1B, 1,
                                   lbMemory_80015320, handle->x0_next);
                 return;
             } else {
-                start_ram_copy((u32) copy_src, current,
+                start_ram_copy((lbMemAddr) copy_src, current,
                                OSRoundUp32B(handle->x8_hi), handle->x0_next);
                 return;
             }
         }
 
-        *currentp = (void*) ((u32) old + (u32) handle->x8_hi);
-        lbMemory_80015320(0, (int) handle->x0_next, null_or_old, false);
+        *currentp = (void*) ((lbMemAddr) old + (lbMemAddr) handle->x8_hi);
+        lbMemory_80015320(0, (HSD_DevComArg) handle->x0_next, null_or_old,
+                          false);
         return;
     }
 
@@ -355,12 +386,23 @@ void lbMemory_8001564C(void)
     // The chain below walks _p(x638_heap)[0..5], one Handle (0x10) apart.
     // Writing it through the array instead does not match.
     _p(free_heap) = &_p(x638_heap)[0];
+#ifdef MELEE_HOST
+    /* Those offsets are the PowerPC layout.  With eight-byte pointers the
+     * handles sit elsewhere in the struct, so the host links the same chain by
+     * index. */
+    (void) base;
+    for (i = 0; i < 5; i++) {
+        _p(x638_heap)[i].x0_next = &_p(x638_heap)[i + 1];
+    }
+    _p(x638_heap)[5].x0_next = NULL;
+#else
     *(void**) (base + 0x638) = base + 0x648;
     *(void**) (base + 0x648) = base + 0x658;
     *(void**) (base + 0x658) = base + 0x668;
     *(void**) (base + 0x668) = base + 0x678;
     *(void**) (base + 0x678) = base + 0x688;
     *(void**) (base + 0x688) = NULL;
+#endif
     _p(x69C) = NULL;
     {
         void* hi = _p(a_arenaHi);

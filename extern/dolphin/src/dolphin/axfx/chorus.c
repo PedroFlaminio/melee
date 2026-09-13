@@ -133,12 +133,29 @@ static f32 rsmpTab12khz[512] = {
     -0.000976562500f, 0.101593017578f, 0.802215576172f, 0.097503662109f,
 };
 
+#ifndef MELEE_HOST
 const static double i2fMagic = 4503601774854144.0;
+#endif
 
 // functions
 static void do_src1(struct AXFX_CHORUS_SRCINFO* src);
 static void do_src2(struct AXFX_CHORUS_SRCINFO* src);
 
+#ifdef MELEE_HOST
+/* The resampling loops are PowerPC assembly.  They run from the mixer's aux
+ * callback, and the host has no mixer yet; portable versions come with it. */
+static void do_src1(struct AXFX_CHORUS_SRCINFO* src)
+{
+    (void) src;
+    OSPanic(__FILE__, __LINE__, "chorus do_src1 is not ported to the host");
+}
+
+static void do_src2(struct AXFX_CHORUS_SRCINFO* src)
+{
+    (void) src;
+    OSPanic(__FILE__, __LINE__, "chorus do_src2 is not ported to the host");
+}
+#else
 asm static void do_src1(register struct AXFX_CHORUS_SRCINFO* src)
 {
     // clang-format off
@@ -388,6 +405,7 @@ L_00000344:
 	blr
     // clang-format on
 }
+#endif
 
 int AXFXChorusInit(struct AXFX_CHORUS* c)
 {

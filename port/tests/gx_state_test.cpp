@@ -49,7 +49,13 @@ TEST_CASE("GX state resets to the pipeline defaults the SDK installs")
     MeleeHostGxTevState tev{};
     melee_host_gx_tev_state(&tev);
     REQUIRE(tev.stage_count == 1);
-    REQUIRE(tev.stages[0].texmap == GX_TEXMAP_NULL);
+    // GXInit orders the first eight stages onto their own map and coordinate,
+    // generates one coordinate and leaves the rest unordered.
+    REQUIRE(tev.stages[0].texmap == GX_TEXMAP0);
+    REQUIRE(tev.stages[7].texcoord == GX_TEXCOORD7);
+    REQUIRE(tev.stages[8].texmap == GX_TEXMAP_NULL);
+    REQUIRE(tev.texcoord_gen_count == 1);
+    REQUIRE(tev.channel_count == 0);
 }
 
 TEST_CASE("pixel engine calls land in the host pipeline state")
@@ -541,8 +547,9 @@ TEST_CASE("channel colors follow the same pairing rule as channel control")
     REQUIRE(color.ambient_color[1] == 20);
     REQUIRE(alpha.ambient_color[1] == 20);
     REQUIRE(color.material_color[0] == 200);
-    // GX_COLOR0 alone must not write the alpha half of the pair.
-    REQUIRE(alpha.material_color[0] == 0);
+    // GX_COLOR0 alone must not write the alpha half of the pair, which keeps
+    // the white GXInit left there.
+    REQUIRE(alpha.material_color[0] == 255);
 }
 
 TEST_CASE("raster and framebuffer format state is recorded")

@@ -132,6 +132,16 @@ static int ReverbSTDModify(struct AXFX_REVSTD_WORK* rv, float coloration,
     return ReverbSTDCreate(rv, coloration, time, mix, damping, predelay);
 }
 
+#ifdef MELEE_HOST
+/* The reverb loop is PowerPC assembly.  It runs from the mixer's aux
+ * callback, and the host has no mixer yet; a portable version comes with it. */
+static void HandleReverb(long* sptr, struct AXFX_REVSTD_WORK* rv)
+{
+    (void) sptr;
+    (void) rv;
+    OSPanic(__FILE__, __LINE__, "reverb HandleReverb is not ported to the host");
+}
+#else
 const static float value0_3 = 0.3f;
 const static float value0_6 = 0.6f;
 const static double i2fMagic = 4503601774854144.0;
@@ -400,6 +410,7 @@ L_0000090C:
 	blr
     // clang-format on
 }
+#endif
 
 static void ReverbSTDCallback(long* left, long* right, long* surround,
                               struct AXFX_REVSTD_WORK* rv)

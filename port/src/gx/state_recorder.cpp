@@ -114,6 +114,67 @@ std::array<std::array<float, 4>, kMatrixRows> matrix_memory{};
  * by it has to know whether the game ever loaded the row it is about to use. */
 std::array<bool, kMatrixRows> matrix_loaded{};
 
+/* GXSetTevOp is shorthand: the SDK expands it into the input and operation
+ * calls, so the stage the hardware sees is the expanded one.  Recording only
+ * the mode would leave every reader to repeat the expansion. */
+void apply_tev_preset_locked(std::size_t stage, GXTevMode mode)
+{
+    MeleeHostGxTevStage& slot = tev_state.stages[stage];
+    const mh_u32 color_prev = stage == 0 ? static_cast<mh_u32>(GX_CC_RASC)
+                                         : static_cast<mh_u32>(GX_CC_CPREV);
+    const mh_u32 alpha_prev = stage == 0 ? static_cast<mh_u32>(GX_CA_RASA)
+                                         : static_cast<mh_u32>(GX_CA_APREV);
+    const auto color = [&slot](mh_u32 a, mh_u32 b, mh_u32 c, mh_u32 d) {
+        slot.color_input[0] = a;
+        slot.color_input[1] = b;
+        slot.color_input[2] = c;
+        slot.color_input[3] = d;
+    };
+    const auto alpha = [&slot](mh_u32 a, mh_u32 b, mh_u32 c, mh_u32 d) {
+        slot.alpha_input[0] = a;
+        slot.alpha_input[1] = b;
+        slot.alpha_input[2] = c;
+        slot.alpha_input[3] = d;
+    };
+    constexpr mh_u32 kCZero = GX_CC_ZERO;
+    constexpr mh_u32 kAZero = GX_CA_ZERO;
+    switch (mode) {
+    case GX_MODULATE:
+        color(kCZero, GX_CC_TEXC, color_prev, kCZero);
+        alpha(kAZero, GX_CA_TEXA, alpha_prev, kAZero);
+        break;
+    case GX_DECAL:
+        color(color_prev, GX_CC_TEXC, GX_CC_TEXA, kCZero);
+        alpha(kAZero, kAZero, kAZero, alpha_prev);
+        break;
+    case GX_BLEND:
+        color(color_prev, GX_CC_ONE, GX_CC_TEXC, kCZero);
+        alpha(kAZero, GX_CA_TEXA, alpha_prev, kAZero);
+        break;
+    case GX_REPLACE:
+        color(kCZero, kCZero, kCZero, GX_CC_TEXC);
+        alpha(kAZero, kAZero, kAZero, GX_CA_TEXA);
+        break;
+    case GX_PASSCLR:
+        color(kCZero, kCZero, kCZero, color_prev);
+        alpha(kAZero, kAZero, kAZero, alpha_prev);
+        break;
+    default:
+        return;
+    }
+    slot.color_op = static_cast<mh_u32>(GX_TEV_ADD);
+    slot.alpha_op = static_cast<mh_u32>(GX_TEV_ADD);
+    slot.color_bias = static_cast<mh_u32>(GX_TB_ZERO);
+    slot.alpha_bias = static_cast<mh_u32>(GX_TB_ZERO);
+    slot.color_scale = static_cast<mh_u32>(GX_CS_SCALE_1);
+    slot.alpha_scale = static_cast<mh_u32>(GX_CS_SCALE_1);
+    slot.color_clamp = true;
+    slot.alpha_clamp = true;
+    slot.color_out_reg = static_cast<mh_u32>(GX_TEVPREV);
+    slot.alpha_out_reg = static_cast<mh_u32>(GX_TEVPREV);
+    slot.mode = static_cast<mh_u32>(mode);
+}
+
 /* The default state mirrors the SDK's post-GXInit configuration for the
  * fields the port models, so a reset leaves a usable pipeline rather than
  * zeroes that no real frame would ever set. */
@@ -138,15 +199,23 @@ void reset_locked()
     transform_state.projection_type = static_cast<mh_u32>(GX_PERSPECTIVE);
     transform_state.current_matrix = static_cast<mh_u32>(GX_PNMTX0);
 
+    /* GXInit: one stage replacing with texture map 0 through coordinate 0,
+     * orders for the first eight stages, a 2x4 identity texgen per
+     * coordinate, and no lighting channels. */
     tev_state = MeleeHostGxTevState{};
     tev_state.stage_count = 1;
+    tev_state.texcoord_gen_count = 1;
     tev_state.channel_count = 0;
     for (std::size_t stage = 0; stage < kTevStages; ++stage) {
         MeleeHostGxTevStage& slot = tev_state.stages[stage];
+        const bool ordered = stage < kTexMaps;
         slot.mode = static_cast<mh_u32>(GX_REPLACE);
-        slot.texcoord = static_cast<mh_u32>(GX_TEXCOORD_NULL);
-        slot.texmap = static_cast<mh_u32>(GX_TEXMAP_NULL);
-        slot.color_channel = static_cast<mh_u32>(GX_COLOR_NULL);
+        slot.texcoord = ordered ? static_cast<mh_u32>(stage)
+                                : static_cast<mh_u32>(GX_TEXCOORD_NULL);
+        slot.texmap = ordered ? static_cast<mh_u32>(stage)
+                              : static_cast<mh_u32>(GX_TEXMAP_NULL);
+        slot.color_channel = ordered ? static_cast<mh_u32>(GX_COLOR0A0)
+                                     : static_cast<mh_u32>(GX_COLOR_NULL);
         slot.color_op = static_cast<mh_u32>(GX_TEV_ADD);
         slot.alpha_op = static_cast<mh_u32>(GX_TEV_ADD);
         slot.color_bias = static_cast<mh_u32>(GX_TB_ZERO);
@@ -157,10 +226,19 @@ void reset_locked()
         slot.alpha_out_reg = static_cast<mh_u32>(GX_TEVPREV);
         slot.color_clamp = true;
         slot.alpha_clamp = true;
-        slot.konst_color_select = static_cast<mh_u32>(GX_TEV_KCSEL_1);
+        slot.konst_color_select = static_cast<mh_u32>(GX_TEV_KCSEL_1_4);
         slot.konst_alpha_select = static_cast<mh_u32>(GX_TEV_KASEL_1);
         slot.raster_swap = static_cast<mh_u32>(GX_TEV_SWAP0);
         slot.texture_swap = static_cast<mh_u32>(GX_TEV_SWAP0);
+    }
+    apply_tev_preset_locked(0, GX_REPLACE);
+    for (std::size_t coord = 0; coord < kTexCoords; ++coord) {
+        MeleeHostGxTexCoordGen& gen = tev_state.texcoord_gens[coord];
+        gen.function = static_cast<mh_u32>(GX_TG_MTX2x4);
+        gen.source = static_cast<mh_u32>(GX_TG_TEX0) + static_cast<mh_u32>(coord);
+        gen.matrix = static_cast<mh_u32>(GX_IDENTITY);
+        gen.normalize = false;
+        gen.post_matrix = static_cast<mh_u32>(GX_PTIDENTITY);
     }
 
     fog_state = MeleeHostGxFogState{};
@@ -176,7 +254,17 @@ void reset_locked()
     display_copy_state.clamp = static_cast<mh_u32>(GX_CLAMP_TOP |
                                                    GX_CLAMP_BOTTOM);
     draw_sync_state = MeleeHostGxDrawSyncState{};
-    channel_controls.fill(MeleeHostGxChannelControl{});
+    /* GXInit leaves both pairs unlit, ambient from a black register and
+     * material from the vertex, with a white register behind it. */
+    MeleeHostGxChannelControl channel_default{};
+    channel_default.ambient_source = static_cast<mh_u32>(GX_SRC_REG);
+    channel_default.material_source = static_cast<mh_u32>(GX_SRC_VTX);
+    channel_default.diffuse_function = static_cast<mh_u32>(GX_DF_NONE);
+    channel_default.attenuation_function = static_cast<mh_u32>(GX_AF_NONE);
+    for (mh_u8& component : channel_default.material_color) {
+        component = 255;
+    }
+    channel_controls.fill(channel_default);
     bound_textures.fill(MeleeHostGxTextureDesc{});
     loaded_tluts.fill(MeleeHostGxTlutDesc{});
     lights.fill(MeleeHostGxLightDesc{});
@@ -595,7 +683,7 @@ void GXSetTevOp(GXTevStageID id, GXTevMode mode)
     if (stage >= kTevStages) {
         return;
     }
-    tev_state.stages[stage].mode = static_cast<mh_u32>(mode);
+    apply_tev_preset_locked(stage, mode);
 }
 
 void GXSetTevOrder(GXTevStageID stage_id, GXTexCoordID coord, GXTexMapID map,

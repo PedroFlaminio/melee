@@ -90,7 +90,12 @@ int lbHeap_800158E8(int arg0)
 
 void lbHeap_80015900(void)
 {
+#ifdef MELEE_HOST
+    /* The end of a heap, which is an address. */
+    uintptr_t temp_r0;
+#else
     s32 temp_r0;
+#endif
     struct lbHeap_HeapOffsetView* destroy_view;
     s32 bounds_i;
     struct Heap* bounds_heap;

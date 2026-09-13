@@ -36,6 +36,12 @@ typedef struct MeleeHostOsHeapStats {
 /* Builds the arena and one heap covering it, then makes that heap current.
  * `arena_bytes` defaults to the console's main memory size when zero. */
 MeleeHostStatus melee_host_os_heap_init(size_t arena_bytes, mh_s32 max_heaps);
+
+/* OSInit's share of boot: the arena, with nothing carved out of it.  The boot
+ * path then runs OSInitAlloc and creates its own heaps, so this and
+ * melee_host_os_heap_init exclude each other.  `arena_bytes` defaults to the
+ * console's main memory size when zero. */
+MeleeHostStatus melee_host_os_arena_init(size_t arena_bytes);
 MeleeHostStatus melee_host_os_heap_shutdown(void);
 MeleeHostStatus melee_host_os_heap_stats(MeleeHostOsHeapStats* out_stats);
 

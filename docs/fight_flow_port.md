@@ -43,9 +43,26 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
 - Executado: o caminho de render original. `HSD_JObjDispAll` percorre a árvore
   carregada e as display lists do asset chegam ao recorder GX do host, que é o
   mesmo caminho que `ftdrawcommon.c` e `itdraw.c` tomam por frame.
-- Próximo bloqueio: apresentar o que já desenha. O recorder registra a
-  geometria e não produz pixels, então nenhuma imagem sai da camada gráfica
-  original ainda.
+- Executado: a imagem do caminho original. O recorder captura texgen,
+  conjuntos de textura e os dois canais rasterizados, e o preview avalia o
+  programa TEV de cada draw por fragmento num shader gerado com a mesma
+  semântica da referência de CPU (`port/src/gx/tev.cpp`), conferido pixel a
+  pixel por `--tev-conformance-*`. Ainda faltam fog, bump e cópias de EFB.
+- Executado: a API de arquivo HSD pela qual o jogo pede assets.
+  `HSD_ArchiveParse` e `HSD_ArchiveGetPublicAddress` são do host e
+  reconstroem cada símbolo em layout de 64 bits pelo sufixo do nome; a lista
+  que `gmTitle_801A1AC0` passa a `lbArchive_LoadSymbols` traduz inteira e
+  carrega pelos loaders originais. Detalhes em `docs/native_port_status.md`.
+- Executado: a memória de boot e o carregador do jogo. A sequência de `gmMain`
+  (`HSD_InitComponent`, `lbMemory_8001564C`, `lbHeap_80015F3C`) e o fim do
+  setup de heap de cena (`lbHeap_80015900`) rodam no host, e
+  `lbArchive_LoadSymbols` lê o arquivo da tela de título por `lbFile`, pela
+  fila devcom e pelo DVD do host.
+- Próximo bloqueio: `gm_Scene_Title_OnEnter`. O arquivo, a memória e o disco
+  de que ele precisa já existem; faltam as fachadas de áudio, filme, texto e
+  `lbspdisplay.c` que ele chama. Depois vêm `gmMain` e o laço de cenas, para
+  que os callbacks de render de `gmscene.c`, `ground.c` e `fighter.c` cheguem
+  ao recorder.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

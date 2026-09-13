@@ -1,5 +1,7 @@
 add_library(melee_host STATIC
+    src/assets/dol_image.cpp
     src/assets/hsd_archive.cpp
+    src/assets/hsd_host_archive.cpp
     src/assets/hsd_materialize.cpp
     src/assets/gx_texture.cpp
     src/assets/hsd_runtime_archive.cpp
@@ -8,9 +10,11 @@ add_library(melee_host STATIC
     src/assets/virtual_disc.cpp
     src/gx/command_recorder.cpp
     src/gx/state_recorder.cpp
+    src/gx/tev.cpp
     src/video/vi.cpp
     src/host.cpp
     src/os/clock.cpp
+    src/os/alarm.c
     src/os/baselib_support.c
     src/os/dolphin_mtx.c
     src/os/dolphin_time.cpp
@@ -87,6 +91,11 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbtime.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbvector.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbanim.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbarchive.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbfile.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbheap.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lblanguage.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbmemory.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain_lib.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmscene.c
@@ -152,11 +161,49 @@ add_library(melee_game_core STATIC
     src/game/menu_native.c
     src/game/scene_runtime.c
     src/game/scene_graphics.cpp
+    src/game/archive_probe.cpp
+    src/game/boot_memory.c
+    src/game/title_scene.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmtitle.c
+    ${CMAKE_SOURCE_DIR}/src/melee/db/dbinit.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1601.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1A3F.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmopening.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmopeningmode.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbaudio_ax.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbdvd.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbmthp.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbspdisplay.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mn_22EC.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/sislib.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3A64.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3A76.c
+    src/game/dol_data.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/axdriver.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gr/stage.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmcameramode.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbsnap.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lb_0195.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lb_013B.c
+    ${CMAKE_SOURCE_DIR}/src/melee/if/if_2FF2.c
+    ${CMAKE_SOURCE_DIR}/src/melee/if/textdraw.c
+    ${CMAKE_SOURCE_DIR}/src/melee/if/textlib_1.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3915.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/sobjlib.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3924.c
+    src/game/unported.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     src/os/os_heap.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/os/OSAlloc.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/os/OSArena.c
     ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/pad/PadClamp.c
+    # The SDK's audio effects are arithmetic on sample buffers and run as
+    # they are.
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/axfx/axfx.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/axfx/chorus.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/axfx/delay.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/axfx/reverb_hi.c
+    ${CMAKE_SOURCE_DIR}/extern/dolphin/src/dolphin/axfx/reverb_std.c
 )
 target_compile_definitions(melee_game_core PUBLIC MELEE_HOST=1)
 target_include_directories(melee_game_core
@@ -171,6 +218,7 @@ melee_host_set_legacy_warnings(melee_game_core)
 # decompiled translation units, which need the legacy relaxations.
 set_source_files_properties(
     src/game/scene_graphics.cpp
+    src/game/archive_probe.cpp
     PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wpedantic;-Wshadow"
 )
 melee_host_enable_sanitizers(melee_game_core)
@@ -186,9 +234,18 @@ if(MELEE_HOST_ENABLE_SANITIZERS)
         ${CMAKE_SOURCE_DIR}/src/melee/pl/plstale.c
         ${CMAKE_SOURCE_DIR}/src/melee/pl/pl_040D.c
         ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c
+        # Both refer to the unported preload cache in lbdvd.c.
+        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbarchive.c
+        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbfile.c
         PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address,undefined"
     )
 endif()
+# ground.c's stage table names every stage.  Stages outside the build are weak
+# references, so their entries are NULL, which the game reads as a stage
+# without data.  Appended so the sanitizer options above are kept.
+set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c APPEND PROPERTY
+    COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/src/game/host_weak_stages.h"
+)
 target_link_libraries(melee_game_core PUBLIC melee_host)
 if(NOT MSVC)
     target_compile_options(melee_game_core PRIVATE -ffunction-sections -fdata-sections)
@@ -244,10 +301,14 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/spline_test.cpp
         tests/synth_test.cpp
         tests/gx_state_test.cpp
+        tests/gx_tev_test.cpp
         tests/video_test.cpp
         tests/os_heap_test.cpp
         tests/hsd_graphics_test.cpp
         tests/hsd_materialize_test.cpp
+        tests/hsd_host_archive_test.cpp
+        tests/lb_memory_test.cpp
+        tests/dol_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
         tests/test_main.cpp
@@ -302,6 +363,41 @@ if(MELEE_HOST_BUILD_TESTS)
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_tests_properties(melee-host-model-load-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # The exact symbol list gmTitle_801A1AC0 hands lbArchive_LoadSymbols, which
+    # makes every one of them fatal if missing.  The US file is the one the
+    # game opens for an English setting.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/GmTtAll.usd")
+        add_test(
+            NAME melee-host-title-archive-asset
+            COMMAND melee-pc --load-archive
+                    ${CMAKE_SOURCE_DIR}/assets-local/GmTtAll.usd
+                    TtlMoji_Top_joint TtlMoji_Top_animjoint
+                    TtlMoji_Top_matanim_joint TtlMoji_Top_shapeanim_joint
+                    ScTitle_cam_int1_camera ScTitle_scene_lights ScTitle_fog
+                    TtlBg_Top_joint TtlBg_Top_animjoint TtlBg_Top_matanim_joint
+                    TtlBg_Top_shapeanim_joint TitleMark_sobjdesc
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-title-archive-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # The same archive through the game's own loader: gmMain's memory sequence,
+    # lbArchive_LoadSymbols, and lbFile over devcom and the host DVD.  It runs
+    # in its own process because it moves the OS arena.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/dvd-index.bin")
+        add_test(
+            NAME melee-host-boot-title-archive-asset
+            COMMAND melee-pc --boot-title-archive
+                    ${CMAKE_SOURCE_DIR}/assets-local
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-boot-title-archive-asset PROPERTIES
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()

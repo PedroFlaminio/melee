@@ -24,7 +24,13 @@
  */
 #define MELEE_HOST_ARAM_SIZE (16U * 1024U * 1024U)
 
+/* ARAM is a stack in the SDK: ARFree releases the most recent block and
+ * reports its length, so the lengths are kept in allocation order. */
+#define MELEE_HOST_ARAM_BLOCKS 64
+
 static u32 melee_host_aram_next;
+static u32 melee_host_aram_blocks[MELEE_HOST_ARAM_BLOCKS];
+static u32 melee_host_aram_block_count;
 static u32 melee_host_dsp_sample_rate;
 static u8 melee_host_stream_volume_left;
 static u8 melee_host_stream_volume_right;
@@ -39,13 +45,123 @@ u32 ARAlloc(u32 length)
     if (aligned_length > MELEE_HOST_ARAM_SIZE - result) {
         OSPanic(__FILE__, __LINE__, "host ARAM exhausted");
     }
+    if (melee_host_aram_block_count == MELEE_HOST_ARAM_BLOCKS) {
+        OSPanic(__FILE__, __LINE__, "host ARAM has no free blocks");
+    }
+    melee_host_aram_blocks[melee_host_aram_block_count++] = aligned_length;
     melee_host_aram_next += aligned_length;
     return result;
+}
+
+u32 ARFree(u32* length)
+{
+    u32 block;
+
+    if (melee_host_aram_block_count == 0) {
+        OSPanic(__FILE__, __LINE__, "ARFree with no ARAM block allocated");
+    }
+    block = melee_host_aram_blocks[--melee_host_aram_block_count];
+    if (length != NULL) {
+        *length = block;
+    }
+    melee_host_aram_next -= block;
+    return melee_host_aram_next;
+}
+
+u32 ARGetSize(void)
+{
+    return MELEE_HOST_ARAM_SIZE;
+}
+
+/* The SDK's ARInit sets up the block stack and reports where user ARAM
+ * begins.  The host keeps its own stack in ARAlloc and ARFree, so this only
+ * reports the current top. */
+u32 ARInit(u32* stack_index_addr, u32 num_entries)
+{
+    (void) stack_index_addr;
+    (void) num_entries;
+    return melee_host_aram_next;
+}
+
+/* ARAM transfers complete inside ARQPostRequest, so the queue needs no
+ * setup. */
+void ARQInit(void) {}
+
+/* No audio interface to start: nothing drains the DSP's output yet. */
+void AIInit(u8* stack)
+{
+    (void) stack;
 }
 
 void AXInit(void)
 {
     melee_host_ax_callback = NULL;
+}
+
+/* There is no mixer on the host yet, so no voice can be handed out.  The
+ * synth treats a NULL voice as every voice being taken and gives up on the
+ * sound, which is what happens on the console when voices run out.  The
+ * voice setters below are only ever called with a voice this returned. */
+AXVPB* AXAcquireVoice(u32 priority, void (*callback)(void*), u32 userContext)
+{
+    (void) priority;
+    (void) callback;
+    (void) userContext;
+    return NULL;
+}
+
+void AXRegisterAuxACallback(void (*callback)(void*, void*), void* context)
+{
+    (void) callback;
+    (void) context;
+}
+
+void AXRegisterAuxBCallback(void (*callback)(void*, void*), void* context)
+{
+    (void) callback;
+    (void) context;
+}
+
+void AXSetVoiceMix(AXVPB* voice, AXPBMIX* mix)
+{
+    (void) voice;
+    (void) mix;
+}
+
+void AXSetVoiceItdOn(AXVPB* voice)
+{
+    (void) voice;
+}
+
+void AXSetVoiceItdTarget(AXVPB* voice, u16 lShift, u16 rShift)
+{
+    (void) voice;
+    (void) lShift;
+    (void) rShift;
+}
+
+void AXSetVoiceSrc(AXVPB* voice, AXPBSRC* src)
+{
+    (void) voice;
+    (void) src;
+}
+
+void AXSetVoiceAddr(AXVPB* voice, AXPBADDR* addr)
+{
+    (void) voice;
+    (void) addr;
+}
+
+void AXSetVoiceAdpcm(AXVPB* voice, AXPBADPCM* adpcm)
+{
+    (void) voice;
+    (void) adpcm;
+}
+
+void AXSetVoiceState(AXVPB* voice, u16 state)
+{
+    (void) voice;
+    (void) state;
 }
 
 void AXRegisterCallback(void (*callback)(void))
@@ -86,6 +202,12 @@ void AXSetVoiceEndAddr(AXVPB* voice, u32 address)
 {
     (void) voice;
     (void) address;
+}
+
+void AXSetVoicePriority(AXVPB* voice, u32 priority)
+{
+    (void) voice;
+    (void) priority;
 }
 
 void AXSetVoiceSrcRatio(AXVPB* voice, float ratio)

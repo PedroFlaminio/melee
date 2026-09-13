@@ -19,6 +19,7 @@
 #include "assets/hsd_archive.hpp"
 #include "assets/hsd_materialize.hpp"
 #include "assets/hsd_runtime_archive.hpp"
+#include "gx/tev.hpp"
 
 #include <melee_host/gx.h>
 
@@ -29,6 +30,7 @@ MELEE_HOST_HSD_BEGIN
 #include <sysdolphin/baselib/object.h>
 #include <sysdolphin/baselib/cobj.h>
 #include <sysdolphin/baselib/fobj.h>
+#include <sysdolphin/baselib/lobj.h>
 #include <sysdolphin/baselib/displayfunc.h>
 #include <sysdolphin/baselib/state.h>
 #include <sysdolphin/baselib/video.h>
@@ -680,6 +682,36 @@ extern "C" MeleeHostStatus melee_host_scene_graphics_render(
                     "the original camera setup refused the host viewport");
     }
 
+    /* The lights a stage would provide.  A model drawn alone has none, and a
+     * lit material then multiplies everything by a black ambient, so an
+     * ambient light and one infinite light stand in, built and registered
+     * through the original LObj API the way the host camera stands in for a
+     * missing scene camera.  The ambient needs LOBJ_DIFFUSE for
+     * HSD_SetupChannelMode to multiply the material ambient by it; an
+     * infinite light is placed by its position alone. */
+    HSD_LObj* const ambient_light = HSD_LObjAlloc();
+    HSD_LObjSetFlags(ambient_light, LOBJ_DIFFUSE);
+    HSD_LObjSetColor(ambient_light, GXColor{ 96, 96, 96, 255 });
+    HSD_LObj* const key_light = HSD_LObjAlloc();
+    HSD_LObjSetFlags(key_light, LOBJ_INFINITE | LOBJ_DIFFUSE);
+    HSD_LObjSetColor(key_light, GXColor{ 200, 200, 200, 255 });
+    Vec3 key_position{ 0.5F, 0.8F, 1.0F };
+    HSD_LObjSetPosition(key_light, &key_position);
+    HSD_LObjDeleteCurrentAll(nullptr);
+    HSD_LObjAddCurrent(ambient_light);
+    HSD_LObjAddCurrent(key_light);
+    /* Lights must land in the geometry's space.  A world capture hands the
+     * display path an identity view, so the light setup reads one as well. */
+    if (view == MELEE_HOST_SCENE_VIEW_WORLD) {
+        Mtx camera_view;
+        std::memcpy(camera_view, camera->view_mtx, sizeof(Mtx));
+        PSMTXIdentity(camera->view_mtx);
+        HSD_LObjSetupInit(camera);
+        std::memcpy(camera->view_mtx, camera_view, sizeof(Mtx));
+    } else {
+        HSD_LObjSetupInit(camera);
+    }
+
     MeleeHostSceneRenderStats stats{};
     stats.used_scene_camera = used_scene_camera;
     /* A world-space capture asks the display path for an identity view, which
@@ -704,6 +736,9 @@ extern "C" MeleeHostStatus melee_host_scene_graphics_render(
     }
     HSD_CObjEndCurrent();
     HSD_CObjSetCurrent(nullptr);
+    /* Each call drops the current-list reference and the allocation's. */
+    HSD_LObjRemoveAll(key_light);
+    HSD_LObjRemoveAll(ambient_light);
 
     stats.triangles = static_cast<mh_u32>(melee_host_gx_triangle_count());
     stats.vertices =
@@ -718,6 +753,8 @@ extern "C" MeleeHostStatus melee_host_scene_graphics_render(
         static_cast<mh_u32>(melee_host_gx_captured_draw_state_count());
     stats.tev_states =
         static_cast<mh_u32>(melee_host_gx_captured_tev_state_count());
+    stats.texture_sets =
+        static_cast<mh_u32>(melee_host_gx_captured_texture_set_count());
     for (std::size_t index = 0; index < stats.triangles; ++index) {
         MeleeHostGxCapturedTriangle triangle{};
         /* The attribute bit is the test, not the id: an untextured vertex
@@ -731,15 +768,14 @@ extern "C" MeleeHostStatus melee_host_scene_graphics_render(
             stats.textured_triangles += 1;
         }
         MeleeHostGxTevState tev{};
-        MeleeHostGxResolvedShading shading{};
         if (melee_host_gx_captured_tev_state_at(
                 triangle.vertices[0].tev_state, &tev) &&
-            melee_host_gx_resolve_shading(&tev, &shading) &&
-            shading.kind != MELEE_HOST_GX_SHADING_APPROXIMATED)
+            melee::gx::tev_unmodelled_features(tev) ==
+                melee::gx::kTevUnmodelledNone)
         {
-            stats.shading_exact_triangles += 1;
+            stats.tev_evaluated_triangles += 1;
         } else {
-            stats.shading_approximated_triangles += 1;
+            stats.tev_unmodelled_triangles += 1;
         }
     }
 

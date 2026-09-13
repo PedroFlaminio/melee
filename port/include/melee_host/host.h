@@ -55,6 +55,11 @@ MeleeHostStatus melee_host_dvd_read_entry_range(const MeleeHostContext* context,
                                                 size_t length);
 MeleeHostStatus melee_host_activate_dvd_backend(MeleeHostContext* context);
 
+/* One scheduler step on the context the DVD backend is attached to, which is
+ * how a disc read the game is waiting on completes.  UNSUPPORTED when no
+ * backend is active. */
+MeleeHostStatus melee_host_dvd_step_backend(void);
+
 #ifdef __cplusplus
 }
 #endif

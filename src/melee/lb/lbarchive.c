@@ -279,6 +279,14 @@ int lbArchiveRelocate(HSD_Archive* archive, u8* src, size_t file_size,
     if (archive == NULL) {
         return -1;
     }
+#ifdef MELEE_HOST
+    /* Adding a base to 32-bit fields in place cannot produce host pointers,
+     * and the host archive keeps no table to relocate; see
+     * port/src/assets/hsd_host_archive.cpp.  Refused rather than run. */
+    OSReport("lbArchiveRelocate: not supported on the host %x\n",
+             (u32) file_size);
+    return -1;
+#endif
     memset(archive, 0, sizeof(HSD_Archive));
     archive->flags |= 1;
     memcpy(archive, src, sizeof(HSD_ArchiveHeader));

@@ -2,6 +2,7 @@
 
 #include <dolphin/dvd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -87,6 +88,21 @@ melee_host_activate_dvd_backend(MeleeHostContext* context)
     return MELEE_HOST_OK;
 }
 
+extern "C" MeleeHostStatus melee_host_dvd_step_backend(void)
+{
+    MeleeHostContext* context = nullptr;
+    {
+        const std::lock_guard<std::mutex> lock(dvd_mutex);
+        context = active_context;
+    }
+    if (context == nullptr) {
+        return MELEE_HOST_UNSUPPORTED;
+    }
+    /* The step runs the read and its callback, which enter the DVD functions
+     * and take the lock again, so it is released before stepping. */
+    return melee_host_step(context);
+}
+
 extern "C" s32 DVDConvertPathToEntrynum(const char* path)
 {
     if (path == nullptr) {
@@ -152,19 +168,32 @@ extern "C" long DVDReadPrio(DVDFileInfo* file_info, void* destination,
     }
     const std::lock_guard<std::mutex> lock(dvd_mutex);
     mh_u32 entry = 0;
+    const unsigned long long start = static_cast<unsigned long long>(offset);
+    const unsigned long long end =
+        start + static_cast<unsigned long long>(length);
+    /* The SDK accepts a read that ends less than DVD_MIN_TRANSFER_SIZE past
+     * the file (dvdfs.c).  The drive moves data in 32-byte units and the game
+     * rounds its sizes to them, so lbFile asks for whole units even when the
+     * file does not fill the last one. */
     if (active_context == nullptr || !entry_for_file(file_info, &entry) ||
-        static_cast<unsigned long long>(offset) +
-                static_cast<unsigned long long>(length) >
-            file_info->length) {
+        start > file_info->length ||
+        end >= static_cast<unsigned long long>(file_info->length) +
+                   DVD_MIN_TRANSFER_SIZE) {
         return DVD_RESULT_FATAL_ERROR;
     }
+    const auto available = static_cast<size_t>(
+        std::min<unsigned long long>(end, file_info->length) - start);
     const auto status = melee_host_dvd_read_entry_range(
         active_context, entry, static_cast<mh_u64>(offset), destination,
-        static_cast<size_t>(length));
+        available);
     if (status != MELEE_HOST_OK) {
         file_info->cb.state = DVD_STATE_FATAL_ERROR;
         return DVD_RESULT_FATAL_ERROR;
     }
+    /* Past the end of a file the disc holds padding, which the extracted file
+     * does not carry, so the host supplies zeros. */
+    std::memset(static_cast<char*>(destination) + available, 0,
+                static_cast<size_t>(length) - available);
     file_info->cb.offset = static_cast<u32>(offset);
     file_info->cb.length = static_cast<u32>(length);
     file_info->cb.transferredSize = static_cast<u32>(length);

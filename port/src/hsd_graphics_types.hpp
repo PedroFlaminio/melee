@@ -11,14 +11,18 @@
 #if defined(__clang__)
 #define MELEE_HOST_HSD_BEGIN                                                  \
     _Pragma("clang diagnostic push")                                          \
-    _Pragma("clang diagnostic ignored \"-Wpedantic\"") extern "C" {
+    _Pragma("clang diagnostic ignored \"-Wpedantic\"")                        \
+    _Pragma("clang diagnostic ignored \"-Wconversion\"") extern "C" {
 #define MELEE_HOST_HSD_END                                                    \
     }                                                                         \
     _Pragma("clang diagnostic pop")
 #elif defined(__GNUC__)
+/* Inline accessors in the headers narrow implicitly, such as
+ * HSD_LObjGetPriority returning a u16 field as u8. */
 #define MELEE_HOST_HSD_BEGIN                                                  \
     _Pragma("GCC diagnostic push")                                            \
-    _Pragma("GCC diagnostic ignored \"-Wpedantic\"") extern "C" {
+    _Pragma("GCC diagnostic ignored \"-Wpedantic\"")                          \
+    _Pragma("GCC diagnostic ignored \"-Wconversion\"") extern "C" {
 #define MELEE_HOST_HSD_END                                                    \
     }                                                                         \
     _Pragma("GCC diagnostic pop")
@@ -36,12 +40,15 @@ MELEE_HOST_HSD_BEGIN
 #include <sysdolphin/baselib/cobj.h>
 #include <sysdolphin/baselib/fobj.h>
 #include <sysdolphin/baselib/dobj.h>
+#include <sysdolphin/baselib/fog.h>
 #include <sysdolphin/baselib/jobj.h>
+#include <sysdolphin/baselib/lobj.h>
 #include <sysdolphin/baselib/mobj.h>
 #include <sysdolphin/baselib/mtx.h>
 #include <sysdolphin/baselib/objalloc.h>
 #include <sysdolphin/baselib/pobj.h>
 #include <sysdolphin/baselib/robj.h>
+#include <sysdolphin/baselib/sobjlib.h>
 #include <sysdolphin/baselib/tobj.h>
 #include <sysdolphin/baselib/wobj.h>
 MELEE_HOST_HSD_END

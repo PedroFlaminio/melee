@@ -1,9 +1,12 @@
 #include "render/sdl_gl_renderer.hpp"
 
+#include "gx/tev.hpp"
+
 #include <melee_host/gx.h>
 #include <melee_host/input.h>
 #include <melee_host/host.h>
 
+#define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
 #include <SDL3/SDL.h>
 
@@ -12,7 +15,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include <limits>
+#include <map>
+#include <random>
+#include <set>
 #include <utility>
 
 namespace melee::render {
@@ -55,67 +63,15 @@ GLenum gl_blend_factor(mh_u32 factor, bool source_side)
     }
 }
 
-/* The reduction from GX's two alpha comparisons to one lives with the GX
- * model, not here; this only maps the result onto the fixed-function test. */
-bool resolve_alpha_test(const MeleeHostGxDrawState& state, GLenum* out_func,
-                        GLclampf* out_reference)
+bool is_blended(const MeleeHostGxDrawState& state)
 {
-    mh_u32 compare = 0;
-    mh_u8 reference = 0;
-    if (!melee_host_gx_resolve_alpha_test(&state, &compare, &reference)) {
-        return false;
-    }
-    *out_func = gl_compare(compare);
-    *out_reference = static_cast<GLclampf>(reference) / 255.0F;
-    return true;
+    return state.blend_mode == 1 || state.blend_mode == 3;
 }
 
-/* How a group of triangles is coloured, read off the captured TEV program
- * where that is possible.  A program the host cannot read exactly falls back
- * to texture times vertex colour, which is what the viewer always did. */
-struct Shading {
-    bool use_texture = true;
-    bool replace = false;
-    float konst[4] = { 1.0F, 1.0F, 1.0F, 1.0F };
-    float constant_alpha = 1.0F;
-    bool exact = false;
-};
-
-Shading resolve_shading(const MeleeHostGxTevState& tev)
-{
-    Shading shading;
-    MeleeHostGxResolvedShading resolved{};
-    if (!melee_host_gx_resolve_shading(&tev, &resolved)) {
-        return shading;
-    }
-    shading.constant_alpha =
-        static_cast<float>(resolved.constant_alpha) / 255.0F;
-    shading.exact = resolved.kind != MELEE_HOST_GX_SHADING_APPROXIMATED;
-    switch (resolved.kind) {
-    case MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR:
-        break;
-    case MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR:
-        shading.use_texture = false;
-        for (std::size_t channel = 0; channel < 4; ++channel) {
-            shading.konst[channel] =
-                static_cast<float>(resolved.konst_color[channel]) / 255.0F;
-        }
-        break;
-    case MELEE_HOST_GX_SHADING_TEXTURE:
-        shading.replace = true;
-        break;
-    case MELEE_HOST_GX_SHADING_COLOR:
-        shading.use_texture = false;
-        break;
-    default:
-        shading.constant_alpha = 1.0F;
-        break;
-    }
-    return shading;
-}
-
-/* Applies one captured state.  Returns false when the state draws nothing at
- * all, which GX_CULL_ALL does. */
+/* Applies the parts of one captured state that are not in the shader.  The
+ * alpha test is: it runs on the TEV result, which only the shader has.
+ * Returns false when the state draws nothing at all, which GX_CULL_ALL
+ * does. */
 bool apply_draw_state(const MeleeHostGxDrawState& state, bool front_face_cw)
 {
     glFrontFace(front_face_cw ? GL_CW : GL_CCW);
@@ -160,15 +116,6 @@ bool apply_draw_state(const MeleeHostGxDrawState& state, bool front_face_cw)
         break;
     }
 
-    GLenum alpha_func = GL_ALWAYS;
-    GLclampf alpha_reference = 0.0F;
-    if (resolve_alpha_test(state, &alpha_func, &alpha_reference)) {
-        glEnable(GL_ALPHA_TEST);
-        glAlphaFunc(alpha_func, alpha_reference);
-    } else {
-        glDisable(GL_ALPHA_TEST);
-    }
-
     const GLboolean color = state.color_update_enable ? GL_TRUE : GL_FALSE;
     const GLboolean alpha = state.alpha_update_enable ? GL_TRUE : GL_FALSE;
     glColorMask(color, color, color, alpha);
@@ -193,11 +140,81 @@ void extend(Bounds* bounds, const MeleeHostGxPosition3f32& position)
     }
 }
 
-void configure_projection(const Bounds& bounds, int width, int height,
-                          float yaw, float pitch, float zoom)
+/* Column-major, as GL reads it. */
+using Mat4 = std::array<float, 16>;
+
+Mat4 identity()
+{
+    return { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+}
+
+Mat4 multiply(const Mat4& left, const Mat4& right)
+{
+    Mat4 result{};
+    for (std::size_t column = 0; column < 4; ++column) {
+        for (std::size_t row = 0; row < 4; ++row) {
+            float sum = 0.0F;
+            for (std::size_t k = 0; k < 4; ++k) {
+                sum += left[k * 4 + row] * right[column * 4 + k];
+            }
+            result[column * 4 + row] = sum;
+        }
+    }
+    return result;
+}
+
+Mat4 translation(float x, float y, float z)
+{
+    Mat4 result = identity();
+    result[12] = x;
+    result[13] = y;
+    result[14] = z;
+    return result;
+}
+
+Mat4 rotation_x(float degrees)
+{
+    const float radians = degrees * 3.14159265F / 180.0F;
+    Mat4 result = identity();
+    result[5] = std::cos(radians);
+    result[6] = std::sin(radians);
+    result[9] = -std::sin(radians);
+    result[10] = std::cos(radians);
+    return result;
+}
+
+Mat4 rotation_y(float degrees)
+{
+    const float radians = degrees * 3.14159265F / 180.0F;
+    Mat4 result = identity();
+    result[0] = std::cos(radians);
+    result[2] = -std::sin(radians);
+    result[8] = std::sin(radians);
+    result[10] = std::cos(radians);
+    return result;
+}
+
+Mat4 frustum(float left, float right, float bottom, float top, float near_plane,
+             float far_plane)
+{
+    Mat4 result{};
+    result[0] = 2.0F * near_plane / (right - left);
+    result[5] = 2.0F * near_plane / (top - bottom);
+    result[8] = (right + left) / (right - left);
+    result[9] = (top + bottom) / (top - bottom);
+    result[10] = -(far_plane + near_plane) / (far_plane - near_plane);
+    result[11] = -1.0F;
+    result[14] = -2.0F * far_plane * near_plane / (far_plane - near_plane);
+    return result;
+}
+
+/* An orbit camera framing the capture's bounds. */
+Mat4 preview_mvp(const Bounds& bounds, int width, int height, float yaw,
+                 float pitch, float zoom)
 {
     const float center_x = (bounds.minimum[0] + bounds.maximum[0]) * 0.5F;
     const float center_y = (bounds.minimum[1] + bounds.maximum[1]) * 0.5F;
+    const float center_z = (bounds.minimum[2] + bounds.maximum[2]) * 0.5F;
     const float extent_x = bounds.maximum[0] - bounds.minimum[0];
     const float extent_y = bounds.maximum[1] - bounds.minimum[1];
     const float extent_z = bounds.maximum[2] - bounds.minimum[2];
@@ -207,62 +224,515 @@ void configure_projection(const Bounds& bounds, int width, int height,
     const float distance = radius * 3.0F * zoom;
     const float half_height = near_plane * 0.5F;
 
-    glViewport(0, 0, width, height);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glFrustum(-half_height * aspect, half_height * aspect, -half_height,
-              half_height, near_plane, distance + radius * 4.0F);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glTranslatef(0.0F, 0.0F, -distance);
-    glRotatef(pitch, 1.0F, 0.0F, 0.0F);
-    glRotatef(yaw, 0.0F, 1.0F, 0.0F);
-    glTranslatef(-center_x, -center_y,
-                 -(bounds.minimum[2] + bounds.maximum[2]) * 0.5F);
+    const Mat4 projection =
+        frustum(-half_height * aspect, half_height * aspect, -half_height,
+                half_height, near_plane, distance + radius * 4.0F);
+    Mat4 view = translation(0.0F, 0.0F, -distance);
+    view = multiply(view, rotation_x(pitch));
+    view = multiply(view, rotation_y(yaw));
+    view = multiply(view, translation(-center_x, -center_y, -center_z));
+    return multiply(projection, view);
 }
 
-GLuint create_checker_texture()
+GLuint compile_shader(GLenum type, const std::string& source,
+                      std::string* log)
 {
-    constexpr std::array<GLubyte, 16> pixels{
-        245, 245, 245, 255,  35,  45,  85,  255,
-         35,  45,  85, 255, 245, 245, 245, 255,
+    GLuint shader = glCreateShader(type);
+    const char* text = source.c_str();
+    glShaderSource(shader, 1, &text, nullptr);
+    glCompileShader(shader);
+    GLint compiled = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (compiled != GL_TRUE) {
+        std::array<char, 4096> buffer{};
+        glGetShaderInfoLog(shader, static_cast<GLsizei>(buffer.size()),
+                           nullptr, buffer.data());
+        *log = buffer.data();
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+struct TevProgram {
+    GLuint program = 0;
+    GLint mvp = -1;
+    GLint registers = -1;
+    GLint konst = -1;
+    GLint alpha_test = -1;
+    GLint alpha_ref1 = -1;
+};
+
+/* One linked program per distinct shader source.  The source is generated from
+ * the program's structure only, so the map stays small: constants are set per
+ * draw as uniforms. */
+class ProgramCache {
+public:
+    ProgramCache()
+    {
+        std::string log;
+        vertex_shader_ = compile_shader(
+            GL_VERTEX_SHADER, melee::gx::tev_vertex_shader_source(), &log);
+        if (vertex_shader_ == 0) {
+            std::cerr << "TEV vertex shader failed: " << log << '\n';
+        }
+    }
+
+    ProgramCache(const ProgramCache&) = delete;
+    ProgramCache& operator=(const ProgramCache&) = delete;
+
+    ~ProgramCache()
+    {
+        for (const auto& entry : programs_) {
+            glDeleteProgram(entry.second.program);
+        }
+        if (vertex_shader_ != 0) {
+            glDeleteShader(vertex_shader_);
+        }
+    }
+
+    const TevProgram* get(const MeleeHostGxTevState& tev)
+    {
+        std::string source = melee::gx::tev_fragment_shader_source(tev);
+        const auto found = programs_.find(source);
+        if (found != programs_.end()) {
+            return &found->second;
+        }
+        if (vertex_shader_ == 0 || failures_.contains(source)) {
+            return nullptr;
+        }
+        std::string log;
+        const GLuint fragment =
+            compile_shader(GL_FRAGMENT_SHADER, source, &log);
+        if (fragment == 0) {
+            std::cerr << "TEV fragment shader failed: " << log << '\n'
+                      << source << '\n';
+            failures_.insert(std::move(source));
+            return nullptr;
+        }
+        TevProgram program;
+        program.program = glCreateProgram();
+        glAttachShader(program.program, vertex_shader_);
+        glAttachShader(program.program, fragment);
+        glLinkProgram(program.program);
+        glDeleteShader(fragment);
+        GLint linked = GL_FALSE;
+        glGetProgramiv(program.program, GL_LINK_STATUS, &linked);
+        if (linked != GL_TRUE) {
+            std::array<char, 4096> buffer{};
+            glGetProgramInfoLog(program.program,
+                                static_cast<GLsizei>(buffer.size()), nullptr,
+                                buffer.data());
+            std::cerr << "TEV program link failed: " << buffer.data() << '\n';
+            glDeleteProgram(program.program);
+            failures_.insert(std::move(source));
+            return nullptr;
+        }
+        program.mvp = glGetUniformLocation(program.program, "u_mvp");
+        program.registers = glGetUniformLocation(program.program, "u_register");
+        program.konst = glGetUniformLocation(program.program, "u_konst");
+        program.alpha_test =
+            glGetUniformLocation(program.program, "u_alpha_test");
+        program.alpha_ref1 =
+            glGetUniformLocation(program.program, "u_alpha_ref1");
+        glUseProgram(program.program);
+        const GLint samplers = glGetUniformLocation(program.program,
+                                                    "u_texmap");
+        const std::array<GLint, MELEE_HOST_GX_MAX_TEXMAP> units{ 0, 1, 2, 3,
+                                                                 4, 5, 6, 7 };
+        if (samplers >= 0) {
+            glUniform1iv(samplers, static_cast<GLsizei>(units.size()),
+                         units.data());
+        }
+        return &programs_.emplace(std::move(source), program).first->second;
+    }
+
+private:
+    GLuint vertex_shader_ = 0;
+    std::map<std::string, TevProgram> programs_;
+    std::set<std::string> failures_;
+};
+
+void set_program_uniforms(const TevProgram& program, const Mat4& mvp,
+                          const MeleeHostGxTevState& tev,
+                          const MeleeHostGxDrawState& state)
+{
+    glUseProgram(program.program);
+    glUniformMatrix4fv(program.mvp, 1, GL_FALSE, mvp.data());
+    std::array<GLint, 16> registers{};
+    std::array<GLint, 16> konst{};
+    for (std::size_t index = 0; index < 4; ++index) {
+        for (std::size_t channel = 0; channel < 4; ++channel) {
+            registers[index * 4 + channel] = tev.registers[index][channel];
+            konst[index * 4 + channel] = tev.konst_colors[index][channel];
+        }
+    }
+    glUniform4iv(program.registers, 4, registers.data());
+    glUniform4iv(program.konst, 4, konst.data());
+    glUniform4i(program.alpha_test,
+                static_cast<GLint>(state.alpha_compare_0),
+                static_cast<GLint>(state.alpha_ref_0),
+                static_cast<GLint>(state.alpha_op),
+                static_cast<GLint>(state.alpha_compare_1));
+    glUniform1i(program.alpha_ref1, static_cast<GLint>(state.alpha_ref_1));
+}
+
+/* position, COLOR0A0, COLOR1A1, then eight s/t/q texture coordinates. */
+constexpr std::size_t kFloatsPerVertex = 3 + 4 + 4 + 3 * 8;
+
+/* Vertex layout shared by the preview and the conformance runner. */
+void bind_vertex_layout()
+{
+    static constexpr GLsizei kStride =
+        static_cast<GLsizei>(kFloatsPerVertex * sizeof(float));
+    const auto pointer = [](GLuint location, GLint size, std::size_t offset) {
+        glEnableVertexAttribArray(location);
+        glVertexAttribPointer(location, size, GL_FLOAT, GL_FALSE, kStride,
+                              reinterpret_cast<const void*>(
+                                  offset * sizeof(float)));
     };
+    pointer(0, 3, 0);
+    pointer(1, 4, 3);
+    pointer(2, 4, 7);
+    for (GLuint coord = 0; coord < MELEE_HOST_GX_MAX_TEXCOORD; ++coord) {
+        pointer(3 + coord, 3, 11 + 3 * static_cast<std::size_t>(coord));
+    }
+}
+
+void append_vertex(std::vector<float>* out,
+                   const MeleeHostGxCapturedVertex& vertex)
+{
+    out->push_back(vertex.position.x);
+    out->push_back(vertex.position.y);
+    out->push_back(vertex.position.z);
+    for (std::size_t channel = 0; channel < 2; ++channel) {
+        for (std::size_t component = 0; component < 4; ++component) {
+            out->push_back(
+                static_cast<float>(vertex.raster_color[channel][component]) /
+                255.0F);
+        }
+    }
+    for (const auto& coord : vertex.texgen) {
+        out->push_back(coord[0]);
+        out->push_back(coord[1]);
+        out->push_back(coord[2]);
+    }
+}
+
+/* A run of consecutive triangles sharing pixel state, TEV program and texture
+ * set, which is what one GL draw call can cover. */
+struct DrawRun {
+    mh_u32 draw_state = 0;
+    mh_u32 tev_state = 0;
+    mh_u32 texture_set = 0;
+    GLint first = 0;
+    GLsizei count = 0;
+    bool blended = false;
+};
+
+struct Capture {
+    std::vector<float> vertices;
+    std::vector<DrawRun> runs;
+    Bounds bounds;
+};
+
+/* Reads the capture in draw order.  Runs that blend move behind the ones that
+ * do not, keeping their relative order, so opaque geometry has written depth
+ * before a translucent run reads it; the original render passes already draw
+ * that way, and this keeps a capture that interleaves them readable. */
+Capture read_capture()
+{
+    Capture capture;
+    const std::size_t triangle_count = melee_host_gx_triangle_count();
+    capture.vertices.reserve(triangle_count * 3 * kFloatsPerVertex);
+    std::vector<DrawRun> runs;
+    for (std::size_t index = 0; index < triangle_count; ++index) {
+        MeleeHostGxCapturedTriangle triangle{};
+        if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
+            continue;
+        }
+        const MeleeHostGxCapturedVertex& lead = triangle.vertices[0];
+        const auto first =
+            static_cast<GLint>(capture.vertices.size() / kFloatsPerVertex);
+        for (const auto& vertex : triangle.vertices) {
+            extend(&capture.bounds, vertex.position);
+            append_vertex(&capture.vertices, vertex);
+        }
+        if (!runs.empty() && runs.back().draw_state == lead.draw_state &&
+            runs.back().tev_state == lead.tev_state &&
+            runs.back().texture_set == lead.texture_set)
+        {
+            runs.back().count += 3;
+            continue;
+        }
+        DrawRun run;
+        run.draw_state = lead.draw_state;
+        run.tev_state = lead.tev_state;
+        run.texture_set = lead.texture_set;
+        run.first = first;
+        run.count = 3;
+        MeleeHostGxDrawState state{};
+        run.blended = melee_host_gx_captured_draw_state_at(lead.draw_state,
+                                                           &state) &&
+                      is_blended(state);
+        runs.push_back(run);
+    }
+    std::stable_partition(runs.begin(), runs.end(),
+                          [](const DrawRun& run) { return !run.blended; });
+    capture.runs = std::move(runs);
+    return capture;
+}
+
+GLuint create_texture(const TextureImage& image)
+{
     GLuint texture = 0;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, pixels.data());
+    const GLint filter = image.linear_filter ? GL_LINEAR : GL_NEAREST;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    const auto wrap = [](std::uint32_t mode) {
+        return mode == 1 ? GL_REPEAT
+               : mode == 2 ? GL_MIRRORED_REPEAT
+                           : GL_CLAMP_TO_EDGE;
+    };
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap(image.wrap_s));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap(image.wrap_t));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
     return texture;
 }
 
-/* A neutral texture for a material that names none: modulating by white
- * leaves the colour the program computed untouched. */
-GLuint create_white_texture()
+/* Renders every run of the capture with the current framebuffer bound. */
+void draw_capture(const Capture& capture, ProgramCache* programs,
+                  const std::vector<GLuint>& textures, GLuint white_texture,
+                  const Mat4& mvp, bool front_face_cw)
 {
-    constexpr std::array<GLubyte, 4> pixels{ 255, 255, 255, 255 };
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, pixels.data());
-    return texture;
+    for (const DrawRun& run : capture.runs) {
+        MeleeHostGxDrawState state{};
+        MeleeHostGxTevState tev{};
+        if (!melee_host_gx_captured_draw_state_at(run.draw_state, &state) ||
+            !melee_host_gx_captured_tev_state_at(run.tev_state, &tev) ||
+            !apply_draw_state(state, front_face_cw))
+        {
+            continue;
+        }
+        const TevProgram* const program = programs->get(tev);
+        if (program == nullptr) {
+            continue;
+        }
+        set_program_uniforms(*program, mvp, tev, state);
+        std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP> set{};
+        set.fill(MELEE_HOST_GX_NO_TEXTURE);
+        melee_host_gx_captured_texture_set_at(run.texture_set, set.data());
+        for (std::size_t map = 0; map < set.size(); ++map) {
+            glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + map));
+            glBindTexture(GL_TEXTURE_2D, set[map] < textures.size()
+                                             ? textures[set[map]]
+                                             : white_texture);
+        }
+        glDrawArrays(GL_TRIANGLES, run.first, run.count);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
-GLint wrap_mode(std::uint32_t mode)
+struct GlWindow {
+    SDL_Window* window = nullptr;
+    SDL_GLContext context = nullptr;
+};
+
+bool open_gl_window(bool hidden, GlWindow* out, std::string* error)
 {
-    if (mode == 1) {
-        return GL_REPEAT;
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+        *error = SDL_GetError();
+        return false;
     }
-    if (mode == 2) {
-        return GL_MIRRORED_REPEAT;
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                        SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+    if (hidden) {
+        flags |= SDL_WINDOW_HIDDEN;
     }
-    return GL_CLAMP_TO_EDGE;
+    out->window = SDL_CreateWindow(
+        "Melee PC — preview: setas/analógico direito movem a câmera; Back/Esc sai",
+        960, 720, flags);
+    if (out->window == nullptr) {
+        *error = SDL_GetError();
+        SDL_Quit();
+        return false;
+    }
+    out->context = SDL_GL_CreateContext(out->window);
+    if (out->context == nullptr) {
+        *error = SDL_GetError();
+        SDL_DestroyWindow(out->window);
+        SDL_Quit();
+        return false;
+    }
+    return true;
+}
+
+void close_gl_window(GlWindow* window)
+{
+    SDL_GL_DestroyContext(window->context);
+    SDL_DestroyWindow(window->window);
+    SDL_Quit();
+}
+
+/* A colour and depth target of the given size, for rendering without a
+ * visible window. */
+struct OffscreenTarget {
+    GLuint framebuffer = 0;
+    GLuint color = 0;
+    GLuint depth = 0;
+
+    OffscreenTarget(GLsizei width, GLsizei height)
+    {
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glGenRenderbuffers(1, &color);
+        glBindRenderbuffer(GL_RENDERBUFFER, color);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                  GL_RENDERBUFFER, color);
+        glGenRenderbuffers(1, &depth);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width,
+                              height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, depth);
+    }
+
+    OffscreenTarget(const OffscreenTarget&) = delete;
+    OffscreenTarget& operator=(const OffscreenTarget&) = delete;
+
+    ~OffscreenTarget()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteRenderbuffers(1, &depth);
+        glDeleteRenderbuffers(1, &color);
+        glDeleteFramebuffers(1, &framebuffer);
+    }
+
+    [[nodiscard]] bool complete() const
+    {
+        return glCheckFramebufferStatus(GL_FRAMEBUFFER) ==
+               GL_FRAMEBUFFER_COMPLETE;
+    }
+};
+
+bool save_framebuffer_bmp(const char* path, int width, int height,
+                          std::string* error)
+{
+    const auto row_bytes = static_cast<std::size_t>(width) * 4U;
+    std::vector<std::uint8_t> pixels(row_bytes *
+                                     static_cast<std::size_t>(height));
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE,
+                 pixels.data());
+    /* GL reads bottom-up; an image file is top-down. */
+    std::vector<std::uint8_t> flipped(pixels.size());
+    for (int row = 0; row < height; ++row) {
+        const auto source = static_cast<std::size_t>(height - 1 - row) *
+                            row_bytes;
+        std::copy_n(pixels.begin() + static_cast<std::ptrdiff_t>(source),
+                    row_bytes,
+                    flipped.begin() + static_cast<std::ptrdiff_t>(
+                                          static_cast<std::size_t>(row) *
+                                          row_bytes));
+    }
+    SDL_Surface* const surface =
+        SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32,
+                              flipped.data(), static_cast<int>(row_bytes));
+    if (surface == nullptr) {
+        *error = SDL_GetError();
+        return false;
+    }
+    const bool saved = SDL_SaveBMP(surface, path);
+    if (!saved) {
+        *error = SDL_GetError();
+    }
+    SDL_DestroySurface(surface);
+    return saved;
+}
+
+MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
+                           float* zoom, bool* running)
+{
+    const bool* const keys = SDL_GetKeyboardState(nullptr);
+    const auto axis = [](bool negative, bool positive) {
+        return static_cast<mh_s8>((positive ? 127 : 0) - (negative ? 127 : 0));
+    };
+    MeleeHostPadState pad{
+        .buttons = static_cast<mh_u16>(
+            (keys[SDL_SCANCODE_J] ? PAD_BUTTON_A : 0) |
+            (keys[SDL_SCANCODE_K] ? PAD_BUTTON_B : 0) |
+            (keys[SDL_SCANCODE_U] ? PAD_BUTTON_X : 0) |
+            (keys[SDL_SCANCODE_I] ? PAD_BUTTON_Y : 0) |
+            (keys[SDL_SCANCODE_Q] ? PAD_TRIGGER_Z : 0) |
+            (keys[SDL_SCANCODE_RETURN] ? PAD_BUTTON_START : 0)),
+        .stick_x = axis(keys[SDL_SCANCODE_A], keys[SDL_SCANCODE_D]),
+        .stick_y = axis(keys[SDL_SCANCODE_S], keys[SDL_SCANCODE_W]),
+        .c_stick_x = axis(keys[SDL_SCANCODE_LEFT], keys[SDL_SCANCODE_RIGHT]),
+        .c_stick_y = axis(keys[SDL_SCANCODE_DOWN], keys[SDL_SCANCODE_UP]),
+        .trigger_left = static_cast<mh_u8>(keys[SDL_SCANCODE_H] ? 255U : 0U),
+        .trigger_right = static_cast<mh_u8>(keys[SDL_SCANCODE_L] ? 255U : 0U),
+        .connected = true,
+    };
+    if (gamepad == nullptr) {
+        return pad;
+    }
+    const auto gamepad_axis = [](Sint16 value) {
+        return static_cast<mh_s8>(static_cast<int>(value) / 258);
+    };
+    const auto gamepad_trigger = [](Sint16 value) {
+        return static_cast<mh_u8>(
+            std::clamp(static_cast<int>(value) / 128, 0, 255));
+    };
+    const auto button = [gamepad](SDL_GamepadButton which, int bit) {
+        return SDL_GetGamepadButton(gamepad, which) ? bit : 0;
+    };
+    pad.buttons = static_cast<mh_u16>(
+        button(SDL_GAMEPAD_BUTTON_SOUTH, PAD_BUTTON_A) |
+        button(SDL_GAMEPAD_BUTTON_EAST, PAD_BUTTON_B) |
+        button(SDL_GAMEPAD_BUTTON_WEST, PAD_BUTTON_X) |
+        button(SDL_GAMEPAD_BUTTON_NORTH, PAD_BUTTON_Y) |
+        button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_Z) |
+        button(SDL_GAMEPAD_BUTTON_START, PAD_BUTTON_START));
+    pad.stick_x =
+        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX));
+    pad.stick_y =
+        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY));
+    pad.c_stick_x =
+        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX));
+    pad.c_stick_y =
+        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY));
+    pad.trigger_left = gamepad_trigger(
+        SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
+    pad.trigger_right = gamepad_trigger(
+        SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+
+    /* The preview has no gameplay loop yet, so the C-stick and triggers also
+     * move the camera while the complete PAD state still reaches the host. */
+    *yaw += static_cast<float>(pad.c_stick_x) / 127.0F * 2.5F;
+    *pitch = std::clamp(
+        *pitch - static_cast<float>(pad.c_stick_y) / 127.0F * 2.5F, -89.0F,
+        89.0F);
+    const float zoom_axis = static_cast<float>(pad.trigger_right) -
+                            static_cast<float>(pad.trigger_left);
+    *zoom = std::clamp(*zoom * (1.0F - zoom_axis / 8192.0F), 0.1F, 100.0F);
+    if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK)) {
+        *running = false;
+    }
+    return pad;
 }
 
 } // namespace
@@ -270,39 +740,22 @@ GLint wrap_mode(std::uint32_t mode)
 bool show_captured_geometry(MeleeHostContext* context, std::string* error,
                             FrameCallback on_frame, void* user_data)
 {
-    const std::size_t triangle_count = melee_host_gx_triangle_count();
-    if (triangle_count == 0) {
-        if (error != nullptr) {
-            *error = "there is no captured geometry to draw";
-        }
+    std::string ignored;
+    std::string& message = error != nullptr ? *error : ignored;
+    if (melee_host_gx_triangle_count() == 0) {
+        message = "there is no captured geometry to draw";
         return false;
     }
-    if (context == nullptr || !SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
-        if (error != nullptr) {
-            *error = SDL_GetError();
-        }
+    if (context == nullptr) {
+        message = "no host context";
         return false;
     }
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                        SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-    SDL_Window* window = SDL_CreateWindow(
-        "Melee PC — preview: setas/analógico direito movem a câmera; Back/Esc sai",
-        960, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
-    if (window == nullptr) {
-        if (error != nullptr) {
-            *error = SDL_GetError();
-        }
-        SDL_Quit();
-        return false;
-    }
-    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    if (gl_context == nullptr) {
-        if (error != nullptr) {
-            *error = SDL_GetError();
-        }
-        SDL_DestroyWindow(window);
-        SDL_Quit();
+    const char* const screenshot_path = std::getenv("MELEE_HOST_SCREENSHOT");
+    const bool screenshot =
+        screenshot_path != nullptr && screenshot_path[0] != '\0';
+
+    GlWindow window;
+    if (!open_gl_window(screenshot, &window, &message)) {
         return false;
     }
     SDL_GL_SetSwapInterval(1);
@@ -311,350 +764,349 @@ bool show_captured_geometry(MeleeHostContext* context, std::string* error,
     SDL_Gamepad* gamepad =
         gamepad_count > 0 ? SDL_OpenGamepad(gamepad_ids[0]) : nullptr;
     SDL_free(gamepad_ids);
-    const GLuint checker_texture = create_checker_texture();
-    const GLuint white_texture = create_white_texture();
+
+    constexpr std::array<std::uint8_t, 4> kWhite{ 255, 255, 255, 255 };
+    const GLuint white_texture = create_texture(
+        { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false });
     std::vector<GLuint> textures;
     textures.reserve(texture_images.size());
     for (const auto& image : texture_images) {
-        GLuint texture = 0;
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_mode(image.wrap_s));
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_mode(image.wrap_t));
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
-                     GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
-        textures.push_back(texture);
+        textures.push_back(create_texture(image));
     }
 
-    Bounds bounds;
-    for (std::size_t index = 0; index < triangle_count; ++index) {
-        MeleeHostGxCapturedTriangle triangle{};
-        if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
-            continue;
-        }
-        for (const auto& vertex : triangle.vertices) {
-            extend(&bounds, vertex.position);
-        }
-    }
+    bool shown = true;
+    {
+        ProgramCache programs;
+        GLuint vertex_array = 0;
+        GLuint vertex_buffer = 0;
+        glGenVertexArrays(1, &vertex_array);
+        glBindVertexArray(vertex_array);
+        glGenBuffers(1, &vertex_buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+        bind_vertex_layout();
 
-    /* Draw order between states: everything that does not blend first, so the
-     * opaque geometry has written depth before a blended group reads it.  This
-     * is the ordering the original render passes imply, derived from the state
-     * each draw actually ran under rather than assumed. */
-    /* A group is one pixel state paired with one material program, because a
-     * triangle needs both to be drawn the way it was captured. */
-    struct Group {
-        mh_u32 draw_state;
-        mh_u32 tev_state;
-    };
-    const auto collect_groups = [](std::size_t count) {
-        std::vector<Group> groups;
-    for (int blended = 0; blended < 2; ++blended) {
-        for (std::size_t index = 0; index < count; ++index) {
-            MeleeHostGxCapturedTriangle triangle{};
-            if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
-                continue;
-            }
-            const mh_u32 draw_id = triangle.vertices[0].draw_state;
-            const mh_u32 tev_id = triangle.vertices[0].tev_state;
-            MeleeHostGxDrawState state{};
-            if (!melee_host_gx_captured_draw_state_at(draw_id, &state)) {
-                continue;
-            }
-            const bool is_blended =
-                state.blend_mode == 1 || state.blend_mode == 3;
-            if (is_blended != (blended != 0)) {
-                continue;
-            }
-            const bool known =
-                std::any_of(groups.begin(), groups.end(),
-                            [&](const Group& group) {
-                                return group.draw_state == draw_id &&
-                                       group.tev_state == tev_id;
-                            });
-            if (!known) {
-                groups.push_back({ draw_id, tev_id });
-            }
-        }
-    }
-        return groups;
-    };
-    std::vector<Group> groups = collect_groups(triangle_count);
-    std::size_t frame_triangles = triangle_count;
-
-    bool running = true;
-    /* GX treats a clockwise winding as the front face.  The viewer starts
-     * there and can flip it, because a model that looks inside out is the
-     * clearest evidence the assumption is wrong for a given asset. */
-    bool front_face_cw = true;
-    float yaw = 20.0F;
-    float pitch = -20.0F;
-    float zoom = 1.0F;
-    while (running) {
-        SDL_Event event{};
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_GAMEPAD_ADDED &&
-                       gamepad == nullptr)
-            {
-                gamepad = SDL_OpenGamepad(event.gdevice.which);
-            } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED &&
-                       gamepad != nullptr &&
-                       SDL_GetGamepadID(gamepad) == event.gdevice.which)
-            {
-                SDL_CloseGamepad(gamepad);
-                gamepad = nullptr;
-            } else if (event.type == SDL_EVENT_KEY_DOWN) {
-                switch (event.key.scancode) {
-                case SDL_SCANCODE_ESCAPE:
-                    running = false;
-                    break;
-                case SDL_SCANCODE_LEFT:
-                    yaw -= 5.0F;
-                    break;
-                case SDL_SCANCODE_RIGHT:
-                    yaw += 5.0F;
-                    break;
-                case SDL_SCANCODE_UP:
-                    pitch = std::min(pitch + 5.0F, 89.0F);
-                    break;
-                case SDL_SCANCODE_DOWN:
-                    pitch = std::max(pitch - 5.0F, -89.0F);
-                    break;
-                case SDL_SCANCODE_PAGEUP:
-                    zoom = std::max(zoom * 0.9F, 0.1F);
-                    break;
-                case SDL_SCANCODE_PAGEDOWN:
-                    zoom = std::min(zoom * 1.1F, 100.0F);
-                    break;
-                case SDL_SCANCODE_F:
-                    front_face_cw = !front_face_cw;
-                    break;
-                default:
-                    break;
-                }
-            }
-        }
-        const bool* const keys = SDL_GetKeyboardState(nullptr);
-        const auto axis = [](bool negative, bool positive) {
-            return static_cast<mh_s8>((positive ? 127 : 0) -
-                                      (negative ? 127 : 0));
+        Capture capture;
+        const auto upload = [&capture]() {
+            capture = read_capture();
+            glBufferData(GL_ARRAY_BUFFER,
+                         static_cast<GLsizeiptr>(capture.vertices.size() *
+                                                 sizeof(float)),
+                         capture.vertices.data(), GL_DYNAMIC_DRAW);
         };
-        MeleeHostPadState pad{
-            .buttons = static_cast<mh_u16>(
-                (keys[SDL_SCANCODE_J] ? PAD_BUTTON_A : 0) |
-                (keys[SDL_SCANCODE_K] ? PAD_BUTTON_B : 0) |
-                (keys[SDL_SCANCODE_U] ? PAD_BUTTON_X : 0) |
-                (keys[SDL_SCANCODE_I] ? PAD_BUTTON_Y : 0) |
-                (keys[SDL_SCANCODE_Q] ? PAD_TRIGGER_Z : 0) |
-                (keys[SDL_SCANCODE_RETURN] ? PAD_BUTTON_START : 0)),
-            .stick_x = axis(keys[SDL_SCANCODE_A], keys[SDL_SCANCODE_D]),
-            .stick_y = axis(keys[SDL_SCANCODE_S], keys[SDL_SCANCODE_W]),
-            .c_stick_x = axis(keys[SDL_SCANCODE_LEFT], keys[SDL_SCANCODE_RIGHT]),
-            .c_stick_y = axis(keys[SDL_SCANCODE_DOWN], keys[SDL_SCANCODE_UP]),
-            .trigger_left = static_cast<mh_u8>(
-                keys[SDL_SCANCODE_H] ? 255U : 0U),
-            .trigger_right = static_cast<mh_u8>(
-                keys[SDL_SCANCODE_L] ? 255U : 0U),
-            .connected = true,
-        };
-        if (gamepad != nullptr) {
-            const auto gamepad_axis = [](Sint16 value) {
-                return static_cast<mh_s8>(static_cast<int>(value) / 258);
-            };
-            const auto gamepad_trigger = [](Sint16 value) {
-                return static_cast<mh_u8>(std::clamp(static_cast<int>(value) / 128,
-                                                      0, 255));
-            };
-            pad.buttons = static_cast<mh_u16>(
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH)
-                     ? PAD_BUTTON_A
-                     : 0) |
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST)
-                     ? PAD_BUTTON_B
-                     : 0) |
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_WEST)
-                     ? PAD_BUTTON_X
-                     : 0) |
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_NORTH)
-                     ? PAD_BUTTON_Y
-                     : 0) |
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)
-                     ? PAD_TRIGGER_Z
-                     : 0) |
-                (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_START)
-                     ? PAD_BUTTON_START
-                     : 0));
-            pad.stick_x = gamepad_axis(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX));
-            pad.stick_y = gamepad_axis(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY));
-            pad.c_stick_x = gamepad_axis(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX));
-            pad.c_stick_y = gamepad_axis(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY));
-            pad.trigger_left = gamepad_trigger(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
-            pad.trigger_right = gamepad_trigger(
-                SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+        upload();
+        /* The camera frames the first capture and stays put, so an animation
+         * moves inside the frame instead of the frame chasing it. */
+        const Bounds framing = capture.bounds;
 
-            /* The preview has no gameplay loop yet, so use the C-stick and
-             * triggers as visible camera controls while continuing to submit
-             * the complete PAD state to the host. */
-            const float camera_x = static_cast<float>(pad.c_stick_x) / 127.0F;
-            const float camera_y = static_cast<float>(pad.c_stick_y) / 127.0F;
-            yaw += camera_x * 2.5F;
-            pitch = std::clamp(pitch - camera_y * 2.5F, -89.0F, 89.0F);
-            const float zoom_axis =
-                static_cast<float>(pad.trigger_right) -
-                static_cast<float>(pad.trigger_left);
-            zoom = std::clamp(zoom * (1.0F - zoom_axis / 8192.0F), 0.1F,
-                              100.0F);
-            if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK)) {
-                running = false;
-            }
-        }
-        if (melee_host_submit_pad_state(context, 0, &pad) != MELEE_HOST_OK) {
-            if (error != nullptr) {
-                *error = "could not submit SDL input";
+        bool running = true;
+        /* GX treats a clockwise winding as the front face.  The viewer starts
+         * there and can flip it, because a model that looks inside out is the
+         * clearest evidence the assumption is wrong for a given asset. */
+        bool front_face_cw = true;
+        float yaw = 20.0F;
+        float pitch = -20.0F;
+        float zoom = 1.0F;
+        const auto render_into = [&](int width, int height) {
+            glViewport(0, 0, width, height);
+            glClearColor(0.035F, 0.045F, 0.08F, 1.0F);
+            glDepthMask(GL_TRUE);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            draw_capture(capture, &programs, textures, white_texture,
+                         preview_mvp(framing, width, height, yaw, pitch, zoom),
+                         front_face_cw);
+        };
+
+        if (screenshot) {
+            constexpr int kWidth = 960;
+            constexpr int kHeight = 720;
+            OffscreenTarget target(kWidth, kHeight);
+            if (!target.complete()) {
+                message = "offscreen framebuffer is incomplete";
+                shown = false;
+            } else {
+                render_into(kWidth, kHeight);
+                shown = save_framebuffer_bmp(screenshot_path, kWidth, kHeight,
+                                             &message);
             }
             running = false;
         }
-        static_cast<void>(melee_host_step(context));
-        if (on_frame != nullptr) {
-            /* The viewer advances the animation and captures again here, so
-             * the geometry read below is this frame's, not the first one's. */
-            on_frame(user_data);
-            const std::size_t captured = melee_host_gx_triangle_count();
-            if (captured != frame_triangles) {
-                groups = collect_groups(captured);
-                frame_triangles = captured;
-            }
-        }
-        int width = 0;
-        int height = 0;
-        SDL_GetWindowSizeInPixels(window, &width, &height);
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-        configure_projection(bounds, width, height, yaw, pitch, zoom);
-        glClearColor(0.035F, 0.045F, 0.08F, 1.0F);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_TEXTURE_2D);
-        glBindTexture(GL_TEXTURE_2D, checker_texture);
-        /* One group per captured state, blended groups last so the opaque
-         * geometry has already written depth.  The order within a group is the
-         * order the draws happened in. */
-        for (const Group& group : groups) {
-            MeleeHostGxDrawState state{};
-            if (!melee_host_gx_captured_draw_state_at(group.draw_state,
-                                                      &state)) {
-                continue;
-            }
-            if (!apply_draw_state(state, front_face_cw)) {
-                continue;
-            }
-            MeleeHostGxTevState tev{};
-            const Shading shading =
-                melee_host_gx_captured_tev_state_at(group.tev_state, &tev)
-                    ? resolve_shading(tev)
-                    : Shading{};
-            /* GX_COLOR1 and GX_COLOR1A1 select the second independently
-             * rasterized channel.  The first channel is the normal default;
-             * when a draw configured no channels at all, retain the legacy
-             * source-colour preview instead of turning it black. */
-            const std::size_t raster_channel =
-                tev.stages[0].color_channel == 1U ||
-                        tev.stages[0].color_channel == 5U
-                    ? 1U
-                    : 0U;
-            const bool use_raster_color = tev.channel_count > raster_channel;
-            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE,
-                      shading.replace ? GL_REPLACE : GL_MODULATE);
-            for (std::size_t index = 0; index < frame_triangles; ++index) {
-                MeleeHostGxCapturedTriangle triangle{};
-                if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
-                    continue;
-                }
-                if (triangle.vertices[0].draw_state != group.draw_state ||
-                    triangle.vertices[0].tev_state != group.tev_state)
+
+        while (running) {
+            SDL_Event event{};
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_EVENT_QUIT) {
+                    running = false;
+                } else if (event.type == SDL_EVENT_GAMEPAD_ADDED &&
+                           gamepad == nullptr)
                 {
-                    continue;
-                }
-                glBegin(GL_TRIANGLES);
-                for (const auto& vertex : triangle.vertices) {
-                    float red = 0.85F;
-                    float green = 0.85F;
-                    float blue = 0.9F;
-                    float alpha = 1.0F;
-                    if (use_raster_color) {
-                        red = static_cast<float>(
-                                  vertex.raster_color[raster_channel][0]) /
-                              255.0F;
-                        green = static_cast<float>(
-                                    vertex.raster_color[raster_channel][1]) /
-                                255.0F;
-                        blue = static_cast<float>(
-                                   vertex.raster_color[raster_channel][2]) /
-                               255.0F;
-                        alpha = static_cast<float>(
-                                    vertex.raster_color[raster_channel][3]) /
-                                255.0F;
-                    } else if ((vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0) {
-                        red = static_cast<float>(vertex.color[0]) / 255.0F;
-                        green = static_cast<float>(vertex.color[1]) / 255.0F;
-                        blue = static_cast<float>(vertex.color[2]) / 255.0F;
-                        alpha = static_cast<float>(vertex.color[3]) / 255.0F;
+                    gamepad = SDL_OpenGamepad(event.gdevice.which);
+                } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED &&
+                           gamepad != nullptr &&
+                           SDL_GetGamepadID(gamepad) == event.gdevice.which)
+                {
+                    SDL_CloseGamepad(gamepad);
+                    gamepad = nullptr;
+                } else if (event.type == SDL_EVENT_KEY_DOWN) {
+                    switch (event.key.scancode) {
+                    case SDL_SCANCODE_ESCAPE:
+                        running = false;
+                        break;
+                    case SDL_SCANCODE_LEFT:
+                        yaw -= 5.0F;
+                        break;
+                    case SDL_SCANCODE_RIGHT:
+                        yaw += 5.0F;
+                        break;
+                    case SDL_SCANCODE_UP:
+                        pitch = std::min(pitch + 5.0F, 89.0F);
+                        break;
+                    case SDL_SCANCODE_DOWN:
+                        pitch = std::max(pitch - 5.0F, -89.0F);
+                        break;
+                    case SDL_SCANCODE_PAGEUP:
+                        zoom = std::max(zoom * 0.9F, 0.1F);
+                        break;
+                    case SDL_SCANCODE_PAGEDOWN:
+                        zoom = std::min(zoom * 1.1F, 100.0F);
+                        break;
+                    case SDL_SCANCODE_F:
+                        front_face_cw = !front_face_cw;
+                        break;
+                    default:
+                        break;
                     }
-                    /* The material's own constant colour and alpha, which the
-                     * TEV program multiplies in. */
-                    glColor4f(red * shading.konst[0], green * shading.konst[1],
-                              blue * shading.konst[2],
-                              alpha * shading.konst[3] *
-                                  shading.constant_alpha);
-                    const bool has_texture =
-                        shading.use_texture &&
-                        (vertex.attributes &
-                         MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE) != 0 &&
-                        vertex.texture_image < textures.size();
-                    glBindTexture(GL_TEXTURE_2D,
-                                  has_texture
-                                      ? textures[vertex.texture_image]
-                                      : (shading.use_texture ? checker_texture
-                                                             : white_texture));
-                    if ((vertex.attributes & MELEE_HOST_GX_VERTEX_TEXCOORD) != 0) {
-                        glTexCoord2f(vertex.texcoord[0], vertex.texcoord[1]);
-                    } else {
-                        glTexCoord2f(0.0F, 0.0F);
-                    }
-                    glVertex3f(vertex.position.x, vertex.position.y,
-                               vertex.position.z);
                 }
-                glEnd();
             }
+            const MeleeHostPadState pad =
+                read_pad(gamepad, &yaw, &pitch, &zoom, &running);
+            if (melee_host_submit_pad_state(context, 0, &pad) !=
+                MELEE_HOST_OK) {
+                message = "could not submit SDL input";
+                running = false;
+            }
+            static_cast<void>(melee_host_step(context));
+            if (on_frame != nullptr) {
+                /* The viewer advances the animation and captures again here,
+                 * so the geometry drawn below is this frame's. */
+                on_frame(user_data);
+                upload();
+            }
+            int width = 0;
+            int height = 0;
+            SDL_GetWindowSizeInPixels(window.window, &width, &height);
+            if (width <= 0 || height <= 0) {
+                continue;
+            }
+            render_into(width, height);
+            SDL_GL_SwapWindow(window.window);
         }
-        glDepthMask(GL_TRUE);
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_ALPHA_TEST);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        SDL_GL_SwapWindow(window);
+
+        glDeleteBuffers(1, &vertex_buffer);
+        glDeleteVertexArrays(1, &vertex_array);
     }
 
-    glDeleteTextures(1, &checker_texture);
     glDeleteTextures(1, &white_texture);
     if (!textures.empty()) {
-        glDeleteTextures(static_cast<GLsizei>(textures.size()), textures.data());
+        glDeleteTextures(static_cast<GLsizei>(textures.size()),
+                         textures.data());
     }
-    SDL_GL_DestroyContext(gl_context);
     if (gamepad != nullptr) {
         SDL_CloseGamepad(gamepad);
     }
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return true;
+    close_gl_window(&window);
+    return shown;
+}
+
+bool run_tev_conformance(std::size_t cases_per_program,
+                         TevConformanceReport* report, std::string* error)
+{
+    std::string ignored;
+    std::string& message = error != nullptr ? *error : ignored;
+    TevConformanceReport result;
+
+    /* The pairs the capture actually drew, since the alpha test belongs to
+     * the pixel state and the colour to the program. */
+    std::set<std::pair<mh_u32, mh_u32>> pairs;
+    const std::size_t triangle_count = melee_host_gx_triangle_count();
+    for (std::size_t index = 0; index < triangle_count; ++index) {
+        MeleeHostGxCapturedTriangle triangle{};
+        if (melee_host_gx_captured_triangle_at(index, &triangle)) {
+            pairs.emplace(triangle.vertices[0].tev_state,
+                          triangle.vertices[0].draw_state);
+        }
+    }
+    if (pairs.empty()) {
+        message = "there is no captured geometry to check";
+        return false;
+    }
+
+    GlWindow window;
+    if (!open_gl_window(true, &window, &message)) {
+        return false;
+    }
+    bool ok = true;
+    {
+        ProgramCache programs;
+        OffscreenTarget target(1, 1);
+        if (!target.complete()) {
+            message = "offscreen framebuffer is incomplete";
+            ok = false;
+        }
+        GLuint vertex_array = 0;
+        GLuint vertex_buffer = 0;
+        glGenVertexArrays(1, &vertex_array);
+        glBindVertexArray(vertex_array);
+        glGenBuffers(1, &vertex_buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+        bind_vertex_layout();
+        std::array<GLuint, MELEE_HOST_GX_MAX_TEXMAP> textures{};
+        glGenTextures(static_cast<GLsizei>(textures.size()), textures.data());
+        for (GLuint texture : textures) {
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+        glViewport(0, 0, 1, 1);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_BLEND);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+        std::mt19937 random(0x4D454C45U);
+        std::uniform_int_distribution<int> byte(0, 255);
+        const auto random_rgba = [&]() {
+            return std::array<int, 4>{ byte(random), byte(random),
+                                       byte(random), byte(random) };
+        };
+
+        std::set<mh_u32> programs_seen;
+        for (const auto& [tev_id, draw_id] : pairs) {
+            if (!ok) {
+                break;
+            }
+            MeleeHostGxTevState tev{};
+            MeleeHostGxDrawState state{};
+            if (!melee_host_gx_captured_tev_state_at(tev_id, &tev) ||
+                !melee_host_gx_captured_draw_state_at(draw_id, &state))
+            {
+                continue;
+            }
+            const TevProgram* const program = programs.get(tev);
+            if (program == nullptr) {
+                message = "TEV program " + std::to_string(tev_id) +
+                          " did not compile";
+                ok = false;
+                break;
+            }
+            programs_seen.insert(tev_id);
+            set_program_uniforms(*program, identity(), tev, state);
+
+            for (std::size_t sample = 0; sample < cases_per_program; ++sample) {
+                melee::gx::TevFragmentInputs inputs{};
+                inputs.raster[0] = random_rgba();
+                inputs.raster[1] = random_rgba();
+                for (std::size_t map = 0; map < textures.size(); ++map) {
+                    inputs.texmap[map] = random_rgba();
+                    std::array<std::uint8_t, 4> texel{};
+                    for (std::size_t c = 0; c < 4; ++c) {
+                        texel[c] = static_cast<std::uint8_t>(
+                            inputs.texmap[map][c]);
+                    }
+                    glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + map));
+                    glBindTexture(GL_TEXTURE_2D, textures[map]);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                                 GL_UNSIGNED_BYTE, texel.data());
+                }
+
+                /* One triangle covering the pixel, every attribute constant
+                 * so interpolation hands the inputs through unchanged. */
+                MeleeHostGxCapturedVertex vertex{};
+                for (std::size_t channel = 0; channel < 2; ++channel) {
+                    for (std::size_t c = 0; c < 4; ++c) {
+                        vertex.raster_color[channel][c] =
+                            static_cast<mh_u8>(inputs.raster[channel][c]);
+                    }
+                }
+                for (auto& coord : vertex.texgen) {
+                    coord[0] = 0.5F;
+                    coord[1] = 0.5F;
+                    coord[2] = 1.0F;
+                }
+                std::vector<float> data;
+                constexpr std::array<std::array<float, 2>, 3> kCorners{ {
+                    { -1.0F, -1.0F }, { 3.0F, -1.0F }, { -1.0F, 3.0F } } };
+                for (const auto& corner : kCorners) {
+                    vertex.position = { corner[0], corner[1], 0.0F };
+                    append_vertex(&data, vertex);
+                }
+                glBufferData(GL_ARRAY_BUFFER,
+                             static_cast<GLsizeiptr>(data.size() *
+                                                     sizeof(float)),
+                             data.data(), GL_STREAM_DRAW);
+
+                const std::array<int, 4> expected =
+                    melee::gx::evaluate_tev(tev, inputs);
+                const bool passes =
+                    melee::gx::alpha_test_passes(state, expected[3]);
+
+                /* Drawn over two different clears: a discarded fragment
+                 * shows each clear, a written one the same colour twice. */
+                std::array<std::array<std::uint8_t, 4>, 2> pixels{};
+                constexpr std::array<std::array<float, 4>, 2> kClears{ {
+                    { 1.0F, 0.0F, 1.0F, 0.0F }, { 0.0F, 1.0F, 0.0F, 1.0F } } };
+                for (std::size_t pass = 0; pass < 2; ++pass) {
+                    glClearColor(kClears[pass][0], kClears[pass][1],
+                                 kClears[pass][2], kClears[pass][3]);
+                    glClear(GL_COLOR_BUFFER_BIT);
+                    glDrawArrays(GL_TRIANGLES, 0, 3);
+                    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                 pixels[pass].data());
+                }
+                const auto matches = [](const std::array<std::uint8_t, 4>& p,
+                                        const std::array<int, 4>& value) {
+                    return p[0] == value[0] && p[1] == value[1] &&
+                           p[2] == value[2] && p[3] == value[3];
+                };
+                const bool discarded =
+                    matches(pixels[0], { 255, 0, 255, 0 }) &&
+                    matches(pixels[1], { 0, 255, 0, 255 });
+                const bool agrees =
+                    passes ? matches(pixels[0], expected) &&
+                                 matches(pixels[1], expected)
+                           : discarded;
+                result.cases += 1;
+                if (!agrees) {
+                    result.mismatches += 1;
+                    if (result.first_mismatch.empty()) {
+                        const auto text = [](const auto& p) {
+                            return std::to_string(p[0]) + "," +
+                                   std::to_string(p[1]) + "," +
+                                   std::to_string(p[2]) + "," +
+                                   std::to_string(p[3]);
+                        };
+                        result.first_mismatch =
+                            "tev " + std::to_string(tev_id) + " draw " +
+                            std::to_string(draw_id) + ": expected " +
+                            (passes ? text(expected) : std::string("discard")) +
+                            ", shader wrote " + text(pixels[0]) + " / " +
+                            text(pixels[1]);
+                    }
+                }
+            }
+        }
+        result.programs = programs_seen.size();
+
+        glDeleteTextures(static_cast<GLsizei>(textures.size()),
+                         textures.data());
+        glDeleteBuffers(1, &vertex_buffer);
+        glDeleteVertexArrays(1, &vertex_array);
+    }
+    close_gl_window(&window);
+    if (report != nullptr) {
+        *report = result;
+    }
+    return ok;
 }
 
 void set_texture_images(std::vector<TextureImage> images)

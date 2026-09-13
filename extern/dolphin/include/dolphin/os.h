@@ -81,6 +81,12 @@ u32 __OSSimulatedMemSize : (OS_BASE_CACHED | 0x00F0);
 u32 __OSBusClock : (OS_BASE_CACHED | 0x00F8);
 u32 __OSCoreClock : (OS_BASE_CACHED | 0x00FC);
 int __EXIProbeStartTime[2] : (OS_BASE_CACHED | 0x30C0);
+#elif defined(MELEE_HOST)
+/* The host has no low-memory globals to read these from.  They are the
+ * console's clock rates, the same ones melee_host/dolphin_time.h uses to
+ * convert host time to ticks. */
+#define __OSBusClock 162000000U
+#define __OSCoreClock 486000000U
 #else
 #define __OSBusClock (*(u32*) (OS_BASE_CACHED | 0x00F8))
 #define __OSCoreClock (*(u32*) (OS_BASE_CACHED | 0x00FC))
@@ -188,8 +194,16 @@ void OSSetSoundMode(u32 mode);
 void OSReport(const char*, ...);
 DOLPHIN_ATTRIBUTE_NORETURN void OSPanic(char* file, int line, char* msg, ...);
 
+#if defined(MELEE_HOST)
+/* Addresses pass through these as well as sizes: HSD_AllocateXFB,
+ * HSD_AllocateFifo and HSD_OSInit round the arena bounds with them.  Like
+ * ROUND and TRUNC above, the host rounds at pointer width. */
+#define OSRoundUp32B(x) (((uintptr_t) (x) + 32 - 1) & ~(uintptr_t) (32 - 1))
+#define OSRoundDown32B(x) (((uintptr_t) (x)) & ~(uintptr_t) (32 - 1))
+#else
 #define OSRoundUp32B(x) (((u32) (x) + 32 - 1) & ~(32 - 1))
 #define OSRoundDown32B(x) (((u32) (x)) & ~(32 - 1))
+#endif
 
 void* OSPhysicalToCached(u32 paddr);
 void* OSPhysicalToUncached(u32 paddr);

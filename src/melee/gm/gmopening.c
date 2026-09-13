@@ -5,6 +5,7 @@
 #include "gm_unsplit.h"
 #include "gmmain_lib.h"
 #include "gmtitle.h"
+#include <dolphin/os.h>
 #include <melee/lb/lbaudio_ax.h>
 #include <melee/lb/lblanguage.h>
 #include <melee/lb/lbmthp.h>

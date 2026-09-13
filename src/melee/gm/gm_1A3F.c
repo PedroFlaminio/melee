@@ -5,6 +5,9 @@
 #include "gmscdata.h"
 #include "gmscene.h"
 #include "types.h"
+#include <dolphin/dvd.h>
+#include <dolphin/os.h>
+#include <dolphin/os/OSReset.h>
 #include <dolphin/vi.h>
 #include <melee/db/db.h>
 #include <melee/lb/lb_00B0.h>

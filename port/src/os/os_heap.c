@@ -102,6 +102,25 @@ MeleeHostStatus melee_host_os_heap_init(size_t arena_bytes, mh_s32 max_heaps)
     return MELEE_HOST_OK;
 }
 
+MeleeHostStatus melee_host_os_arena_init(size_t arena_bytes)
+{
+    if (arena_backing != NULL) {
+        return MELEE_HOST_NOT_READY;
+    }
+    if (arena_bytes == 0) {
+        arena_bytes = MELEE_HOST_OS_PHYSICAL_MEMORY_BYTES;
+    }
+    arena_backing =
+        melee_host_aligned_alloc(arena_bytes, MELEE_HOST_ARENA_ALIGNMENT);
+    if (arena_backing == NULL) {
+        return MELEE_HOST_INTERNAL_ERROR;
+    }
+    arena_size = arena_bytes;
+    OSSetArenaLo(arena_backing);
+    OSSetArenaHi((char*) arena_backing + arena_bytes);
+    return MELEE_HOST_OK;
+}
+
 MeleeHostStatus melee_host_os_heap_shutdown(void)
 {
     if (arena_backing == NULL) {

@@ -26,6 +26,23 @@ typedef struct MeleeHostGxPosition3f32 {
 } MeleeHostGxPosition3f32;
 
 enum {
+    MELEE_HOST_GX_MAX_TEXMAP = 8,
+    MELEE_HOST_GX_MAX_TEXCOORD = 8,
+    MELEE_HOST_GX_MAX_TEVSTAGE = 16,
+    MELEE_HOST_GX_MAX_CHANNEL = 4,
+    MELEE_HOST_GX_MAX_LIGHT = 8,
+    /* Matrix ids address one row space: position, normal and texture matrices
+     * below 64, and the dual-texture post-transform matrices (GX_PTTEXMTX0
+     * through GX_PTIDENTITY) from 64 up.  HSD keeps every texture transform in
+     * the second range, so memory that stopped at 64 lost all of them. */
+    MELEE_HOST_GX_MATRIX_ROWS = 128,
+    MELEE_HOST_GX_MAX_TLUT = 20,
+    MELEE_HOST_GX_MAX_TEVREG = 4,
+    MELEE_HOST_GX_MAX_KCOLOR = 4,
+    MELEE_HOST_GX_FOG_ADJ_ENTRIES = 10,
+};
+
+enum {
     MELEE_HOST_GX_VERTEX_POSITION = 1 << 0,
     MELEE_HOST_GX_VERTEX_NORMAL = 1 << 1,
     MELEE_HOST_GX_VERTEX_COLOR = 1 << 2,
@@ -69,8 +86,20 @@ typedef struct MeleeHostGxCapturedVertex {
      * remains the source vertex colour; these are the two raster colours the
      * TEV stages select through GXSetTevOrder. */
     mh_u8 raster_color[2][4];
+    /* The raw GX_VA_TEX0 coordinate as the stream carried it. */
     mh_f32 texcoord[2];
+    /* Every texture coordinate the draw generated, after GXSetTexCoordGen2:
+     * the source attribute through the texture matrix, normalized when asked,
+     * then through the post-transform matrix.  s, t and q, so a projected
+     * coordinate divides per fragment rather than per vertex.  Only the first
+     * `texcoord_gen_count` entries of the draw's TEV state are meaningful. */
+    mh_f32 texgen[MELEE_HOST_GX_MAX_TEXCOORD][3];
+    /* The texture bound to map zero, kept for consumers that read one texture
+     * per draw; `texture_set` names all of them. */
     mh_u32 texture_image;
+    /* Index into the captured texture-set table: the texture each map the TEV
+     * stages sample had bound when the draw began. */
+    mh_u32 texture_set;
     mh_u32 render_mode;
     /* Index into the captured draw-state table. */
     mh_u32 draw_state;
@@ -172,19 +201,6 @@ void melee_host_gx_apply_material(size_t first, size_t count,
  * values are carried as plain integers so this ABI stays free of the Dolphin
  * GX headers.
  * ------------------------------------------------------------------------- */
-
-enum {
-    MELEE_HOST_GX_MAX_TEXMAP = 8,
-    MELEE_HOST_GX_MAX_TEXCOORD = 8,
-    MELEE_HOST_GX_MAX_TEVSTAGE = 16,
-    MELEE_HOST_GX_MAX_CHANNEL = 4,
-    MELEE_HOST_GX_MAX_LIGHT = 8,
-    MELEE_HOST_GX_MATRIX_ROWS = 64,
-    MELEE_HOST_GX_MAX_TLUT = 20,
-    MELEE_HOST_GX_MAX_TEVREG = 4,
-    MELEE_HOST_GX_MAX_KCOLOR = 4,
-    MELEE_HOST_GX_FOG_ADJ_ENTRIES = 10,
-};
 
 typedef struct MeleeHostGxPixelState {
     bool z_compare_enable;
@@ -406,46 +422,9 @@ void melee_host_gx_pixel_state(MeleeHostGxPixelState* output);
 void melee_host_gx_transform_state(MeleeHostGxTransformState* output);
 void melee_host_gx_tev_state(MeleeHostGxTevState* output);
 /* Distinct TEV configurations the captured draws ran under, in first-use
- * order.  A captured vertex carries an index into this table, which is what
- * lets a consumer colour a triangle the way its material describes instead of
- * assuming one fixed combination. */
-typedef enum MeleeHostGxShadingKind {
-    /* texture x rasterized colour, which is what most materials compile to */
-    MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR = 0,
-    /* a constant colour x rasterized colour, for an untextured material */
-    MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR = 1,
-    /* the texture alone, ignoring the rasterized colour */
-    MELEE_HOST_GX_SHADING_TEXTURE = 2,
-    /* the rasterized colour alone */
-    MELEE_HOST_GX_SHADING_COLOR = 3,
-    /* the program is not one of the forms above; a consumer has to
-     * approximate it and should say so */
-    MELEE_HOST_GX_SHADING_APPROXIMATED = 4,
-} MeleeHostGxShadingKind;
-
-typedef struct MeleeHostGxResolvedShading {
-    mh_u32 kind;
-    /* The constant colour the KONST form multiplies by. */
-    mh_u8 konst_color[4];
-    /* What the program multiplies alpha by, and whether the rasterized alpha
-     * takes part.  HSD puts a material's alpha in a TEV register and
-     * multiplies the vertex alpha by it, which is this pair. */
-    mh_u8 constant_alpha;
-    bool uses_raster_alpha;
-} MeleeHostGxResolvedShading;
-
-/* Reduces a captured TEV program to the colour expression it computes, when
- * that expression is one a consumer can render directly.
- *
- * HSD compiles its material expressions into TEV stages, so nothing here comes
- * from GXSetTevOp presets: the program has to be read to know what it does.
- * Only single-stage programs writing the final register are reduced, and only
- * the forms the game's materials actually use.  Everything else resolves to
- * MELEE_HOST_GX_SHADING_APPROXIMATED, which is not a failure - it means a
- * consumer must pick a stand-in and report that it did. */
-bool melee_host_gx_resolve_shading(const MeleeHostGxTevState* tev,
-                                   MeleeHostGxResolvedShading* out_shading);
-
+ * order.  A captured vertex carries an index into this table.  HSD compiles
+ * its material expressions into custom stages, so the program has to be
+ * evaluated per fragment to know the colour; see port/src/gx/tev.hpp. */
 size_t melee_host_gx_captured_tev_state_count(void);
 bool melee_host_gx_captured_tev_state_at(size_t index,
                                          MeleeHostGxTevState* output);
@@ -457,6 +436,13 @@ bool melee_host_gx_channel_control(mh_u32 channel,
 size_t melee_host_gx_captured_texture_count(void);
 bool melee_host_gx_captured_texture_at(size_t index,
                                        MeleeHostGxTextureDesc* output);
+/* The texture sets the captured draws used, in first-use order: for each
+ * texture map, an id into the captured texture table or
+ * MELEE_HOST_GX_NO_TEXTURE.  Only maps some TEV stage of the draw samples are
+ * filled, so a stale binding on an unused map does not split a set. */
+size_t melee_host_gx_captured_texture_set_count(void);
+bool melee_host_gx_captured_texture_set_at(
+    size_t index, mh_u32 textures[MELEE_HOST_GX_MAX_TEXMAP]);
 
 bool melee_host_gx_bound_texture(mh_u32 texmap,
                                  MeleeHostGxTextureDesc* output);

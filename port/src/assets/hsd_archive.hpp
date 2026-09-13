@@ -58,6 +58,11 @@ public:
     [[nodiscard]] std::uint32_t public_data_offset(
         std::string_view symbol) const;
     [[nodiscard]] std::vector<HsdPublicSymbol> public_symbols() const;
+    /* Symbols the archive expects another archive to provide.  The data
+     * offset is the head of a chain threaded through the pointer fields that
+     * refer to the symbol, which is how HSD_ArchiveLocateExtern patches them
+     * all. */
+    [[nodiscard]] std::vector<HsdPublicSymbol> extern_symbols() const;
     [[nodiscard]] std::vector<std::uint32_t> relocation_fields() const;
 
 private:

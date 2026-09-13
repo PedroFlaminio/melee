@@ -92,7 +92,12 @@ struct lbl_803BAFE8_t {
 /* 01F294 */ static s32 fn_8001F294(void);
 /* 4333E0 */ static THPDecComp MoviePlayer;
 
+#ifdef MELEE_HOST
+static void fn_8001E910(int arg0, HSD_DevComArg arg1, void* arg2,
+                        bool cancelflag)
+#else
 static void fn_8001E910(int arg0, int arg1, void* arg2, int cancelflag)
+#endif
 {
     THPDecComp* streamPlayer = &MoviePlayer;
     s32 tick_diff;

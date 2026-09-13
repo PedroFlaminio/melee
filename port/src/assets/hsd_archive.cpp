@@ -220,6 +220,16 @@ std::vector<HsdPublicSymbol> HsdArchiveView::public_symbols() const
     return symbols;
 }
 
+std::vector<HsdPublicSymbol> HsdArchiveView::extern_symbols() const
+{
+    std::vector<HsdPublicSymbol> symbols;
+    symbols.reserve(extern_entries_.size());
+    for (const NamedEntry& entry : extern_entries_) {
+        symbols.push_back({ symbol_at(entry.symbol_offset), entry.offset });
+    }
+    return symbols;
+}
+
 std::vector<std::uint32_t> HsdArchiveView::relocation_fields() const
 {
     return relocations_;

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -39,9 +40,33 @@ struct ActiveDraw {
     mh_u32 draw_state = 0;
     /* Index into the captured TEV-state table. */
     mh_u32 tev_state = 0;
+    /* Index into the captured texture-set table. */
+    mh_u32 texture_set = 0;
+    /* Texture-matrix rows named by GX_VA_TEXnMTXIDX for the next vertex.  Like
+     * the position index they precede the position in the stream and apply to
+     * one vertex only. */
+    std::array<mh_u32, MELEE_HOST_GX_MAX_TEXCOORD> vertex_texture_matrix_rows{};
     std::vector<MeleeHostGxPosition3f32> positions;
     std::vector<MeleeHostGxCapturedVertex> vertices;
 };
+
+constexpr mh_u32 kNoMatrixIndex = 0xFFFFFFFFU;
+constexpr mh_u32 kIdentityTexMatrix = 60;     // GX_IDENTITY
+constexpr mh_u32 kIdentityPostMatrix = 125;   // GX_PTIDENTITY
+
+/* What texgen reads that the public vertex does not keep: every raw texture
+ * coordinate the stream carried, and the texture matrix each vertex named.
+ * Parallel to captured_vertices. */
+struct RawVertex {
+    std::array<std::array<mh_f32, 2>, MELEE_HOST_GX_MAX_TEXCOORD> texcoord{};
+    std::array<mh_u32, MELEE_HOST_GX_MAX_TEXCOORD> texture_matrix_row{};
+};
+std::vector<RawVertex> captured_raw_vertices;
+
+/* The texture each texture map held for a draw, as ids into the captured
+ * texture table, deduplicated like the other tables. */
+using TextureSet = std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP>;
+std::vector<TextureSet> captured_texture_sets;
 
 /* Distinct textures seen while capturing, in the order they were first bound.
  * A consumer uploads each once and indexes it by the id carried on the
@@ -460,13 +485,12 @@ void transform_vertex_locked(MeleeHostGxCapturedVertex& vertex,
     }
 }
 
-/* Resolves the texture bound to the first texture map into an index in the
- * captured table, adding it the first time it is seen.  Texture map zero is
- * the one the HSD material path binds for the basic TEV case. */
-mh_u32 current_texture_id_locked()
+/* Resolves the texture bound to a texture map into an index in the captured
+ * table, adding it the first time it is seen. */
+mh_u32 current_texture_id_locked(mh_u32 texmap)
 {
     MeleeHostGxTextureDesc desc{};
-    if (!melee_host_gx_bound_texture(0, &desc) || !desc.bound ||
+    if (!melee_host_gx_bound_texture(texmap, &desc) || !desc.bound ||
         desc.image == nullptr)
     {
         return MELEE_HOST_GX_NO_TEXTURE;
@@ -508,14 +532,238 @@ void transform_captured_draw_locked()
     }
 }
 
+const MeleeHostGxTevState* active_tev_locked()
+{
+    return active_draw.tev_state < captured_tev_states.size()
+               ? &captured_tev_states[active_draw.tev_state]
+               : nullptr;
+}
+
+/* GX settles the channel count before TEV sees any colour: with no channel the
+ * first rasterized colour is the vertex colour, white without one, and with
+ * fewer than two the second repeats the first. */
 void evaluate_captured_draw_locked()
 {
+    const MeleeHostGxTevState* const tev = active_tev_locked();
+    const mh_u8 channels = tev != nullptr ? tev->channel_count : 0;
     for (std::size_t index = active_draw.captured_vertex_start;
          index < captured_vertices.size(); ++index) {
         auto& vertex = captured_vertices[index];
         melee_host_gx_evaluate_lighting(&vertex, vertex.raster_color[0],
                                         vertex.raster_color[1]);
+        const bool has_color =
+            (vertex.attributes & MELEE_HOST_GX_VERTEX_COLOR) != 0;
+        for (std::size_t component = 0; component < 4; ++component) {
+            if (channels == 0) {
+                vertex.raster_color[0][component] =
+                    has_color ? vertex.color[component]
+                              : static_cast<mh_u8>(255);
+            }
+            if (channels < 2) {
+                vertex.raster_color[1][component] =
+                    vertex.raster_color[0][component];
+            }
+        }
     }
+}
+
+using TexMatrix = std::array<std::array<mh_f32, 4>, 3>;
+
+/* A matrix row as texgen reads it.  GXInit loads identity at GX_IDENTITY and
+ * GX_PTIDENTITY, which the host answers directly; a row the game never loaded
+ * also reads as identity, the same choice the position transform makes. */
+TexMatrix texgen_matrix(mh_u32 row)
+{
+    TexMatrix matrix{ { { 1.0F, 0.0F, 0.0F, 0.0F },
+                        { 0.0F, 1.0F, 0.0F, 0.0F },
+                        { 0.0F, 0.0F, 1.0F, 0.0F } } };
+    if (row == kIdentityTexMatrix || row == kIdentityPostMatrix ||
+        !melee_host_gx_matrix_loaded(row))
+    {
+        return matrix;
+    }
+    MeleeHostGxAffineTransform loaded{};
+    if (!melee_host_gx_matrix(row, &loaded)) {
+        return matrix;
+    }
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            matrix[r][c] = loaded.values[r][c];
+        }
+    }
+    return matrix;
+}
+
+/* GXSetTexCoordGen2 for every vertex of the finished draw.  Matrix texgens
+ * read the raw attributes, so they run before the position matrix moves them;
+ * SRTG reads the lit colour, so it runs after lighting.  `color_sources`
+ * selects which of the two passes this is. */
+void evaluate_texgen_locked(bool color_sources)
+{
+    const MeleeHostGxTevState* const tev = active_tev_locked();
+    if (tev == nullptr) {
+        return;
+    }
+    constexpr mh_u32 kMtx2x4 = GX_TG_MTX2x4;
+    constexpr mh_u32 kBump0 = GX_TG_BUMP0;
+    constexpr mh_u32 kBump7 = GX_TG_BUMP7;
+    constexpr mh_u32 kSrtg = GX_TG_SRTG;
+    constexpr mh_u32 kSourceTex0 = GX_TG_TEX0;
+    constexpr mh_u32 kSourceTex7 = GX_TG_TEX7;
+    constexpr mh_u32 kSourceTexcoord0 = GX_TG_TEXCOORD0;
+    constexpr mh_u32 kSourceColor1 = GX_TG_COLOR1;
+    const std::size_t gens =
+        tev->texcoord_gen_count < MELEE_HOST_GX_MAX_TEXCOORD
+            ? tev->texcoord_gen_count
+            : static_cast<std::size_t>(MELEE_HOST_GX_MAX_TEXCOORD);
+
+    std::vector<std::pair<mh_u32, TexMatrix>> cache;
+    const auto matrix_at = [&cache](mh_u32 row) {
+        for (const auto& entry : cache) {
+            if (entry.first == row) {
+                return entry.second;
+            }
+        }
+        cache.emplace_back(row, texgen_matrix(row));
+        return cache.back().second;
+    };
+    const auto apply = [](const TexMatrix& m, const std::array<mh_f32, 4>& v,
+                          std::size_t r) {
+        return m[r][0] * v[0] + m[r][1] * v[1] + m[r][2] * v[2] +
+               m[r][3] * v[3];
+    };
+
+    for (std::size_t index = active_draw.captured_vertex_start;
+         index < captured_vertices.size(); ++index) {
+        auto& vertex = captured_vertices[index];
+        const RawVertex& raw = captured_raw_vertices[index];
+        for (std::size_t gen = 0; gen < gens; ++gen) {
+            const MeleeHostGxTexCoordGen& config = tev->texcoord_gens[gen];
+            const bool srtg = config.function == kSrtg;
+            if (srtg != color_sources) {
+                continue;
+            }
+            mh_f32* const out = vertex.texgen[gen];
+            if (srtg) {
+                const std::size_t channel =
+                    config.source == kSourceColor1 ? 1U : 0U;
+                out[0] = static_cast<mh_f32>(vertex.raster_color[channel][0]) /
+                         255.0F;
+                out[1] = static_cast<mh_f32>(vertex.raster_color[channel][1]) /
+                         255.0F;
+                out[2] = 1.0F;
+                continue;
+            }
+            if (config.function >= kBump0 && config.function <= kBump7) {
+                /* Not modelled: the source coordinate, unperturbed. */
+                const mh_u32 source = config.source - kSourceTexcoord0;
+                const bool known =
+                    config.source >= kSourceTexcoord0 && source < gen;
+                for (std::size_t axis = 0; axis < 3; ++axis) {
+                    out[axis] = known ? vertex.texgen[source][axis]
+                                      : (axis == 2 ? 1.0F : 0.0F);
+                }
+                continue;
+            }
+
+            std::array<mh_f32, 4> input{ 0.0F, 0.0F, 1.0F, 1.0F };
+            const auto from_vector = [](const MeleeHostGxPosition3f32& v) {
+                return std::array<mh_f32, 4>{ v.x, v.y, v.z, 1.0F };
+            };
+            switch (config.source) {
+            case GX_TG_POS:
+                input = from_vector(vertex.position);
+                break;
+            case GX_TG_NRM:
+                input = from_vector(vertex.normal);
+                break;
+            case GX_TG_BINRM:
+                input = from_vector(vertex.binormal);
+                break;
+            case GX_TG_TANGENT:
+                input = from_vector(vertex.tangent);
+                break;
+            default:
+                if (config.source >= kSourceTex0 &&
+                    config.source <= kSourceTex7) {
+                    const auto& coord = raw.texcoord[config.source - kSourceTex0];
+                    input = { coord[0], coord[1], 1.0F, 1.0F };
+                }
+                break;
+            }
+            const mh_u32 row = raw.texture_matrix_row[gen] != kNoMatrixIndex
+                                   ? raw.texture_matrix_row[gen]
+                                   : config.matrix;
+            const TexMatrix matrix = matrix_at(row);
+            std::array<mh_f32, 4> result{
+                apply(matrix, input, 0), apply(matrix, input, 1),
+                config.function == kMtx2x4 ? 1.0F : apply(matrix, input, 2),
+                1.0F
+            };
+            if (config.normalize) {
+                const mh_f32 length =
+                    std::sqrt(result[0] * result[0] + result[1] * result[1] +
+                              result[2] * result[2]);
+                if (length > 0.0F) {
+                    for (std::size_t axis = 0; axis < 3; ++axis) {
+                        result[axis] /= length;
+                    }
+                }
+            }
+            if (config.post_matrix != kIdentityPostMatrix) {
+                const TexMatrix post = matrix_at(config.post_matrix);
+                result = { apply(post, result, 0), apply(post, result, 1),
+                           apply(post, result, 2), 1.0F };
+            }
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                out[axis] = result[axis];
+            }
+        }
+    }
+}
+
+mh_u32 texture_set_id_locked(const TextureSet& set)
+{
+    for (std::size_t index = 0; index < captured_texture_sets.size(); ++index) {
+        if (captured_texture_sets[index] == set) {
+            return static_cast<mh_u32>(index);
+        }
+    }
+    captured_texture_sets.push_back(set);
+    return static_cast<mh_u32>(captured_texture_sets.size() - 1);
+}
+
+/* The texture every sampled map held when the draw began. */
+mh_u32 current_texture_set_id_locked()
+{
+    TextureSet set{};
+    set.fill(MELEE_HOST_GX_NO_TEXTURE);
+    if (const MeleeHostGxTevState* const tev = active_tev_locked()) {
+        const std::size_t stages =
+            tev->stage_count == 0 ? 1U
+            : tev->stage_count < MELEE_HOST_GX_MAX_TEVSTAGE
+                ? tev->stage_count
+                : static_cast<std::size_t>(MELEE_HOST_GX_MAX_TEVSTAGE);
+        for (std::size_t stage = 0; stage < stages; ++stage) {
+            const mh_u32 texmap = tev->stages[stage].texmap;
+            if (texmap < MELEE_HOST_GX_MAX_TEXMAP &&
+                set[texmap] == MELEE_HOST_GX_NO_TEXTURE)
+            {
+                set[texmap] = current_texture_id_locked(texmap);
+            }
+        }
+    }
+    return texture_set_id_locked(set);
+}
+
+/* Everything a draw needs once its last vertex is in. */
+void finish_draw_locked()
+{
+    evaluate_texgen_locked(false);
+    transform_captured_draw_locked();
+    evaluate_captured_draw_locked();
+    evaluate_texgen_locked(true);
+    active_draw.active = false;
 }
 
 void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
@@ -535,9 +783,11 @@ void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
     melee_host_gx_transform_state(&transform);
     active_draw.draw_matrix_row = transform.current_matrix;
     active_draw.vertex_matrix_row = transform.current_matrix;
-    active_draw.texture_image = current_texture_id_locked();
+    active_draw.texture_image = current_texture_id_locked(0);
     active_draw.draw_state = current_draw_state_id_locked();
     active_draw.tev_state = current_tev_state_id_locked();
+    active_draw.texture_set = current_texture_set_id_locked();
+    active_draw.vertex_texture_matrix_rows.fill(kNoMatrixIndex);
     active_draw.positions.clear();
     active_draw.positions.reserve(vertex_count);
     active_draw.vertices.clear();
@@ -665,15 +915,20 @@ void capture_position(mh_f32 x, mh_f32 y, mh_f32 z)
     vertex.texture_image = active_draw.texture_image;
     vertex.draw_state = active_draw.draw_state;
     vertex.tev_state = active_draw.tev_state;
+    vertex.texture_set = active_draw.texture_set;
     if (active_draw.texture_image != MELEE_HOST_GX_NO_TEXTURE) {
         vertex.attributes |= MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE;
     }
     active_draw.vertices.push_back(vertex);
     captured_vertices.push_back(vertex);
     captured_vertex_matrix_rows.push_back(active_draw.vertex_matrix_row);
+    RawVertex raw{};
+    raw.texture_matrix_row = active_draw.vertex_texture_matrix_rows;
+    captured_raw_vertices.push_back(raw);
     /* A matrix index applies to one vertex; the next falls back to the one the
      * draw started with. */
     active_draw.vertex_matrix_row = active_draw.draw_matrix_row;
+    active_draw.vertex_texture_matrix_rows.fill(kNoMatrixIndex);
     assemble_latest_position();
 }
 
@@ -716,9 +971,17 @@ void capture_color(mh_u8 red, mh_u8 green, mh_u8 blue, mh_u8 alpha)
     }
 }
 
-void capture_texcoord(mh_f32 s, mh_f32 t)
+/* Every coordinate the stream carries lands in the raw vertex texgen reads;
+ * the first is also kept on the public vertex. */
+void capture_texcoord(std::size_t slot, mh_f32 s, mh_f32 t)
 {
-    if (active_draw.active && !active_draw.vertices.empty()) {
+    if (!active_draw.active || active_draw.vertices.empty() ||
+        slot >= MELEE_HOST_GX_MAX_TEXCOORD)
+    {
+        return;
+    }
+    captured_raw_vertices.back().texcoord[slot] = { s, t };
+    if (slot == 0) {
         auto& vertex = active_draw.vertices.back();
         vertex.attributes |= MELEE_HOST_GX_VERTEX_TEXCOORD;
         vertex.texcoord[0] = s;
@@ -873,25 +1136,31 @@ void decode_color_index(mh_u16 index, GXAttrType index_type)
     }
 }
 
-void decode_texcoord_index(mh_u16 index, GXAttrType index_type)
+void decode_texcoord_data(GXAttr attribute, const std::byte* source,
+                          const AttributeFormat& format)
 {
-    const std::byte* source = indexed_data(GX_VA_TEX0, index, index_type);
-    const AttributeFormat* format = active_format(GX_VA_TEX0);
-    if (source == nullptr || format == nullptr) {
-        return;
-    }
-    const std::size_t size = component_size(format->component_type);
+    const std::size_t size = component_size(format.component_type);
     if (size == 0) {
         return;
     }
-    const mh_f32 s = decode_component(source, format->component_type,
-                                      format->fractional_bits);
-    const mh_f32 t = format->component_count == GX_TEX_ST
+    const mh_f32 s = decode_component(source, format.component_type,
+                                      format.fractional_bits);
+    const mh_f32 t = format.component_count == GX_TEX_ST
                          ? decode_component(source + size,
-                                            format->component_type,
-                                            format->fractional_bits)
+                                            format.component_type,
+                                            format.fractional_bits)
                          : 0.0F;
-    capture_texcoord(s, t);
+    capture_texcoord(static_cast<std::size_t>(attribute - GX_VA_TEX0), s, t);
+}
+
+void decode_texcoord_index(GXAttr attribute, mh_u16 index,
+                           GXAttrType index_type)
+{
+    const std::byte* source = indexed_data(attribute, index, index_type);
+    const AttributeFormat* format = active_format(attribute);
+    if (source != nullptr && format != nullptr) {
+        decode_texcoord_data(attribute, source, *format);
+    }
 }
 
 bool is_matrix_index(GXAttr attribute)
@@ -961,6 +1230,12 @@ void decode_direct_attribute(GXAttr attribute, const std::byte* source,
             std::to_integer<mh_u8>(source[0]);
         return;
     }
+    if (attribute >= GX_VA_TEX0MTXIDX && attribute <= GX_VA_TEX7MTXIDX) {
+        /* Likewise for the texture matrix of one coordinate. */
+        active_draw.vertex_texture_matrix_rows[static_cast<std::size_t>(
+            attribute - GX_VA_TEX0MTXIDX)] = std::to_integer<mh_u8>(source[0]);
+        return;
+    }
     if (attribute == GX_VA_POS) {
         const std::size_t size = component_size(format.component_type);
         const mh_f32 x = decode_component(source, format.component_type,
@@ -986,16 +1261,8 @@ void decode_direct_attribute(GXAttr attribute, const std::byte* source,
         }
     } else if (attribute == GX_VA_CLR0) {
         decode_color_data(source, format);
-    } else if (attribute == GX_VA_TEX0) {
-        const std::size_t size = component_size(format.component_type);
-        const mh_f32 s = decode_component(source, format.component_type,
-                                          format.fractional_bits);
-        const mh_f32 t = format.component_count == GX_TEX_ST
-                             ? decode_component(source + size,
-                                                format.component_type,
-                                                format.fractional_bits)
-                             : 0.0F;
-        capture_texcoord(s, t);
+    } else if (attribute >= GX_VA_TEX0 && attribute <= GX_VA_TEX7) {
+        decode_texcoord_data(attribute, source, format);
     }
 }
 
@@ -1058,8 +1325,8 @@ bool consume_display_attribute(const std::byte*& cursor,
                 decode_normal_index(attribute, index, descriptor, item);
             } else if (attribute == GX_VA_CLR0) {
                 decode_color_index(index, descriptor);
-            } else if (attribute == GX_VA_TEX0) {
-                decode_texcoord_index(index, descriptor);
+            } else if (is_texcoord(attribute)) {
+                decode_texcoord_index(attribute, index, descriptor);
             }
         }
         cursor += index_size;
@@ -1102,16 +1369,12 @@ bool parse_display_list_locked(const std::byte* cursor, std::size_t byte_count)
                 if (!consume_display_attribute(cursor, end, attribute,
                                                descriptor, format))
                 {
-                    transform_captured_draw_locked();
-                    evaluate_captured_draw_locked();
-                    active_draw.active = false;
+                    finish_draw_locked();
                     return false;
                 }
             }
         }
-        transform_captured_draw_locked();
-        evaluate_captured_draw_locked();
-        active_draw.active = false;
+        finish_draw_locked();
     }
     return true;
 }
@@ -1157,9 +1420,7 @@ extern "C" void melee_host_gx_begin(mh_u8 primitive, mh_u8 vertex_format,
 extern "C" void melee_host_gx_end(void)
 {
     const std::lock_guard<std::mutex> lock(command_mutex);
-    transform_captured_draw_locked();
-    evaluate_captured_draw_locked();
-    active_draw.active = false;
+    finish_draw_locked();
 }
 
 extern "C" void melee_host_gx_submit_position3f32(mh_f32 x, mh_f32 y,
@@ -1204,7 +1465,7 @@ extern "C" void melee_host_gx_submit_texcoord2f32(mh_f32 s, mh_f32 t)
     const std::lock_guard<std::mutex> lock(command_mutex);
     submit_locked(MELEE_HOST_GX_F32, std::bit_cast<mh_u32>(s));
     submit_locked(MELEE_HOST_GX_F32, std::bit_cast<mh_u32>(t));
-    capture_texcoord(s, t);
+    capture_texcoord(0, s, t);
 }
 
 extern "C" void melee_host_gx_submit_position_index8(mh_u8 index)
@@ -1245,13 +1506,18 @@ extern "C" void melee_host_gx_submit_color_index16(mh_u16 index)
 
 extern "C" void melee_host_gx_submit_texcoord_index8(mh_u8 index)
 {
-    submit_index(index, MELEE_HOST_GX_U8, GX_INDEX8, decode_texcoord_index);
+    submit_index(index, MELEE_HOST_GX_U8, GX_INDEX8,
+                 [](mh_u16 value, GXAttrType type) {
+                     decode_texcoord_index(GX_VA_TEX0, value, type);
+                 });
 }
 
 extern "C" void melee_host_gx_submit_texcoord_index16(mh_u16 index)
 {
     submit_index(index, MELEE_HOST_GX_U16, GX_INDEX16,
-                 decode_texcoord_index);
+                 [](mh_u16 value, GXAttrType type) {
+                     decode_texcoord_index(GX_VA_TEX0, value, type);
+                 });
 }
 
 extern "C" void GXSetVtxDesc(GXAttr attribute, GXAttrType type)
@@ -1397,6 +1663,8 @@ extern "C" void melee_host_gx_reset_command_log(void)
     captured_draw_states.clear();
     captured_tev_states.clear();
     captured_vertex_matrix_rows.clear();
+    captured_raw_vertices.clear();
+    captured_texture_sets.clear();
     active_draw = {};
 }
 
@@ -1417,6 +1685,28 @@ extern "C" bool melee_host_gx_captured_texture_at(
         return false;
     }
     *output = captured_textures[index];
+    return true;
+}
+
+extern "C" size_t melee_host_gx_captured_texture_set_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return captured_texture_sets.size();
+}
+
+extern "C" bool melee_host_gx_captured_texture_set_at(
+    size_t index, mh_u32 textures[MELEE_HOST_GX_MAX_TEXMAP])
+{
+    if (textures == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_texture_sets.size()) {
+        return false;
+    }
+    for (std::size_t map = 0; map < MELEE_HOST_GX_MAX_TEXMAP; ++map) {
+        textures[map] = captured_texture_sets[index][map];
+    }
     return true;
 }
 
@@ -1459,119 +1749,6 @@ extern "C" bool melee_host_gx_resolve_alpha_test(
     }
     *out_compare = state->alpha_compare_0;
     *out_reference = state->alpha_ref_0;
-    return true;
-}
-
-extern "C" bool melee_host_gx_resolve_shading(
-    const MeleeHostGxTevState* tev, MeleeHostGxResolvedShading* out_shading)
-{
-    if (tev == nullptr || out_shading == nullptr) {
-        return false;
-    }
-    enum : mh_u32 {
-        kColorC0 = 2,
-        kColorTexture = 8,
-        kColorRaster = 10,
-        kColorKonst = 14,
-        kColorZero = 15,
-        kAlphaA0 = 1,
-        kAlphaTexture = 4,
-        kAlphaRaster = 5,
-        kAlphaZero = 7,
-        kRegPrev = 0,
-        kRegTev0 = 1,
-        kOpAdd = 0,
-        kBiasZero = 0,
-        kScaleOne = 0,
-        kKonstK0 = 0x0C,
-    };
-
-    MeleeHostGxResolvedShading shading{};
-    shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
-    shading.constant_alpha = 255;
-    shading.uses_raster_alpha = true;
-    for (std::size_t channel = 0; channel < 4; ++channel) {
-        shading.konst_color[channel] = 255;
-    }
-
-    /* Only a single stage that writes the final register and leaves the
-     * arithmetic at its neutral settings can be read off directly. */
-    if (tev->stage_count != 1) {
-        *out_shading = shading;
-        return true;
-    }
-    const MeleeHostGxTevStage& stage = tev->stages[0];
-    const bool plain_arithmetic =
-        stage.color_op == kOpAdd && stage.color_bias == kBiasZero &&
-        stage.color_scale == kScaleOne &&
-        stage.color_out_reg == kRegPrev && stage.alpha_op == kOpAdd &&
-        stage.alpha_bias == kBiasZero && stage.alpha_scale == kScaleOne &&
-        stage.alpha_out_reg == kRegPrev;
-    if (!plain_arithmetic) {
-        *out_shading = shading;
-        return true;
-    }
-
-    /* The colour side.  GX computes d + ((1 - c) * a + c * b), so a form with
-     * a and d at zero is simply b scaled by c. */
-    const bool scaled_by_raster = stage.color_input[0] == kColorZero &&
-                                  stage.color_input[2] == kColorRaster &&
-                                  stage.color_input[3] == kColorZero;
-    const bool passthrough = stage.color_input[0] == kColorZero &&
-                             stage.color_input[1] == kColorZero &&
-                             stage.color_input[2] == kColorZero;
-    if (scaled_by_raster && stage.color_input[1] == kColorTexture) {
-        shading.kind = MELEE_HOST_GX_SHADING_TEXTURE_TIMES_COLOR;
-    } else if (scaled_by_raster && stage.color_input[1] == kColorKonst) {
-        shading.kind = MELEE_HOST_GX_SHADING_KONST_TIMES_COLOR;
-        /* Only a whole konst colour is expressible here; the selector also
-         * names single components and constant fractions. */
-        if (stage.konst_color_select >= kKonstK0 &&
-            stage.konst_color_select <
-                static_cast<mh_u32>(kKonstK0) +
-                    static_cast<mh_u32>(MELEE_HOST_GX_MAX_KCOLOR))
-        {
-            const std::size_t konst =
-                stage.konst_color_select - static_cast<mh_u32>(kKonstK0);
-            for (std::size_t channel = 0; channel < 4; ++channel) {
-                shading.konst_color[channel] =
-                    tev->konst_colors[konst][channel];
-            }
-        } else {
-            shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
-        }
-    } else if (passthrough && stage.color_input[3] == kColorTexture) {
-        shading.kind = MELEE_HOST_GX_SHADING_TEXTURE;
-    } else if (passthrough && stage.color_input[3] == kColorRaster) {
-        shading.kind = MELEE_HOST_GX_SHADING_COLOR;
-    } else {
-        *out_shading = shading;
-        return true;
-    }
-
-    /* The alpha side, read the same way. */
-    const bool alpha_scaled_by_raster = stage.alpha_input[0] == kAlphaZero &&
-                                        stage.alpha_input[2] == kAlphaRaster &&
-                                        stage.alpha_input[3] == kAlphaZero;
-    if (alpha_scaled_by_raster && stage.alpha_input[1] == kAlphaA0) {
-        /* HSD keeps the material alpha in the first TEV register.  The stored
-         * value is signed 10-bit, so it is clamped back to a byte here. */
-        const mh_s16 stored = tev->registers[kRegTev0][3];
-        const mh_s16 clamped = stored < 0 ? 0 : (stored > 255 ? 255 : stored);
-        shading.constant_alpha = static_cast<mh_u8>(clamped);
-        shading.uses_raster_alpha = true;
-    } else if (alpha_scaled_by_raster &&
-               stage.alpha_input[1] == kAlphaTexture) {
-        /* Texture alpha times vertex alpha, which fixed-function modulation
-         * already produces. */
-        shading.constant_alpha = 255;
-        shading.uses_raster_alpha = true;
-    } else {
-        shading.kind = MELEE_HOST_GX_SHADING_APPROXIMATED;
-    }
-
-    static_cast<void>(kColorC0);
-    *out_shading = shading;
     return true;
 }
 
@@ -1718,6 +1895,10 @@ extern "C" void melee_host_gx_apply_material(size_t first, size_t count,
     {
         return;
     }
+    TextureSet set{};
+    set.fill(MELEE_HOST_GX_NO_TEXTURE);
+    set[0] = texture_image;
+    const mh_u32 set_id = texture_set_id_locked(set);
     for (size_t index = first; index < first + count; ++index) {
         auto& vertex = captured_vertices[index];
         for (size_t channel = 0; channel < 4; ++channel) {
@@ -1729,10 +1910,20 @@ extern "C" void melee_host_gx_apply_material(size_t first, size_t count,
                 (static_cast<mh_u16>(source) * diffuse[channel] + 127U) / 255U);
         }
         vertex.attributes |= MELEE_HOST_GX_VERTEX_COLOR;
+        /* The schema's material stands in for lighting and for the texture
+         * binding: both rasterized colours take the modulated colour, and
+         * map 0 takes the texture. */
+        for (size_t raster = 0; raster < 2; ++raster) {
+            for (size_t component = 0; component < 4; ++component) {
+                vertex.raster_color[raster][component] =
+                    vertex.color[component];
+            }
+        }
         if (texture_image != MELEE_HOST_GX_NO_TEXTURE) {
             vertex.attributes |= MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE;
             vertex.texture_image = texture_image;
         }
+        vertex.texture_set = set_id;
         vertex.render_mode = render_mode;
     }
 }

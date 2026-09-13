@@ -3,8 +3,18 @@
 #include <melee_host/gx.h>
 #include <melee_host/memory.h>
 
+#include <cstddef>
 #include <cstring>
+#include <limits>
 #include <string>
+
+/* The sprite library declares its palette as the runtime HSD_Tlut, which the
+ * materializer fills from the descriptor it already builds.  The two are the
+ * same record field for field. */
+static_assert(sizeof(HSD_Tlut) == sizeof(HSD_TlutDesc));
+static_assert(offsetof(HSD_Tlut, fmt) == offsetof(HSD_TlutDesc, fmt));
+static_assert(offsetof(HSD_Tlut, n_entries) ==
+              offsetof(HSD_TlutDesc, n_entries));
 
 namespace melee::assets {
 namespace {
@@ -238,6 +248,79 @@ constexpr std::uint32_t kPosition = 0x04;
 constexpr std::uint32_t kRObjDesc = 0x10;
 } // namespace world_field
 
+namespace world_anim_field {
+constexpr std::uint32_t kAObjDesc = 0x00;
+constexpr std::uint32_t kRObjAnim = 0x04;
+} // namespace world_anim_field
+
+namespace light_field {
+constexpr std::uint32_t kClassName = 0x00;
+constexpr std::uint32_t kNext = 0x04;
+constexpr std::uint32_t kFlags = 0x08;
+constexpr std::uint32_t kAttnFlags = 0x0A;
+constexpr std::uint32_t kColor = 0x0C;
+constexpr std::uint32_t kPosition = 0x10;
+constexpr std::uint32_t kInterest = 0x14;
+constexpr std::uint32_t kParameters = 0x18;
+} // namespace light_field
+
+/* HSD_LightDesc.u takes one of three shapes, chosen by the light's type and
+ * attenuation flags the same way LObjLoad reads it. */
+namespace light_point_field {
+constexpr std::uint32_t kRefBrightness = 0x00;
+constexpr std::uint32_t kRefDistance = 0x04;
+constexpr std::uint32_t kDistanceFunc = 0x08;
+} // namespace light_point_field
+
+namespace light_spot_field {
+constexpr std::uint32_t kCutoff = 0x00;
+constexpr std::uint32_t kSpotFunc = 0x04;
+constexpr std::uint32_t kRefBrightness = 0x08;
+constexpr std::uint32_t kRefDistance = 0x0C;
+constexpr std::uint32_t kDistanceFunc = 0x10;
+} // namespace light_spot_field
+
+namespace light_attn_field {
+constexpr std::uint32_t kA0 = 0x00;
+constexpr std::uint32_t kA1 = 0x04;
+constexpr std::uint32_t kA2 = 0x08;
+constexpr std::uint32_t kK0 = 0x0C;
+constexpr std::uint32_t kK1 = 0x10;
+constexpr std::uint32_t kK2 = 0x14;
+} // namespace light_attn_field
+
+namespace light_anim_field {
+constexpr std::uint32_t kNext = 0x00;
+constexpr std::uint32_t kAObjDesc = 0x04;
+constexpr std::uint32_t kPositionAnim = 0x08;
+constexpr std::uint32_t kInterestAnim = 0x0C;
+} // namespace light_anim_field
+
+/* One entry of a `*_scene_lights` table: a light and its animation table. */
+namespace light_list_field {
+constexpr std::uint32_t kDesc = 0x00;
+constexpr std::uint32_t kAnims = 0x04;
+} // namespace light_list_field
+
+namespace fog_field {
+constexpr std::uint32_t kType = 0x00;
+constexpr std::uint32_t kAdjDesc = 0x04;
+constexpr std::uint32_t kStart = 0x08;
+constexpr std::uint32_t kEnd = 0x0C;
+constexpr std::uint32_t kColor = 0x10;
+} // namespace fog_field
+
+namespace fog_adj_field {
+constexpr std::uint32_t kCenter = 0x00;
+constexpr std::uint32_t kWidth = 0x02;
+constexpr std::uint32_t kMatrix = 0x04;
+} // namespace fog_adj_field
+
+namespace sobj_field {
+constexpr std::uint32_t kImage = 0x00;
+constexpr std::uint32_t kTlut = 0x04;
+} // namespace sobj_field
+
 namespace robj_field {
 constexpr std::uint32_t kNext = 0x00;
 constexpr std::uint32_t kFlags = 0x04;
@@ -290,6 +373,9 @@ constexpr std::size_t kShapeLimit = 4096;
 constexpr std::size_t kFigaNodeLimit = 4096;
 constexpr std::size_t kFigaTrackLimit = 65536;
 constexpr std::size_t kDepthLimit = 512;
+/* GX has eight hardware lights.  This only stops a malformed light table or
+ * chain from being walked without end. */
+constexpr std::size_t kLightLimit = 256;
 
 /* Host descriptors are larger than the disk records they come from, because
  * every pointer field doubles in width.  Four times the data section is a
@@ -381,6 +467,11 @@ const HsdMaterializeStats& HsdMaterializedArchive::stats() const noexcept
     return stats_;
 }
 
+void HsdMaterializedArchive::declare_null_field(std::uint32_t data_offset)
+{
+    null_fields_.insert(data_offset);
+}
+
 void* HsdMaterializedArchive::allocate_bytes(std::size_t size,
                                              std::size_t alignment)
 {
@@ -407,6 +498,15 @@ template <typename T> T* HsdMaterializedArchive::allocate()
 std::optional<HsdRuntimeNode> HsdMaterializedArchive::reference(
     HsdRuntimeNode node, std::uint32_t relative_offset) const
 {
+    const std::uint64_t field =
+        static_cast<std::uint64_t>(node.data_offset) + relative_offset;
+    if (!null_fields_.empty() &&
+        field <= std::numeric_limits<std::uint32_t>::max() &&
+        null_fields_.contains(static_cast<std::uint32_t>(field)))
+    {
+        /* An extern that HSD_ArchiveLocateExtern resolved to NULL. */
+        return std::nullopt;
+    }
     if (archive_.has_reference_at(node, relative_offset)) {
         return archive_.reference_at(node, relative_offset);
     }
@@ -1198,6 +1298,286 @@ HSD_CObjDesc* HsdMaterializedArchive::scene_camera(
         return nullptr;
     }
     return camera_desc(*desc);
+}
+
+HSD_CObjDesc* HsdMaterializedArchive::camera(std::string_view public_symbol)
+{
+    return camera_desc(archive_.public_root(public_symbol));
+}
+
+HSD_WObjAnim* HsdMaterializedArchive::world_anim(HsdRuntimeNode node)
+{
+    HSD_WObjAnim* const host = allocate<HSD_WObjAnim>();
+    if (const auto aobj = reference(node, world_anim_field::kAObjDesc)) {
+        host->aobjdesc = aobj_desc(*aobj);
+    }
+    if (const auto robj = reference(node, world_anim_field::kRObjAnim)) {
+        host->robjanim = robj_anim_chain(*robj);
+    }
+    return host;
+}
+
+HSD_LightDesc* HsdMaterializedArchive::light_desc_chain(HsdRuntimeNode node)
+{
+    HSD_LightDesc* head = nullptr;
+    HSD_LightDesc* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+    std::size_t links = 0;
+
+    while (current.has_value()) {
+        if (++links > kLightLimit) {
+            throw HsdArchiveError("HSD light chain does not end");
+        }
+        HSD_LightDesc* const host = allocate<HSD_LightDesc>();
+        stats_.light_descs += 1;
+
+        if (const auto name = reference(*current, light_field::kClassName)) {
+            host->class_name = payload_string(*name);
+        }
+        host->flags = archive_.read_u16(*current, light_field::kFlags);
+        host->attnflags = archive_.read_u16(*current, light_field::kAttnFlags);
+        read_color(*current, light_field::kColor, &host->color);
+
+        /* LObjLoad reads position, interest and the parameter union only for
+         * the light types that have them, so only those are followed.  An
+         * infinite light's record still carries a parameter pointer on disk,
+         * which the loader never reads. */
+        const int type = host->flags & LOBJ_TYPE_MASK;
+        if (type != LOBJ_AMBIENT) {
+            if (const auto position =
+                    reference(*current, light_field::kPosition)) {
+                host->position = world_desc(*position);
+            }
+        }
+        if (type == LOBJ_SPOT) {
+            if (const auto interest =
+                    reference(*current, light_field::kInterest)) {
+                host->interest = world_desc(*interest);
+            }
+        }
+        if (type == LOBJ_POINT || type == LOBJ_SPOT) {
+            const auto parameters =
+                reference(*current, light_field::kParameters);
+            if (!parameters.has_value()) {
+                /* LObjLoad dereferences the union unconditionally for these
+                 * two types. */
+                throw HsdArchiveError(
+                    "HSD point or spot light has no parameters");
+            }
+            const bool raw_attenuation =
+                type == LOBJ_POINT
+                    ? (host->attnflags & LOBJ_LIGHT_ATTN) != 0
+                    : host->attnflags != 0;
+            if (raw_attenuation) {
+                auto* const attn = allocate<HSD_LightAttn>();
+                attn->a0 = archive_.read_f32(*parameters, light_attn_field::kA0);
+                attn->a1 = archive_.read_f32(*parameters, light_attn_field::kA1);
+                attn->a2 = archive_.read_f32(*parameters, light_attn_field::kA2);
+                attn->k0 = archive_.read_f32(*parameters, light_attn_field::kK0);
+                attn->k1 = archive_.read_f32(*parameters, light_attn_field::kK1);
+                attn->k2 = archive_.read_f32(*parameters, light_attn_field::kK2);
+                host->u.attn = attn;
+            } else if (type == LOBJ_POINT) {
+                auto* const point = allocate<HSD_LightPointDesc>();
+                point->ref_br = archive_.read_f32(
+                    *parameters, light_point_field::kRefBrightness);
+                point->ref_dist = archive_.read_f32(
+                    *parameters, light_point_field::kRefDistance);
+                point->dist_func = archive_.read_u32(
+                    *parameters, light_point_field::kDistanceFunc);
+                host->u.point = point;
+            } else {
+                auto* const spot = allocate<HSD_LightSpotDesc>();
+                spot->cutoff =
+                    archive_.read_f32(*parameters, light_spot_field::kCutoff);
+                spot->spot_func = archive_.read_u32(
+                    *parameters, light_spot_field::kSpotFunc);
+                spot->ref_br = archive_.read_f32(
+                    *parameters, light_spot_field::kRefBrightness);
+                spot->ref_dist = archive_.read_f32(
+                    *parameters, light_spot_field::kRefDistance);
+                spot->dist_func = archive_.read_u32(
+                    *parameters, light_spot_field::kDistanceFunc);
+                host->u.spot = spot;
+            }
+        }
+
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, light_field::kNext);
+    }
+    return head;
+}
+
+HSD_LightAnim* HsdMaterializedArchive::light_anim_chain(HsdRuntimeNode node)
+{
+    HSD_LightAnim* head = nullptr;
+    HSD_LightAnim* tail = nullptr;
+    std::optional<HsdRuntimeNode> current = node;
+    std::size_t links = 0;
+
+    while (current.has_value()) {
+        if (++links > kLightLimit) {
+            throw HsdArchiveError("HSD light animation chain does not end");
+        }
+        HSD_LightAnim* const host = allocate<HSD_LightAnim>();
+        if (const auto aobj = reference(*current, light_anim_field::kAObjDesc)) {
+            host->aobjdesc = aobj_desc(*aobj);
+        }
+        if (const auto position =
+                reference(*current, light_anim_field::kPositionAnim)) {
+            host->position_anim = world_anim(*position);
+        }
+        if (const auto interest =
+                reference(*current, light_anim_field::kInterestAnim)) {
+            host->interest_anim = world_anim(*interest);
+        }
+        if (tail != nullptr) {
+            tail->next = host;
+        } else {
+            head = host;
+        }
+        tail = host;
+        current = reference(*current, light_anim_field::kNext);
+    }
+    return head;
+}
+
+MaterializedLightList**
+HsdMaterializedArchive::scene_lights(std::string_view public_symbol)
+{
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    std::size_t count = 0;
+    while (reference(table, static_cast<std::uint32_t>(count * 4)).has_value()) {
+        if (++count >= kLightLimit) {
+            throw HsdArchiveError("HSD light table has no terminator");
+        }
+    }
+
+    /* The arena is zeroed, so the slot after the last entry is already the
+     * NULL that lb_80011AC4 stops at. */
+    auto** const lists = static_cast<MaterializedLightList**>(allocate_bytes(
+        sizeof(MaterializedLightList*) * (count + 1),
+        alignof(MaterializedLightList*)));
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode entry =
+            *reference(table, static_cast<std::uint32_t>(index * 4));
+        auto* const list = allocate<MaterializedLightList>();
+        if (const auto desc = reference(entry, light_list_field::kDesc)) {
+            list->desc = light_desc_chain(*desc);
+        }
+        if (const auto anims = reference(entry, light_list_field::kAnims)) {
+            std::size_t anim_count = 0;
+            while (reference(*anims, static_cast<std::uint32_t>(anim_count * 4))
+                       .has_value())
+            {
+                if (++anim_count >= kLightLimit) {
+                    throw HsdArchiveError(
+                        "HSD light animation table has no terminator");
+                }
+            }
+            auto** const anim_table =
+                static_cast<HSD_LightAnim**>(allocate_bytes(
+                    sizeof(HSD_LightAnim*) * (anim_count + 1),
+                    alignof(HSD_LightAnim*)));
+            for (std::size_t anim = 0; anim < anim_count; ++anim) {
+                anim_table[anim] = light_anim_chain(
+                    *reference(*anims, static_cast<std::uint32_t>(anim * 4)));
+            }
+            list->anims = anim_table;
+        }
+        lists[index] = list;
+    }
+    return lists;
+}
+
+HSD_FogAdjDesc* HsdMaterializedArchive::fog_adj_desc(HsdRuntimeNode node)
+{
+    HSD_FogAdjDesc* const host = allocate<HSD_FogAdjDesc>();
+    host->center = archive_.read_u16(node, fog_adj_field::kCenter);
+    host->width = archive_.read_u16(node, fog_adj_field::kWidth);
+    /* HSD_FogAdjInit copies this into the object, so like a joint matrix it
+     * holds host-order floats rather than the file's bytes. */
+    for (std::uint32_t row = 0; row < 4; ++row) {
+        for (std::uint32_t column = 0; column < 4; ++column) {
+            host->mtx[row][column] = archive_.read_f32(
+                node, fog_adj_field::kMatrix + (row * 4 + column) * 4);
+        }
+    }
+    return host;
+}
+
+HSD_FogDesc* HsdMaterializedArchive::fog(std::string_view public_symbol)
+{
+    const HsdRuntimeNode node = archive_.public_root(public_symbol);
+    HSD_FogDesc* const host = allocate<HSD_FogDesc>();
+    stats_.fog_descs += 1;
+
+    host->type = archive_.read_u32(node, fog_field::kType);
+    host->start = archive_.read_f32(node, fog_field::kStart);
+    host->end = archive_.read_f32(node, fog_field::kEnd);
+    read_color(node, fog_field::kColor, &host->color);
+    if (const auto adj = reference(node, fog_field::kAdjDesc)) {
+        host->fogadjdesc = fog_adj_desc(*adj);
+    }
+    return host;
+}
+
+MaterializedRumbleEntry*
+HsdMaterializedArchive::rumble_table(std::string_view public_symbol)
+{
+    constexpr std::uint32_t kEntrySize = 8;
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    const std::size_t data_size = archive_.disk_view().data().size();
+
+    /* A record whose command pointer is not relocated ends the table.  In
+     * LbRb.dat all forty records are relocated and the table runs to the end
+     * of the data section. */
+    std::size_t count = 0;
+    while (table.data_offset + (count + 1) * kEntrySize <= data_size &&
+           archive_.has_reference_at(
+               table, static_cast<std::uint32_t>(count * kEntrySize)))
+    {
+        ++count;
+    }
+    if (count == 0) {
+        throw HsdArchiveError("rumble table has no entries");
+    }
+
+    auto* const entries = static_cast<MaterializedRumbleEntry*>(
+        allocate_bytes(sizeof(MaterializedRumbleEntry) * count,
+                       alignof(MaterializedRumbleEntry)));
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode entry{ table.data_offset +
+                                    static_cast<std::uint32_t>(index *
+                                                               kEntrySize) };
+        /* The command list is read byte by byte by the rumble interpreter,
+         * so it stays verbatim and has no declared length. */
+        entries[index].commands = payload(*reference(entry, 0), 1);
+        const auto bytes = archive_.bytes_at({ entry.data_offset + 4 }, 2);
+        entries[index].priority = std::to_integer<u8>(bytes[0]);
+        entries[index].unk5 = std::to_integer<u8>(bytes[1]);
+    }
+    return entries;
+}
+
+HSD_SObjDesc* HsdMaterializedArchive::sobj_desc(std::string_view public_symbol)
+{
+    const HsdRuntimeNode node = archive_.public_root(public_symbol);
+    HSD_SObjDesc* const host = allocate<HSD_SObjDesc>();
+    stats_.sobj_descs += 1;
+
+    if (const auto image = reference(node, sobj_field::kImage)) {
+        host->image = image_desc(*image);
+    }
+    if (const auto tlut = reference(node, sobj_field::kTlut)) {
+        host->tlut = reinterpret_cast<HSD_Tlut*>(tlut_desc(*tlut));
+    }
+    return host;
 }
 
 HSD_FObjDesc* HsdMaterializedArchive::fobj_chain(HsdRuntimeNode node)

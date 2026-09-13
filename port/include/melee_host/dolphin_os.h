@@ -11,6 +11,11 @@ BOOL OSEnableInterrupts(void);
 BOOL OSDisableInterrupts(void);
 BOOL OSRestoreInterrupts(BOOL level);
 
+/* Runs every OSAlarm whose time has come, in order of fire time.  The console
+ * delivers alarms by interrupt; the host calls this where it hands control
+ * back to game code: the disc wait and the frame boundary. */
+void melee_host_os_fire_alarms(void);
+
 #ifdef __cplusplus
 }
 #endif
