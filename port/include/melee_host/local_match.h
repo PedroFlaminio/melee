@@ -35,6 +35,12 @@ MeleeHostStatus melee_host_prepare_local_two_player_match(
     mh_s8 first_character, mh_s8 second_character, mh_u16 stage_kind);
 MeleeHostStatus melee_host_prepared_match_get(MeleeHostPreparedMatch* out_match);
 
+/* The same observation of the VS mode's own selection: what character select
+ * and stage select wrote, and what the VS scene's StartMeleeData is built
+ * from.  It lives in the game's saved data, so the boot memory setup must
+ * have run. */
+MeleeHostStatus melee_host_vs_selection_get(MeleeHostPreparedMatch* out_match);
+
 /* Resets the original six-slot player state, including stale moves, attack
  * statistics and bonus state, then applies the prepared match's player data.
  * Fighter objects are deliberately not created here. */

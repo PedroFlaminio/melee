@@ -77,16 +77,9 @@ MeleeHostStatus melee_host_prepare_local_two_player_match(
     return MELEE_HOST_OK;
 }
 
-MeleeHostStatus melee_host_prepared_match_get(MeleeHostPreparedMatch* out_match)
+static void describe_start(const StartMeleeData* start,
+                           MeleeHostPreparedMatch* out_match)
 {
-    if (out_match == NULL) {
-        return MELEE_HOST_INVALID_ARGUMENT;
-    }
-    if (!prepared) {
-        return MELEE_HOST_NOT_READY;
-    }
-
-    const StartMeleeData* start = &prepared_start;
     memset(out_match, 0, sizeof(*out_match));
     out_match->match_kind = start->rules.match_kind;
     out_match->timer_enabled = start->rules.timer_enabled != 0;
@@ -100,6 +93,31 @@ MeleeHostStatus melee_host_prepared_match_get(MeleeHostPreparedMatch* out_match)
             ++out_match->player_count;
         }
     }
+}
+
+MeleeHostStatus melee_host_prepared_match_get(MeleeHostPreparedMatch* out_match)
+{
+    if (out_match == NULL) {
+        return MELEE_HOST_INVALID_ARGUMENT;
+    }
+    if (!prepared) {
+        return MELEE_HOST_NOT_READY;
+    }
+    describe_start(&prepared_start, out_match);
+    return MELEE_HOST_OK;
+}
+
+MeleeHostStatus melee_host_vs_selection_get(MeleeHostPreparedMatch* out_match)
+{
+    if (out_match == NULL) {
+        return MELEE_HOST_INVALID_ARGUMENT;
+    }
+    if (gmMainLib_804D3EE0 == NULL) {
+        return MELEE_HOST_NOT_READY;
+    }
+    /* What gmVsMelee_GetVsData returns, read here so that gmvsmelee.c and the
+     * VS state machine it names stay out of binaries that only observe. */
+    describe_start(&gmMainLib_804D3EE0->modes.vs_melee.start, out_match);
     return MELEE_HOST_OK;
 }
 

@@ -7,6 +7,7 @@
  */
 
 #include <melee/gm/gm_16F1.h>
+#include <melee/gm/gmresultplayer.h>
 #include <melee/gm/gmtoulib.h>
 #include <melee/gr/grdatfiles.h>
 #include <melee/mn/mncharsel.h>
@@ -235,4 +236,13 @@ void mn_802339FC(void)
 void gm_80190EA4(void)
 {
     MELEE_HOST_UNPORTED("gm_80190EA4");
+}
+
+/* gmVsMelee_EnterResults hands the match to the results screen through this.
+ * The host's VS mode ends at the match, so nothing routes there; --gc-sections
+ * drops the caller in the debug build, and the sanitizer build keeps it. */
+void gm_80177724(struct ResultsMatchInfo* arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("gm_80177724");
 }

@@ -80,13 +80,29 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   seus modelos, textos SIS, a tabela de eventos e os dados de áudio, desenha o
   texto pelo interpretador original e sai para `GM_VS` com DOWN, A e A. A música
   não começa, porque o host ainda não entrega vozes.
-- Próximo bloqueio: o modo `GM_VS`. A tabela do host precisa da entrada do modo
-  (`gmVsMelee_Mode_OnLoad`, `gm_Mode_Vs_OnUnload` e `gmVsMelee_Mode_OnInit`,
-  sem preload de modo) e das cenas dos seus estados, que já compilam em
-  `gmvsmode.c`: primeiro a seleção de personagens (`GS_CSS`,
-  `mnCharSel_Scene_*` em `mncharsel.c`), depois a de estágio (`GS_SSS`,
-  `mnStageSel_Scene_*` em `mnstagesel.c`) e então a luta (`GS_VS`). Os dois
-  arquivos de seleção ainda não entram no build.
+- Executado: o modo `GM_VS` até a luta. A tabela do host tem a entrada do modo
+  e as cenas de seleção de personagens (`GS_CSS`, `mncharsel.c`) e de estágio
+  (`GS_SSS`, `mnstagesel.c`). Com dois pads roteirizados, as duas portas abrem
+  como HMN, os dois jogadores escolhem Fox, START leva à SSS e o cursor escolhe
+  Hyrule Temple; o `VsModeData` fica com estágio 14 e Fox nos slots 0 e 1
+  (teste `melee-host-vs-selection-asset`). O modo VS do host termina na luta:
+  resultados, morte súbita e desafiante ficam fora (`gmvsmode.c` sob
+  `MELEE_HOST`).
+- Próximo bloqueio: a cena de luta (`GS_VS`). A tabela do host precisa de
+  `gm_Scene_Vs_OnFrame`, `gm_Scene_Vs_OnEnter` e `gm_Scene_Vs_OnExit` (`gmvs.c`),
+  e o estado VS roda antes `gmVsMelee_EnterVs`, que monta o `StartMeleeData`.
+  `gm_Scene_Vs_OnEnter` passa por `fn_8016E730`, pelo HUD (`ifStatus`,
+  `ifTime`) e dali aos lutadores e ao estágio. O alvo é Fox vs. Fox em Hyrule
+  Temple (`grshrine.c`, o menor módulo de estágio liberado sem cartão; Final
+  Destination e Battlefield estão travados).
+- Medido em 13/09/2026: só as chamadas diretas de `fn_8016E730` e
+  `gm_Scene_Vs_OnEnter` caem em 15 módulos fora do build: `cm/camera.c`,
+  `ef/eflib.c`, `mp/mpcoll.c`, `it/item.c`, `it/itspawn.c`, `if/ifall.c`,
+  `if/if_2F6E.c`, `if/iftime.c`, `if/ifstatus.c`, `gm/gmpause.c`,
+  `ft/ftdevice.c`, `lb/lbrefract.c`, `lb/lb_00F9.c`, `lb/lb_0219.c` e
+  `sfx/sfx_unk.c`. `efAsync_LoadSync(0)` e `(0x1F)` carregam bancos de
+  partícula, que param em `psInitDataBankLocate` (relocação de 32 bits no
+  lugar), então as partículas entram cedo nesse recorte.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

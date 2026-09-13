@@ -2067,15 +2067,24 @@ int main(int argc, char** argv)
             return timed_out ? 0 : 1;
         }
         if (argc >= 5 && std::string(argv[1]) == "--run-modes") {
-            /* Each press is held for three drawn frames, so a scene sees the
-             * buttons go down and come back up.  Frames count across modes. */
+            /* FRAME[-LAST]:INPUT[+INPUT][@PORT].  Without LAST a press is
+             * held for three drawn frames, so a scene sees the buttons go down
+             * and come back up; with LAST it is held through that frame.  An
+             * input is a button name, or SX=N or SY=N for the main stick.
+             * PORT is 1 to 4, 1 when omitted; a port the script names is
+             * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
-                mh_u32 frame;
+                mh_u32 first;
+                mh_u32 last;
+                mh_u32 port;
                 mh_u16 buttons;
+                mh_s8 stick_x;
+                mh_s8 stick_y;
             };
             struct ModesInput {
                 MeleeHostContext* context = nullptr;
                 std::vector<ScriptedPress> presses;
+                bool connected[4] = { true, false, false, false };
                 mh_u32 frames = 0;
             };
             struct NamedButton {
@@ -2090,11 +2099,11 @@ int main(int argc, char** argv)
                 { "UP", PAD_BUTTON_UP },     { "DOWN", PAD_BUTTON_DOWN },
                 { "LEFT", PAD_BUTTON_LEFT }, { "RIGHT", PAD_BUTTON_RIGHT },
             };
-            const auto hex_mode = [](mh_u32 mode) {
+            const auto hex_byte = [](mh_u32 value) {
                 constexpr const char* kDigits = "0123456789abcdef";
                 std::string text = "0x";
-                text += kDigits[(mode >> 4) & 0xF];
-                text += kDigits[mode & 0xF];
+                text += kDigits[(value >> 4) & 0xF];
+                text += kDigits[value & 0xF];
                 return text;
             };
 
@@ -2107,30 +2116,63 @@ int main(int argc, char** argv)
                 const std::string entry = argv[i];
                 const auto colon = entry.find(':');
                 if (colon == std::string::npos) {
-                    std::cerr << "expected FRAME:BUTTON[+BUTTON], got "
+                    std::cerr << "expected FRAME[-LAST]:INPUT[+INPUT][@PORT], "
+                                 "got "
                               << entry << '\n';
                     return 2;
                 }
-                ScriptedPress press{
-                    static_cast<mh_u32>(std::stoul(entry.substr(0, colon))), 0
-                };
-                std::size_t start = colon + 1;
+                const std::string frames = entry.substr(0, colon);
+                std::string inputs = entry.substr(colon + 1);
+                ScriptedPress press{};
+                const auto dash = frames.find('-');
+                press.first =
+                    static_cast<mh_u32>(std::stoul(frames.substr(0, dash)));
+                press.last = dash == std::string::npos
+                                 ? press.first + 2
+                                 : static_cast<mh_u32>(
+                                       std::stoul(frames.substr(dash + 1)));
+                const auto at = inputs.find('@');
+                if (at != std::string::npos) {
+                    press.port = static_cast<mh_u32>(
+                                     std::stoul(inputs.substr(at + 1))) -
+                                 1;
+                    inputs.resize(at);
+                }
+                if (press.port >= 4 || press.last < press.first) {
+                    std::cerr << "bad frames or port in " << entry << '\n';
+                    return 2;
+                }
+                input.connected[press.port] = true;
+                std::size_t start = 0;
                 while (true) {
-                    const auto plus = entry.find('+', start);
-                    const std::string name = entry.substr(
+                    const auto plus = inputs.find('+', start);
+                    const std::string name = inputs.substr(
                         start, plus == std::string::npos ? std::string::npos
                                                          : plus - start);
-                    const auto* const found = std::find_if(
-                        std::begin(kButtons), std::end(kButtons),
-                        [&](const NamedButton& button) {
-                            return name == button.name;
-                        });
-                    if (found == std::end(kButtons)) {
-                        std::cerr << "unknown button " << name << '\n';
-                        return 2;
+                    if (name.size() > 3 && name[0] == 'S' &&
+                        (name[1] == 'X' || name[1] == 'Y') && name[2] == '=')
+                    {
+                        const long value = std::stol(name.substr(3));
+                        if (value < -128 || value > 127) {
+                            std::cerr << "stick value out of range in "
+                                      << entry << '\n';
+                            return 2;
+                        }
+                        (name[1] == 'X' ? press.stick_x : press.stick_y) =
+                            static_cast<mh_s8>(value);
+                    } else {
+                        const auto* const found = std::find_if(
+                            std::begin(kButtons), std::end(kButtons),
+                            [&](const NamedButton& button) {
+                                return name == button.name;
+                            });
+                        if (found == std::end(kButtons)) {
+                            std::cerr << "unknown button " << name << '\n';
+                            return 2;
+                        }
+                        press.buttons =
+                            static_cast<mh_u16>(press.buttons | found->bit);
                     }
-                    press.buttons =
-                        static_cast<mh_u16>(press.buttons | found->bit);
                     if (plus == std::string::npos) {
                         break;
                     }
@@ -2154,60 +2196,116 @@ int main(int argc, char** argv)
                 return 1;
             }
             input.context = context;
-            /* A connected pad on port 1 holding whatever the script presses on
-             * this frame.  The state reaches PADRead at the host step before
-             * the next pad sample. */
+            /* The connected pads, holding whatever the script presses on this
+             * frame.  The state reaches PADRead at the host step before the
+             * next pad sample. */
             const MeleeHostGxFrameSink scripted_pad = [](void* user_data) {
                 auto* const state = static_cast<ModesInput*>(user_data);
                 state->frames += 1;
-                MeleeHostPadState pad{};
-                pad.connected = true;
+                MeleeHostPadState pads[4]{};
                 for (const ScriptedPress& press : state->presses) {
-                    if (state->frames >= press.frame &&
-                        state->frames < press.frame + 3)
+                    if (state->frames < press.first ||
+                        state->frames > press.last)
                     {
-                        pad.buttons =
-                            static_cast<mh_u16>(pad.buttons | press.buttons);
+                        continue;
+                    }
+                    MeleeHostPadState& pad = pads[press.port];
+                    pad.buttons =
+                        static_cast<mh_u16>(pad.buttons | press.buttons);
+                    if (press.stick_x != 0) {
+                        pad.stick_x = press.stick_x;
+                    }
+                    if (press.stick_y != 0) {
+                        pad.stick_y = press.stick_y;
                     }
                 }
-                static_cast<void>(
-                    melee_host_submit_pad_state(state->context, 0, &pad));
+                for (mh_u32 port = 0; port < 4; ++port) {
+                    if (!state->connected[port]) {
+                        continue;
+                    }
+                    pads[port].connected = true;
+                    static_cast<void>(melee_host_submit_pad_state(
+                        state->context, port, &pads[port]));
+                }
             };
             if (melee_host_game_begin(first_mode) != MELEE_HOST_OK) {
-                std::cerr << "mode " << hex_mode(first_mode)
+                std::cerr << "mode " << hex_byte(first_mode)
                           << " is not in the host's mode table\n";
                 melee_host_destroy(context);
                 return 1;
             }
-            std::string route = hex_mode(first_mode);
+            /* `route` lists the modes and `scenes` the scene of every state
+             * they ran, each with the frames it drew. */
+            std::string route = hex_byte(first_mode);
+            std::string scenes;
             bool failed = false;
             for (mh_u32 i = 0; i < max_modes; ++i) {
                 MeleeHostGameModeReport report{};
                 const MeleeHostStatus ran = melee_host_game_run_current_mode(
                     scripted_pad, &input, &report);
                 if (ran == MELEE_HOST_UNSUPPORTED) {
-                    std::cout << "stopped: mode " << hex_mode(report.mode)
+                    std::cout << "stopped: mode " << hex_byte(report.mode)
                               << " is not in the host's mode table\n";
                     break;
                 }
                 if (ran != MELEE_HOST_OK) {
-                    std::cerr << "mode " << hex_mode(report.mode)
+                    std::cerr << "mode " << hex_byte(report.mode)
                               << " did not run: "
                               << melee_host_status_string(ran) << '\n';
                     failed = true;
                     break;
                 }
-                std::cout << "mode " << hex_mode(report.mode) << " -> "
-                          << hex_mode(report.next_mode) << " after "
-                          << report.drawn_frames << " frames\n";
+                const mh_u32 recorded = std::min<mh_u32>(
+                    report.scene_count, MELEE_HOST_GAME_MODE_MAX_SCENES);
+                for (mh_u32 s = 0; s < recorded; ++s) {
+                    const MeleeHostGameSceneReport& scene = report.scenes[s];
+                    std::cout << "  scene " << hex_byte(scene.scene)
+                              << " after " << scene.drawn_frames
+                              << " frames\n";
+                    scenes += (scenes.empty() ? "" : " ") +
+                              hex_byte(scene.scene) + " (" +
+                              std::to_string(scene.drawn_frames) + ")";
+                }
                 route += " (" + std::to_string(report.drawn_frames) +
-                         " frames) " + hex_mode(report.next_mode);
+                         " frames) ";
+                if (report.stopped_at_missing_scene) {
+                    std::cout << "stopped: scene "
+                              << hex_byte(report.missing_scene)
+                              << " is not in the host's scene table\n";
+                    route +=
+                        "stopped at scene " + hex_byte(report.missing_scene);
+                    break;
+                }
+                std::cout << "mode " << hex_byte(report.mode) << " -> "
+                          << hex_byte(report.next_mode) << " after "
+                          << report.drawn_frames << " frames\n";
+                route += hex_byte(report.next_mode);
+            }
+            /* What character and stage select left in the VS mode's data:
+             * the stage and each slot that is not Gm_PKind_NA (3), with its
+             * character. */
+            std::string selection = "vs selection: stage ";
+            MeleeHostPreparedMatch vs{};
+            if (melee_host_vs_selection_get(&vs) == MELEE_HOST_OK) {
+                selection += std::to_string(vs.stage_kind);
+                for (mh_u32 slot = 0; slot < MELEE_HOST_LOCAL_MATCH_MAX_PLAYERS;
+                     ++slot)
+                {
+                    if (vs.player_kinds[slot] != 3) {
+                        selection +=
+                            " " + std::to_string(slot) + "=" +
+                            std::to_string(static_cast<int>(vs.characters[slot]));
+                    }
+                }
             }
             melee_host_destroy(context);
             if (failed) {
                 return 1;
             }
-            std::cout << "route: " << route << '\n' << std::flush;
+            std::cout << selection << '\n'
+                      << "scenes: " << scenes << '\n'
+                      << "route: " << route << '\n'
+                      << std::flush;
             return 0;
         }
         if ((argc == 4 || argc == 5) &&

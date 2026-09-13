@@ -907,6 +907,81 @@ Atualizado em 13 de setembro de 2026.
   difere pelo mesmo `HSD_DevComArg`. Medido depois: 180/180 e ctest 13/13 em
   `host-debug` e em `host-sanitize`, com os dois relatos do UBSan de antes.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
+- [x] Selecao de personagens (`GS_CSS`) e de estagio (`GS_SSS`) executadas pelo
+  codigo do jogo dentro do modo `GM_VS`, com entrada de dois pads. O roteiro de
+  `melee-pc --run-modes` abre as portas 1 e 2 pelo botao HMN, leva as duas
+  fichas ate a Fox, aperta START e escolhe Hyrule Temple na SSS. Medido:
+  titulo 122 frames, menu 120, CSS 141 e SSS 149; a selecao lida de volta do
+  modo VS e o estagio 14 com Fox (2) nos slots 0 e 1, e o modo para na cena de
+  luta (`GS_VS`, 0x02), que a tabela do host ainda nao tem. Leva 4,2 s em
+  `host-debug`. Virou o teste `melee-host-vs-selection-asset`.
+- [x] Pool de texto SIS dimensionado para o host. `preloadState` cria o pool a
+  cada estado com tamanhos pensados para o PowerPC (0x2400 bytes para a CSS,
+  0xC000 para creditos e resultados, 0x4800 para o resto), e o alocador poe um
+  cabecalho `SisBlock` antes de cada bloco. No host o cabecalho tem 24 bytes em
+  vez de 12 e um `HSD_Text` tem 192 em vez de 160, e a CSS esgotava o pool ao
+  montar o texto das portas: panic em `sislib.c:95` ("Memory Empty") com 33
+  blocos usados e 896 bytes livres. Sob `MELEE_HOST` o pool tem o dobro do
+  tamanho pedido e os blocos arredondam para o alinhamento de ponteiro, porque
+  o cabecalho do bloco seguinte comeca onde os dados terminam; assim nenhum
+  bloco custa mais que o dobro do que custa no console.
+- [x] Cena ausente para com nome. `gm_801A4014` chama pelo que
+  `gm_FindGameSceneHandler` devolve, que e NULL para uma cena fora da tabela.
+  Sob `MELEE_HOST` o estado cuja cena falta encerra o modo antes do preload
+  (`gm_HostMissingScene`), e o relatorio do modo diz qual cena foi.
+- [x] Relatorio por cena: `MeleeHostGameModeReport` lista a cena de cada estado
+  que o modo rodou, com os frames desenhados nela (`gm_HostSceneEntered`,
+  implementado pela tabela do host), e `--run-modes` imprime uma linha por cena
+  e o resumo `scenes:`.
+- [x] Roteiro de entrada com stick e quatro portas:
+  `FRAME[-ULTIMO]:ENTRADA[+ENTRADA][@PORTA]`, onde a entrada e um botao ou
+  `SX=N`/`SY=N` para o stick principal. Uma porta citada no roteiro fica
+  conectada desde o inicio. Sem `-ULTIMO` o aperto dura tres frames, como
+  antes, e os testes de titulo e menu continuam com a mesma linha `route:`.
+- [x] `melee_host_vs_selection_get`: a mesma observacao segura de
+  `MeleeHostPreparedMatch`, lida do `VsModeData` que a CSS e a SSS escrevem,
+  sem expor layout PPC ao C++. Le o campo de `gmMainLib_804D3EE0` que
+  `gmVsMelee_GetVsData` devolve, em vez de chamar a funcao, para que um
+  binario que so observa nao puxe `gmvsmelee.c` e a maquina de estados VS.
+- [x] Build `host-sanitize` de volta. Desde `f1cf24150`, que pos `gmvsmelee.c`
+  no build, `melee-pc` e `melee-host-tests` nao ligavam sob sanitizers:
+  `gmVsMelee_EnterResults` chama `gm_80177724`, de `gmresultplayer.c`, que nao
+  esta no build. O `--gc-sections` descarta o chamador no `host-debug`, e a
+  build instrumentada o mantem. Como o modo VS do host termina na luta e nunca
+  chega aos resultados, `gm_80177724` para com nome em `unported.c`, e
+  `gmvsmelee.c`, que a rota executa, continua instrumentado.
+- [x] Tabela de estagios da SSS lida alem do fim, como no console.
+  `fn_8025A090` le `x8` e `x9` de `mnStageSel_803F06D0[30]` quando o cursor
+  esta no estagio aleatorio, uma entrada depois das 30 que a tabela tem
+  (`symbols.txt` da 0x348 bytes). No console isso cai na string
+  `"MnSlMap.usd"`, que vem logo depois no `.data`: `x8` e `'u'` (117) e `x9` e
+  `'s'` (115), lidos do `main.dol` extraido. No host a leitura saia do objeto;
+  o build de debug seguia com o que houvesse ali, e o ASan abortava a rota da
+  SSS com `global-buffer-overflow`. Sob `MELEE_HOST` a tabela tem uma 31a
+  entrada com esses bytes, e sem o define continua com 30.
+- [x] Shape animation le os arrays de vertice em big-endian. Os payloads GX
+  ficam com os bytes do disco, porque o interpretador de display list os le
+  nessa ordem, mas `drawShapeAnim` mistura posicoes, normais e NBT na CPU
+  (`get_shape_vertex_xyz`, `get_shape_normal_xyz`, `get_shape_nbt_xyz`) com
+  `memcpy` para `f32` e leituras `*(u16*)`/`*(s16*)`. No host isso dava lixo: o
+  painel da SSS chegava ao GX com posicao (-2,1e-38; 2,05; NaN), e o UBSan
+  acusava a conversao do NaN para `u8` na iluminacao do host. Sob `MELEE_HOST`
+  os componentes de 16 e 32 bits sao montados dos bytes; o mesmo painel sai com
+  (45,22; 35,25; -9,998) e normal (0; 0; 1). O interpretador da display list de
+  shape animation ja montava os indices byte a byte e nao mudou. Todo modelo
+  com shape animation passava por aqui.
+- [x] Matching desta etapa contra `f1cf24150`, com `-DMUST_MATCH` e sem
+  `MELEE_HOST`: `sislib.c` (4.111 linhas nao vazias), `gm_1A3F.c` (10.349),
+  `pobj.c` (5.509) e `mnstagesel.c` com seu `.static.h` (11.449) pre-processam
+  identicos;
+  `gm_1A3F.h` so ganhou declaracoes sob `MELEE_HOST`. As mudancas de
+  `f1cf24150` na decomp tambem foram conferidas contra o commit anterior a
+  ele: `mncharsel.c`, `mnmain.c`, `gmmenumode.c` e `gmvsmode.c` pre-processam
+  identicos.
+- [x] Medido ao fim: `host-debug` com 180/180 testes unitarios e ctest 14/14, a
+  rota VS em 4,2 s; `host-sanitize` com 180/180 e ctest 14/14, a rota VS em
+  20,4 s, nenhum erro do ASan e, do UBSan, so relatos de chamada por ponteiro de
+  funcao de outro tipo (os dois de antes e dois que a CSS e a SSS alcancam).
 
 ## Em andamento
 
@@ -919,9 +994,9 @@ Atualizado em 13 de setembro de 2026.
   NULL que o schema supunha: seguir as entradas cai em valores nao relocados),
   imagens e paletas soltas, dados de estagio, `ftData*` e `SIS_*`.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
-  loop de frame (roteiro em `docs/fight_flow_port.md`). O escalonador de frame
-  ja roda; falta a camada de objetos graficos que alimenta os callbacks de
-  render.
+  loop de frame (roteiro em `docs/fight_flow_port.md`). Titulo, menu, CSS e SSS
+  ja rodam pelo codigo do jogo e produzem a selecao; falta a cena de luta
+  (`GS_VS`, `gm_Scene_Vs_*` em `gmvs.c`) com lutadores, estagio, HUD e camera.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -938,10 +1013,14 @@ Atualizado em 13 de setembro de 2026.
 
 ## Proximos gates
 
-1. O modo `GM_VS`, para onde VS Melee leva: a entrada do modo
-   (`gmVsMelee_Mode_OnLoad`, `gm_Mode_Vs_OnUnload`, `gmVsMelee_Mode_OnInit`) e
-   as cenas dos estados de `gmvsmode.c`, a comecar pela selecao de personagens
-   (`mncharsel.c`) e pela de estagio (`mnstagesel.c`), que ainda nao compilam.
+1. A cena de luta (`GS_VS`): `gm_Scene_Vs_OnEnter`, `OnFrame` e `OnExit` de
+   `gmvs.c` na tabela do host, com o `onEnterVs` do estado
+   (`gmVsMelee_EnterVs`, que monta o `StartMeleeData`) e o que a cena alcanca:
+   lutadores (Fox), estagio (Hyrule Temple, `grshrine.c`), mapa de colisao, HUD
+   e camera. O teste `melee-host-vs-selection-asset` ja entrega a selecao que
+   ela consome. So as chamadas diretas da entrada da cena caem em 15 modulos
+   fora do build (lista em `docs/fight_flow_port.md`), e os bancos de
+   particula que ela carrega ainda param em `psInitDataBankLocate`.
 2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
 3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
@@ -1070,9 +1149,25 @@ Atualizado em 13 de setembro de 2026.
   quando a fila bruta de pad esta vazia: uma espera por outro alarme com
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
-- A tabela de modos e cenas do host so tem o titulo e o menu principal. Pedir
-  outro modo e recusado antes de o jogo seguir o NULL que acharia, e
-  `--run-modes` encerra o roteiro com `stopped:`.
+- A tabela de modos e cenas do host tem o titulo, o menu principal e o modo VS
+  com as duas cenas de selecao. O modo VS do host termina na luta, sem
+  resultados, morte subita nem desafiante (`gmvsmode.c` sob `MELEE_HOST`).
+  Pedir um modo fora da tabela e recusado antes de o jogo seguir o NULL que
+  acharia, e uma cena fora da tabela encerra o modo; nos dois casos
+  `--run-modes` termina o roteiro com `stopped:`.
+- A CSS e a SSS foram conferidas pelo estado do jogo (portas, fichas,
+  personagem e estagio escolhidos), nao pela imagem: `--view-title-scene` so
+  apresenta o titulo, e nenhum frame dessas cenas foi desenhado numa janela.
+- O pool SIS do host tem o dobro do tamanho que a cena pede. Isso garante que
+  cada bloco cabe no dobro do que ocupava no console, mas a fragmentacao pode
+  ser outra; um "Memory Empty" em outra cena deve ser medido com o retrato do
+  pool (blocos usados e livres) antes de mexer no fator.
+- Sem cartao de memoria so os 14 personagens e os estagios iniciais estao
+  liberados. Final Destination e Battlefield ficam travados na SSS, e a
+  primeira luta mira Hyrule Temple.
+- O modo VS do host nao tem CPU nem handicap conferidos: o roteiro so abre
+  portas HMN. Os caminhos de regras, troca de nome e botoes de time da CSS
+  alcancam paradas com nome em `unported.c`.
 - Os arquivos da demo do titulo carregam, mas nada os usa ainda. Parsear um
   arquivo de efeito ou de estagio pre-carregado para em
   `psInitDataBankLocate` e em `grDatFiles_801C5FC0`, que param com nome: as
@@ -1110,10 +1205,12 @@ Atualizado em 13 de setembro de 2026.
   screenshot pendente, que `db_CheckScreenshot` marca nos niveis de
   depuracao.
 - O ctest nao falha por relato do UBSan, que so imprime; confira com
-  `ctest --preset host-sanitize -V`. Restam dois, no sistema de classes do
-  HSD: `FogRelease` chamado pelo ponteiro de release de `class.h` e
-  `HSD_JObjRemoveAll` por `gobjobject.c`, ambos por um ponteiro de funcao de
-  outro tipo.
+  `ctest --preset host-sanitize -V`. Restam quatro, todos de chamada por um
+  ponteiro de funcao de outro tipo: `FogRelease` pelo ponteiro de release de
+  `class.h` e `HSD_JObjRemoveAll` por `gobjobject.c`, no sistema de classes do
+  HSD, e, desde que a CSS e a SSS rodam, `HSD_AObjStopAnim` passado a
+  `HSD_ForeachAnim` (`aobj.c:301`) e o callback de render `fn_8026407C` de
+  `mncharsel.c` (`gobj.c:154`).
 - O presenter nao modela texturas de profundidade (`GXSetZTexture`), e o
   decodificador nao conhece `Z8`, `Z16` nem `Z24X8`. O apagamento de tela do
   titulo desenha seu quad com a profundidade da propria geometria, na metade

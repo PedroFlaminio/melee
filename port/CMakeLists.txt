@@ -580,9 +580,30 @@ if(MELEE_HOST_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION
                 "route: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02\n"
         )
+        # VS Melee's selection states with two pads.  Each pad raises its
+        # cursor to its door's HMN button, grabs its coin on the way to Fox
+        # and drops it there; START leaves for stage select, where pad 1 picks
+        # Hyrule Temple.  The mode stops at the match scene, which the host's
+        # scene table does not have yet, and the selection is read back from
+        # the VS mode's data: stage 14, Fox (2) in slots 0 and 1.
+        add_test(
+            NAME melee-host-vs-selection-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-333:SX=-127@2
+                    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
+                    380:START 420-421:SX=-127 425-439:SY=127 445:A
+        )
+        set_tests_properties(melee-host-vs-selection-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(290 frames\\) stopped at scene 0x02\n"
+        )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_property(TEST melee-host-title-mode-asset
-                melee-host-main-menu-asset APPEND PROPERTY
+                melee-host-main-menu-asset melee-host-vs-selection-asset
+                APPEND PROPERTY
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()

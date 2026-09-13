@@ -101,6 +101,12 @@
 /* The host's way into gm_801A4510's routing; see gm_1A3F.c. */
 void gm_HostBeginGameModes(u8 first_mode);
 u8 gm_HostRunCurrentGameMode(void);
+/* The GameSceneKind that stopped the last mode because the host's scene table
+ * lacks it, or GS_COUNT when the mode was not stopped. */
+u8 gm_HostMissingScene(void);
+/* Called as each state's scene is found, before the state preloads.  The
+ * host's scene table (port/src/game/game_tables.c) implements it. */
+void gm_HostSceneEntered(u8 scene_kind);
 #endif
 
 #endif

@@ -126,6 +126,16 @@ MeleeHostStatus melee_host_game_begin(mh_u32 first_mode);
 /* The GameModeKind the routing runs next. */
 mh_u32 melee_host_game_current_mode(void);
 
+/* Scenes one mode report records; `scene_count` keeps counting past it. */
+#define MELEE_HOST_GAME_MODE_MAX_SCENES 16
+
+typedef struct MeleeHostGameSceneReport {
+    /* The GameSceneKind of a state the mode routed through. */
+    mh_u32 scene;
+    /* Frames drawn while that state's scene ran. */
+    mh_u32 drawn_frames;
+} MeleeHostGameSceneReport;
+
 typedef struct MeleeHostGameModeReport {
     /* The GameModeKind that ran, or was refused. */
     mh_u32 mode;
@@ -134,6 +144,14 @@ typedef struct MeleeHostGameModeReport {
     /* What runGameMode returned: the GameModeKind the mode left pending,
      * which is now the current mode. */
     mh_u32 next_mode;
+    /* The scenes of the states the mode ran, in order. */
+    mh_u32 scene_count;
+    MeleeHostGameSceneReport scenes[MELEE_HOST_GAME_MODE_MAX_SCENES];
+    /* Set when the mode routed to a state whose scene the host's scene table
+     * lacks.  The mode stopped there, before that state preloaded anything,
+     * so `next_mode` is only what the routing had pending then. */
+    bool stopped_at_missing_scene;
+    mh_u32 missing_scene;
 } MeleeHostGameModeReport;
 
 /* One pass of gm_801A4510's loop: runGameMode for the current mode, with its
@@ -141,7 +159,8 @@ typedef struct MeleeHostGameModeReport {
  * unload, then the current mode becomes the previous one and the pending mode
  * the current one.  Each drawn frame's GX capture goes to `frame_sink`, when
  * there is one, and is then cleared.  UNSUPPORTED, with nothing run, when the
- * current mode is not in the host's table. */
+ * current mode is not in the host's table.  A state whose scene is not in the
+ * host's scene table ends the mode, reported in `stopped_at_missing_scene`. */
 MeleeHostStatus melee_host_game_run_current_mode(
     MeleeHostGxFrameSink frame_sink, void* user_data,
     MeleeHostGameModeReport* out_report);

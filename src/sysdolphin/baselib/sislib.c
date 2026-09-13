@@ -60,6 +60,14 @@ SisBlock* free_head;
 static HSD_Archive* HSD_SisLib_804D1110[5];
 SIS* HSD_SisLib_804D1124[5];
 
+#ifdef MELEE_HOST
+/* The header of the next block starts where a block's data ends, and it
+ * holds pointers, so blocks round to pointer alignment on the host. */
+#define SIS_BLOCK_ALIGN ((s32) sizeof(void*))
+#else
+#define SIS_BLOCK_ALIGN 4
+#endif
+
 void* HSD_SisLib_Alloc(s32 size)
 {
     SisBlock* best;
@@ -77,9 +85,9 @@ void* HSD_SisLib_Alloc(s32 size)
         OSReport("ZERO byte alloc\n");
         OSPanic(__FILE__, 60, "");
     }
-    remainder = size % 4;
+    remainder = size % SIS_BLOCK_ALIGN;
     if (remainder != 0) {
-        size += 4 - remainder;
+        size += SIS_BLOCK_ALIGN - remainder;
     }
     while (alloc_cur != NULL) {
         alloc_tail = alloc_cur;
@@ -460,7 +468,16 @@ void HSD_SisLib_803A6048(size_t size)
 {
     int i;
 
+#ifdef MELEE_HOST
+    /* The game sizes the pool per scene for PowerPC blocks: a 12-byte
+     * header, and 160 bytes for an HSD_Text.  On the host those are 24 and
+     * 192 bytes, and blocks round to 8, so no block costs more than twice
+     * its console size.  The character select screen exhausts its 0x2400
+     * bytes otherwise. */
+    HSD_SisLib_804D7968 = size * 2;
+#else
     HSD_SisLib_804D7968 = size;
+#endif
     used_head = NULL;
     HSD_SisLib_804D796C = free_head = HSD_MemAlloc(HSD_SisLib_804D7968);
     free_head->next = NULL;

@@ -7,12 +7,22 @@
 
 #include <melee/sc/types.h>
 
+#ifdef MELEE_HOST
+/* fn_8025A090 reads x8 and x9 of entry 30, the random stage, one past the
+ * table.  On the console that is the "MnSlMap.usd" string that follows the
+ * table in .data, so x8 is 'u' and x9 is 's'.  The host gives the table that
+ * entry, and the two reads stay inside it and see the same bytes. */
+#define MNSTAGESEL_ENTRIES 31
+#else
+#define MNSTAGESEL_ENTRIES 30
+#endif
+
 struct stagelistinfo {
     HSD_JObj* x0;
     int x4;
     u8 x8, x9, xA, stkind;
     f32 xC, x10, x14, x18;
-} mnStageSel_803F06D0[30] = {
+} mnStageSel_803F06D0[MNSTAGESEL_ENTRIES] = {
     { 0, 0, 0x2, 0x00, 0x00, 0x04, 3.1F, 2.7F, 1.0F, 1.0F },
     { 0, 0, 0x2, 0x01, 0x0C, 0x0B, 3.1F, 2.7F, 1.0F, 1.0F },
     { 0, 0, 0x2, 0x02, 0x01, 0x05, 3.1F, 2.7F, 1.0F, 1.0F },
@@ -43,6 +53,9 @@ struct stagelistinfo {
     { 0, 0, 0x2, 0x1B, 0x1B, 0x1D, 2.9F, 2.1F, 0.8F, 0.8F },
     { 0, 0, 0x2, 0x1C, 0x1C, 0x1E, 2.9F, 2.1F, 0.8F, 0.8F },
     { 0, 0, 0x2, 0x1D, 0x00, 0x00, 3.6F, 2.7F, 1.2F, 1.0F },
+#ifdef MELEE_HOST
+    { 0, 0, 'u', 's', 'd', '\0' },
+#endif
 };
 static s8 mnStageSel_804D50A0 = -1;
 

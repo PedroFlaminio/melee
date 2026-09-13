@@ -79,6 +79,11 @@ ASSERT_SIZE(struct stateMachine, 0x14);
 
 /* 479D30 */ static struct stateMachine state_machine;
 
+#ifdef MELEE_HOST
+/* See gm_HostMissingScene. */
+static u8 host_missing_scene = GS_COUNT;
+#endif
+
 void preloadState(GameModeState* state)
 {
     PreloadedGameModeState* preloaded_state;
@@ -169,6 +174,17 @@ void gm_801A4014(GameMode* mode)
     state = findState(mode->states);
     sm->routing.curr_state_id = state->id;
 
+#ifdef MELEE_HOST
+    /* Below, the game calls through what gm_FindGameSceneHandler returns,
+     * which is NULL for a scene the host's table lacks.  End the mode before
+     * the state preloads anything instead. */
+    if (gm_FindGameSceneHandler(state->info.scene_kind) == NULL) {
+        host_missing_scene = state->info.scene_kind;
+        sm->pending_mode_change = true;
+        return;
+    }
+    gm_HostSceneEntered(state->info.scene_kind);
+#endif
     preloadState(state);
     if (state->on_enter != NULL) {
         state->on_enter(state);
@@ -416,13 +432,20 @@ void gm_HostBeginGameModes(u8 first_mode)
 u8 gm_HostRunCurrentGameMode(void)
 {
     struct stateMachine* gamestate = &state_machine;
-    u8 next_mode = runGameMode(state_machine.routing.curr_mode);
+    u8 next_mode;
 
+    host_missing_scene = GS_COUNT;
+    next_mode = runGameMode(state_machine.routing.curr_mode);
     if (gmMainLib_8046B0F0.resetting) {
         gmMainLib_8046B0F0.resetting = false;
     }
     gamestate->routing.prev_mode = gamestate->routing.curr_mode;
     gamestate->routing.curr_mode = next_mode;
     return next_mode;
+}
+
+u8 gm_HostMissingScene(void)
+{
+    return host_missing_scene;
 }
 #endif

@@ -287,11 +287,35 @@ tabela do host (`port/src/game/game_tables.c`, no lugar de `gmscdata.c`), com o
 preload do estado, o `on_enter`, a cena, o laco de frame, o `onExit` que escolhe
 o proximo modo e a espera do cartao de memoria.
 
-`FRAME:BOTAO[+BOTAO]` segura botoes do pad 1 por tres frames desenhados a partir
-daquele frame, contados atraves dos modos (A, B, X, Y, Z, L, R, START, UP, DOWN,
-LEFT, RIGHT). Cada modo imprime uma linha, e a linha `route:` so sai quando
-todos voltaram; um modo que a tabela nao tem encerra o roteiro com `stopped:`.
-Os testes conferem a linha `route:` inteira, frames incluidos.
+Cada entrada do roteiro e `FRAME[-ULTIMO]:ENTRADA[+ENTRADA][@PORTA]`. A
+entrada e um botao (A, B, X, Y, Z, L, R, START, UP, DOWN, LEFT, RIGHT) ou
+`SX=N`/`SY=N` para o stick principal, de -128 a 127. Sem `-ULTIMO` ela e
+segurada por tres frames desenhados; com ele, ate aquele frame inclusive. Os
+frames sao contados atraves dos modos. A porta vai de 1 a 4 e e 1 quando
+omitida, e uma porta citada no roteiro fica conectada desde o primeiro frame.
+
+Cada modo imprime uma linha, precedida de uma linha por cena de estado que
+rodou. No fim saem `vs selection:` (o estagio e o personagem de cada slot
+aberto no `VsModeData`), `scenes:` e `route:`. Um modo que a tabela nao tem, ou
+um estado cuja cena ela nao tem, encerra o roteiro com `stopped:`. Os testes
+conferem essas linhas inteiras, frames incluidos.
+
+O roteiro do teste `melee-host-vs-selection-asset` atravessa a selecao do VS
+com dois pads:
+
+```sh
+./build/host-debug/port/melee-pc --run-modes assets-local 0 3 \
+    120:START 160:DOWN 200:A 240:A \
+    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2 \
+    330-337:SX=127 330-333:SX=-127@2 \
+    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2 \
+    380:START 420-421:SX=-127 425-439:SY=127 445:A
+```
+
+Na CSS as portas comecam fechadas, inclusive a de um pad conectado. Cada pad
+sobe o cursor ate o botao HMN da propria porta e aperta A, pega a ficha no
+caminho ate o retrato da Fox e a solta com A; START so vale com o banner de
+pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
@@ -338,6 +362,39 @@ Os testes conferem a linha `route:` inteira, frames incluidos.
   a fila de comandos de 32 bits, e so a gravacao, que exige cartao, o le.
 - Converter float fora da faixa para `u8` e comportamento indefinido, e o UBSan
   acusa. O console fica com o byte baixo, que e o que `(u8) (s32)` da.
+- O stick chega ao jogo depois do clamp do pad: 127 vira 80. O cursor da CSS
+  anda (80² - 200) × 0,0002 = 1,24 por frame, e o da SSS (80 - 30) × 0,03 =
+  1,5. Um roteiro de menu com cursor e contado em frames a partir disso, e
+  movimentos em um eixo por vez evitam o clamp octogonal da diagonal.
+- Nao calibre um roteiro pela imagem. Um script do gdb com `break` no
+  `OnFrame` da cena e `commands` que imprimem o estado (cursor, portas, ficha,
+  ou o estagio sob o cursor com `call lb_8000B1CC(jobj, 0, $v)` para a posicao
+  de mundo de cada icone) mostra frame a frame o que a entrada fez. Foi assim
+  que apareceram o clamp e a porta fechada. Rode-o com
+  `gdb -batch -ex 'set $arg_from = N' -x script.gdb --args ...`.
+- "Memory Empty" em `sislib.c` e o pool de texto SIS da cena. Antes de mexer
+  no tamanho, tire o retrato do pool no panic: um comando Python do gdb que
+  percorre `used_head` e `free_head` somando `size` mostra quantos blocos, de
+  que tamanhos e quanto sobra. O pool do host ja e o dobro do pedido.
+- Uma cena que a tabela do host nao tem encerra o modo antes do preload do
+  estado, entao `on_enter` do estado nao roda: dados que ele montaria (o
+  `StartMeleeData` da luta, por exemplo) ainda nao existem quando o roteiro
+  para. Leia a selecao por `melee_host_vs_selection_get`.
+- Display lists, arrays de vertice, imagens e keyframes continuam big-endian no
+  host. Codigo do jogo que le esses payloads na CPU, e nao pelo GX, precisa
+  montar os valores dos bytes: foi o caso da shape animation em `pobj.c`, que
+  copiava floats com `memcpy`. O sintoma nao e crash, e geometria com
+  coordenadas absurdas ou NaN; o UBSan acusou mais adiante, na conversao para
+  `u8` da iluminacao do host. Ao ver NaN numa captura, suba ate quem produziu o
+  valor antes de proteger a conversao.
+- Um `global-buffer-overflow` do ASan numa tabela do jogo costuma ser leitura
+  que o console faz alem do fim e que cai no objeto seguinte do DOL. Confira o
+  tamanho em `config/GALE01/symbols.txt`, veja qual simbolo vem depois e leia
+  os bytes do `main.dol` extraido pelo endereco (o cabecalho do DOL da offset,
+  endereco e tamanho de cada secao). Se so alguns campos sao lidos, uma
+  entrada extra sob `MELEE_HOST` com esses bytes reproduz o console, como na
+  tabela de estagios da SSS; se o codigo atravessa objetos inteiros, junte-os
+  numa definicao so, como em `toy.c`.
 
 ## Carga de cena pela camada de objetos
 

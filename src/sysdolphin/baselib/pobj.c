@@ -530,6 +530,28 @@ static void setupShapeAnimVtxDesc(HSD_PObj* pobj)
     prev_vtxdesc = NULL;
 }
 
+#ifdef MELEE_HOST
+/* Vertex arrays keep their big-endian bytes on the host, because GX reads them
+ * in that order through the display list.  Shape animation reads them on the
+ * CPU instead, so each multi-byte component is assembled from its bytes. */
+static inline u16 host_vertex_u16(const u8* src, int index)
+{
+    return (u16) ((src[index * 2] << 8) | src[index * 2 + 1]);
+}
+
+static inline void host_vertex_f32(const u8* src, f32* dst, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        const u8* p = src + i * 4;
+        u32 bits = ((u32) p[0] << 24) | ((u32) p[1] << 16) |
+                   ((u32) p[2] << 8) | (u32) p[3];
+        memcpy(&dst[i], &bits, sizeof(bits));
+    }
+}
+#endif
+
 static inline void decode_u8_xyz(void* src_base, f32 dst[3], int scale)
 {
     u8* src = src_base;
@@ -548,18 +570,32 @@ static inline void decode_s8_xyz(void* src_base, f32 dst[3], int scale)
 
 static inline void decode_u16_xyz(void* src_base, f32 dst[3], int scale)
 {
+#ifdef MELEE_HOST
+    const u8* src = src_base;
+    dst[0] = (f32) host_vertex_u16(src, 0) / scale;
+    dst[1] = (f32) host_vertex_u16(src, 1) / scale;
+    dst[2] = (f32) host_vertex_u16(src, 2) / scale;
+#else
     u16* src = src_base;
     dst[0] = (f32) src[0] / scale;
     dst[1] = (f32) src[1] / scale;
     dst[2] = (f32) src[2] / scale;
+#endif
 }
 
 static inline void decode_s16_xyz(void* src_base, f32 dst[3], int scale)
 {
+#ifdef MELEE_HOST
+    const u8* src = src_base;
+    dst[0] = (f32) (s16) host_vertex_u16(src, 0) / scale;
+    dst[1] = (f32) (s16) host_vertex_u16(src, 1) / scale;
+    dst[2] = (f32) (s16) host_vertex_u16(src, 2) / scale;
+#else
     s16* src = src_base;
     dst[0] = (f32) src[0] / scale;
     dst[1] = (f32) src[1] / scale;
     dst[2] = (f32) src[2] / scale;
+#endif
 }
 
 static void get_shape_vertex_xyz(HSD_ShapeSet* shape_set, int shape_id,
@@ -581,7 +617,11 @@ static void get_shape_vertex_xyz(HSD_ShapeSet* shape_set, int shape_id,
                idx * shape_set->vertex_desc->stride;
 
     if (shape_set->vertex_desc->comp_type == GX_F32) {
+#ifdef MELEE_HOST
+        host_vertex_f32(src_base, dst, 3);
+#else
         memcpy(dst, src_base, sizeof(f32[3]));
+#endif
     } else {
         int decimal_point = 1 << shape_set->vertex_desc->frac;
         switch (shape_set->vertex_desc->comp_type) {
@@ -626,7 +666,11 @@ static void get_shape_normal_xyz(HSD_ShapeSet* shape_set, int shape_id,
                idx * shape_set->normal_desc->stride;
 
     if (shape_set->normal_desc->comp_type == GX_F32) {
+#ifdef MELEE_HOST
+        host_vertex_f32(src_base, dst, 3);
+#else
         memcpy(dst, src_base, sizeof(f32[3]));
+#endif
     } else {
         int decimal_point = 1 << shape_set->normal_desc->frac;
         switch (shape_set->normal_desc->comp_type) {
@@ -671,7 +715,11 @@ static void get_shape_nbt_xyz(HSD_ShapeSet* shape_set, int shape_id,
                idx * shape_set->normal_desc->stride;
 
     if (shape_set->normal_desc->comp_type == GX_F32) {
+#ifdef MELEE_HOST
+        host_vertex_f32(src_base, dst, 9);
+#else
         memcpy(dst, src_base, sizeof(f32[9]));
+#endif
     } else {
         int decimal_point = 1 << shape_set->normal_desc->frac;
         switch (shape_set->normal_desc->comp_type) {
@@ -687,12 +735,21 @@ static void get_shape_nbt_xyz(HSD_ShapeSet* shape_set, int shape_id,
             break;
         case GX_U16:
             for (i = 0; i < 9; i++) {
+#ifdef MELEE_HOST
+                dst[i] = (float) host_vertex_u16(src_base, i) / decimal_point;
+#else
                 dst[i] = (float) ((u16*) src_base)[i] / decimal_point;
+#endif
             }
             break;
         case GX_S16:
             for (i = 0; i < 9; i++) {
+#ifdef MELEE_HOST
+                dst[i] = (float) (s16) host_vertex_u16(src_base, i) /
+                         decimal_point;
+#else
                 dst[i] = (float) ((s16*) src_base)[i] / decimal_point;
+#endif
             }
             break;
         default:

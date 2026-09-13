@@ -139,15 +139,36 @@ static struct {
     mh_u32 drawn_frames;
     MeleeHostGxFrameSink frame_sink;
     void* frame_sink_user_data;
+    MeleeHostGameModeReport* report;
 } mode_run;
 
 static void mode_frame_drawn(void* user_data)
 {
+    MeleeHostGameModeReport* const report = mode_run.report;
+
     (void) user_data;
     mode_run.drawn_frames += 1;
+    if (report != NULL && report->scene_count != 0 &&
+        report->scene_count <= MELEE_HOST_GAME_MODE_MAX_SCENES)
+    {
+        report->scenes[report->scene_count - 1].drawn_frames += 1;
+    }
     if (mode_run.frame_sink != NULL) {
         mode_run.frame_sink(mode_run.frame_sink_user_data);
     }
+}
+
+void gm_HostSceneEntered(u8 scene_kind)
+{
+    MeleeHostGameModeReport* const report = mode_run.report;
+
+    if (report == NULL) {
+        return;
+    }
+    if (report->scene_count < MELEE_HOST_GAME_MODE_MAX_SCENES) {
+        report->scenes[report->scene_count].scene = scene_kind;
+    }
+    report->scene_count += 1;
 }
 
 MeleeHostStatus melee_host_game_run_current_mode(
@@ -165,11 +186,15 @@ MeleeHostStatus melee_host_game_run_current_mode(
     memset(&mode_run, 0, sizeof(mode_run));
     mode_run.frame_sink = frame_sink;
     mode_run.frame_sink_user_data = user_data;
+    mode_run.report = out_report;
 
     melee_host_gx_set_frame_sink(mode_frame_drawn, NULL);
     out_report->next_mode = gm_HostRunCurrentGameMode();
     melee_host_gx_set_frame_sink(NULL, NULL);
+    mode_run.report = NULL;
 
     out_report->drawn_frames = mode_run.drawn_frames;
+    out_report->missing_scene = gm_HostMissingScene();
+    out_report->stopped_at_missing_scene = out_report->missing_scene != GS_COUNT;
     return MELEE_HOST_OK;
 }
