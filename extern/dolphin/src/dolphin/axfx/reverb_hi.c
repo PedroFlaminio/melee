@@ -3,8 +3,8 @@
 #include <dolphin/axfx.h>
 
 // functions
-static void DLsetdelay(struct AXFX_REVHI_DELAYLINE* dl, long lag);
-static void DLcreate(struct AXFX_REVHI_DELAYLINE* dl, long max_length);
+static void DLsetdelay(struct AXFX_REVHI_DELAYLINE* dl, s32 lag);
+static void DLcreate(struct AXFX_REVHI_DELAYLINE* dl, s32 max_length);
 static void DLdelete(struct AXFX_REVHI_DELAYLINE* dl);
 static int ReverbHICreate(struct AXFX_REVHI_WORK* rv, float coloration,
                           float time, float mix, float damping, float preDelay,
@@ -12,12 +12,12 @@ static int ReverbHICreate(struct AXFX_REVHI_WORK* rv, float coloration,
 static int ReverbHIModify(struct AXFX_REVHI_WORK* rv, float coloration,
                           float time, float mix, float damping, float preDelay,
                           float crosstalk);
-static void HandleReverb(long* sptr, struct AXFX_REVHI_WORK* rv, long k);
-static void ReverbHICallback(long* left, long* right, long* surround,
+static void HandleReverb(s32* sptr, struct AXFX_REVHI_WORK* rv, s32 k);
+static void ReverbHICallback(s32* left, s32* right, s32* surround,
                              struct AXFX_REVHI_WORK* rv);
 static void ReverbHIFree(struct AXFX_REVHI_WORK* rv);
 
-static void DLsetdelay(struct AXFX_REVHI_DELAYLINE* dl, long lag)
+static void DLsetdelay(struct AXFX_REVHI_DELAYLINE* dl, s32 lag)
 {
     dl->outPoint = dl->inPoint - (lag * 4);
     while (dl->outPoint < 0) {
@@ -25,7 +25,7 @@ static void DLsetdelay(struct AXFX_REVHI_DELAYLINE* dl, long lag)
     }
 }
 
-static void DLcreate(struct AXFX_REVHI_DELAYLINE* dl, long max_length)
+static void DLcreate(struct AXFX_REVHI_DELAYLINE* dl, s32 max_length)
 {
     dl->length = (max_length * 4);
     dl->inputs = __AXFXAlloc(max_length << 2);
@@ -47,8 +47,8 @@ static int ReverbHICreate(struct AXFX_REVHI_WORK* rv, float coloration,
 {
     u8 i;
     u8 k;
-    static long lens[8] = { 0x000006FD, 0x000007CF, 0x0000091D, 0x000001B1,
-                            0x00000095, 0x0000002F, 0x00000049, 0x00000043 };
+    static s32 lens[8] = { 0x000006FD, 0x000007CF, 0x0000091D, 0x000001B1,
+                           0x00000095, 0x0000002F, 0x00000049, 0x00000043 };
 
     if ((coloration < 0.0f) || (coloration > 1.0f) || (time < 0.01f) ||
         (time > 10.0f) || (mix < 0.0f) || (mix > 1.0f) || (crosstalk < 0.0f) ||
@@ -140,7 +140,7 @@ static int ReverbHIModify(struct AXFX_REVHI_WORK* rv, float coloration,
  * mixer's aux callback, and the host has no mixer yet; portable versions come
  * with it. */
 /* Not static: axfx.h declares it with external linkage. */
-void DoCrossTalk(long* l, long* r, float cross, float invcross)
+void DoCrossTalk(s32* l, s32* r, float cross, float invcross)
 {
     (void) l;
     (void) r;
@@ -149,7 +149,7 @@ void DoCrossTalk(long* l, long* r, float cross, float invcross)
     OSPanic(__FILE__, __LINE__, "reverb DoCrossTalk is not ported to the host");
 }
 
-static void HandleReverb(long* sptr, struct AXFX_REVHI_WORK* rv, long k)
+static void HandleReverb(s32* sptr, struct AXFX_REVHI_WORK* rv, s32 k)
 {
     (void) sptr;
     (void) rv;
@@ -160,7 +160,7 @@ static void HandleReverb(long* sptr, struct AXFX_REVHI_WORK* rv, long k)
 const static double i2fMagic = 4503601774854144.0;
 const static float value0_6 = 0.6f;
 
-asm static void DoCrossTalk(register long* l, register long* r,
+asm static void DoCrossTalk(register s32* l, register s32* r,
                             register float cross, register float invcross)
 {
     // clang-format off
@@ -271,9 +271,9 @@ loop:
 
 const static float value0_3 = 0.3f;
 
-asm static void HandleReverb(register long* sptr,
+asm static void HandleReverb(register s32* sptr,
                              register struct AXFX_REVHI_WORK* rv,
-                             register long k)
+                             register s32 k)
 {
     // clang-format off
     nofralloc
@@ -634,7 +634,7 @@ L_00000C7C:
 }
 #endif
 
-static void ReverbHICallback(long* left, long* right, long* surround,
+static void ReverbHICallback(s32* left, s32* right, s32* surround,
                              struct AXFX_REVHI_WORK* rv)
 {
     u8 k;

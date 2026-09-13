@@ -10,7 +10,16 @@
 
 #include <melee_host/dolphin_os.h>
 
+/* The SDK headers declare functions without prototypes, which clang's strict
+ * warning set rejects; baselib_support.c relaxes the same diagnostic. */
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wstrict-prototypes"
+#endif
 #include <dolphin/os/OSAlarm.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #include <stddef.h>
 
@@ -142,4 +151,15 @@ void melee_host_os_fire_alarms(void)
         /* No interrupted context exists on the host. */
         handler(alarm, NULL);
     }
+}
+
+BOOL melee_host_os_next_alarm(s64* out_fire)
+{
+    if (alarm_head == NULL) {
+        return FALSE;
+    }
+    if (out_fire != NULL) {
+        *out_fire = alarm_head->fire;
+    }
+    return TRUE;
 }

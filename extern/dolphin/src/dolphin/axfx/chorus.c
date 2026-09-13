@@ -409,9 +409,9 @@ L_00000344:
 
 int AXFXChorusInit(struct AXFX_CHORUS* c)
 {
-    long* left;
-    long* right;
-    long* sur;
+    s32* left;
+    s32* right;
+    s32* sur;
     u32 i;
     int old;
 
@@ -479,12 +479,12 @@ int AXFXChorusSettings(struct AXFX_CHORUS* c)
 void AXFXChorusCallback(struct AXFX_BUFFERUPDATE* bufferUpdate,
                         struct AXFX_CHORUS* chorus)
 {
-    long* leftD;
-    long* rightD;
-    long* surD;
-    long* leftS;
-    long* rightS;
-    long* surS;
+    s32* leftD;
+    s32* rightD;
+    s32* surD;
+    s32* leftS;
+    s32* rightS;
+    s32* surS;
     u32 i;
     u8 nextCurrentLast;
 

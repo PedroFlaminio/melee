@@ -15,8 +15,13 @@
 #include <melee_host/dolphin_os.h>
 #include <melee_host/os_heap.h>
 
+#include <dolphin/dvd.h>
 #include <dolphin/gx/GXFrameBuffer.h>
 #include <dolphin/os.h>
+#include <dolphin/pad.h>
+#include <melee/db/db.h>
+#include <melee/gm/gmmain_lib.h>
+#include <melee/lb/lbdvd.h>
 #include <melee/lb/lb_0195.h>
 #include <melee/lb/lbarchive.h>
 #include <melee/lb/lbaudio_ax.h>
@@ -25,11 +30,18 @@
 #include <melee/sc/types.h>
 #include <sysdolphin/baselib/class.h>
 #include <sysdolphin/baselib/cobj.h>
+#include <sysdolphin/baselib/controller.h>
 #include <sysdolphin/baselib/fog.h>
 #include <sysdolphin/baselib/initialize.h>
 #include <sysdolphin/baselib/jobj.h>
 #include <sysdolphin/baselib/lobj.h>
+#include <sysdolphin/baselib/sislib.h>
 #include <sysdolphin/baselib/sobjlib.h>
+#include <sysdolphin/baselib/video.h>
+
+/* After dolphin/os.h: this header repeats the SDK's clock types for code that
+ * does not include it, and skips them when it has been included. */
+#include <melee_host/dolphin_time.h>
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -40,17 +52,57 @@ enum { LB_HEAP_COUNT = 6 };
 static bool boot_memory_ready;
 static size_t boot_arena_bytes;
 
-/* lbfile.c calls this in a loop until a disc read's callback fires, and lbdvd.c
- * while a preload is still arriving.  On the console the read finishes by
- * interrupt, and the poll only watches for drive errors, the reset button and
- * the memory card.  On the host a read finishes when the scheduler steps, so
- * stepping it is the poll's whole job.  Drive-error screens, reset and card
- * polling are not part of the host yet. */
+/* gmMain_8015FD24's storage, gmMain_8046B108 and gmMain_8046B1F8: five queued
+ * pad samples and twelve rumble entries. */
+static HSD_PadData boot_pad_queue[5];
+static HSD_PadRumbleListData boot_rumble_list[12];
+
+/* gmMain_8015FD24, which is static in gmmain.c: the pad library, and the
+ * stick and trigger clamps the game plays with. */
+static void boot_pad_init(void)
+{
+    PADSetSpec(5);
+    HSD_PadInit(5, boot_pad_queue, 12, boot_rumble_list);
+    HSD_PadLibData.clamp_stickType = 0;
+    HSD_PadLibData.clamp_stickShift = 1;
+    HSD_PadLibData.clamp_stickMax = 80;
+    HSD_PadLibData.clamp_stickMin = 0;
+    HSD_PadLibData.scale_stick = 80;
+    HSD_PadLibData.clamp_analogLRShift = 1;
+    HSD_PadLibData.clamp_analogLRMax = 140;
+    HSD_PadLibData.clamp_analogLRMin = 0;
+    HSD_PadLibData.scale_analogLR = 140;
+}
+
+/* gmMain_8015FDA0, gmMain's post-retrace callback, which does nothing. */
+static void boot_post_retrace(u32 retrace_count)
+{
+    (void) retrace_count;
+}
+
+/* lbfile.c calls this in a loop until a disc read's callback fires, lbdvd.c
+ * while a preload is still arriving, and gm_801A4D34 while it waits for the
+ * next frame's pad sample.  On the console the read finishes by interrupt, the
+ * sample arrives by alarm, and the poll only watches for drive errors, the
+ * reset button and the memory card.  On the host a read finishes when the
+ * scheduler steps, so stepping it is most of the poll's job.  Drive-error
+ * screens, reset and card polling are not part of the host yet. */
 void lb_800195D0(void)
 {
+    s64 fire;
+
     if (melee_host_dvd_step_backend() == MELEE_HOST_UNSUPPORTED) {
         OSPanic(__FILE__, __LINE__,
                 "a disc read is waiting and no DVD backend is active");
+    }
+    /* A frozen clock stands still while the game works, so the next pad
+     * sample only comes if the wait itself moves time.  gm_801A4D34 polls here
+     * once before it runs the frames queued so far and once after, when the
+     * queue is empty, so the clock jumps once a frame. */
+    if (melee_host_os_time_frozen() && HSD_PadGetRawQueueCount() == 0 &&
+        melee_host_os_next_alarm(&fire))
+    {
+        melee_host_os_time_advance(fire - OSGetTime());
     }
     /* The console keeps taking interrupts while it waits, alarms included. */
     melee_host_os_fire_alarms();
@@ -72,6 +124,17 @@ MeleeHostStatus melee_host_boot_memory_init(size_t arena_bytes)
     boot_arena_bytes =
         (size_t) ((char*) OSGetArenaHi() - (char*) OSGetArenaLo());
 
+    /* gmMain_8015FDA4, which is static in gmmain.c: a retail disc has no
+     * /develop.ini, and the game then runs at the master level.  The debug
+     * levels a development disc selects with the launch buttons are not
+     * mirrored. */
+    if (DVDConvertPathToEntrynum("/develop.ini") == -1) {
+        DbLevel = DbLKind_Master;
+    } else {
+        OSReport("host boot: /develop.ini present; debug levels are not "
+                 "selected on the host\n");
+    }
+
     /* gmMain, in order. */
     HSD_SetInitParameter(HSD_INIT_XFB_MAX_NUM, 2);
     HSD_SetInitParameter(HSD_INIT_RENDER_MODE_OBJ, &GXNtsc480IntDf);
@@ -87,12 +150,22 @@ MeleeHostStatus melee_host_boot_memory_init(size_t arena_bytes)
      * and it sets the budget lbAudioAx_80027168 checks every sound bank load
      * against. */
     lbAudioAx_8002838C();
+    /* The pad library, and the periodic alarm that samples it once a frame
+     * (lb_80019628).  From here on a wait for the disc takes pad samples too. */
+    lb_80019AAC(boot_pad_init);
+    HSD_VISetUserPostRetraceCallback(boot_post_retrace);
+    /* What makes a drawn XFB displayable once GX reports it finished. */
+    HSD_VISetUserGXDrawDoneCallback(HSD_VIDrawDoneXFB);
+    HSD_VISetBlack(0);
     lbMemory_8001564C();
     lbHeap_80015F3C();
-    /* lbDvd_80018F68 resets the preload cache, which the host does not have
-     * yet.  lbHeap_80015900 is how a scene's heap setup ends
-     * (lbDvd_80018CF4).  With every scene heap still transient, it creates the
-     * main heap and the ARAM heap. */
+    lbDvd_80018F68();
+    gmMainLib_8015FCC0();
+    HSD_SisLib_803A6048(0xC000);
+    gmMainLib_8015FBA4();
+    /* gmMain ends here.  lbHeap_80015900 is how the first scene's heap setup
+     * ends (lbDvd_80018CF4); with every scene heap still transient, it
+     * creates the main heap and the ARAM heap. */
     lbHeap_80015900();
 
     boot_memory_ready = true;

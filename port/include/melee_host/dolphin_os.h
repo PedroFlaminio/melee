@@ -16,6 +16,10 @@ BOOL OSRestoreInterrupts(BOOL level);
  * back to game code: the disc wait and the frame boundary. */
 void melee_host_os_fire_alarms(void);
 
+/* The fire time of the earliest armed alarm, in OSGetTime ticks.  Returns
+ * FALSE when no alarm is armed. */
+BOOL melee_host_os_next_alarm(s64* out_fire);
+
 #ifdef __cplusplus
 }
 #endif

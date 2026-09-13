@@ -186,6 +186,68 @@ Sem `-DMUST_MATCH` o `HSD_ASSERT` usa `__LINE__`, e qualquer linha inserida
 muda o objeto sem mudar o DOL. Os `-include` suprem o `stdint.h` que o
 toolchain matching traz por outro caminho.
 
+## Cena de titulo
+
+```sh
+./build/host-debug/port/melee-pc --boot-title-scene assets-local
+```
+
+Sobe o boot do `gmMain`, le os dados que vivem no `main.dol` e roda
+`gm_801A4BD4` e `gm_Scene_Title_OnEnter`. O relatorio conta os GObjs pelas
+listas da propria biblioteca e sai com erro se a cena nao tiver o que
+`gmtitle.c` monta.
+
+Como a cadeia foi aberta, e como abrir a proxima:
+
+- Coloque o entrypoint que se quer alcancar sob uma chamada real no
+  executavel. Com `--gc-sections`, funcao sem chamador e descartada junto com
+  as referencias dela, e o link nao diz nada.
+- Leia as referencias indefinidas com `LANG=C`, agrupe por arquivo de origem e
+  decida caso a caso. Preferencia: compilar o modulo original; dado que vive no
+  DOL, ler do `main.dol`; tabela que cita conteudo inteiro do jogo (estagios,
+  lutadores), referencia `weak` quando o jogo ja trata a entrada nula; funcao
+  so alcancavel por um caminho que a cena nao toma, parada com nome em
+  `port/src/game/unported.c`.
+- Um arquivo de dados que o codigo le direto como struct (`.ssm`, `.sem`) e
+  big-endian e costuma relocar ponteiros de 32 bits no lugar. Levante o layout
+  no disco antes de escrever o caminho do host, como na API de arquivo.
+- Um `assert` que falha logo depois de uma leitura de disco quase sempre e
+  ordem de bytes; um segfault em alocador de biblioteca quase sempre e
+  inicializacao do `gmMain` que o boot do host ainda nao faz.
+- Rode a mesma cadeia no `host-sanitize` antes de dar o recorte por fechado.
+  Dois erros que o build de debug atravessava em silencio so apareceram la:
+  `long` onde o console tem 32 bits (a SDK de audio usa `long` para amostras;
+  troque por `s32`/`u32`, o mesmo tipo na build PowerPC) e codigo que atravessa
+  objetos vizinhos de `.bss` como se fossem uma struct, confiando na ordem do
+  DOL. Para o segundo, confira o intervalo em `config/GALE01/symbols.txt` e,
+  sob `MELEE_HOST`, junte os objetos numa definicao so, com macros nos
+  deslocamentos originais, como em `toy.c`.
+
+## Laco de frame da cena
+
+```sh
+./build/host-debug/port/melee-pc --run-title-scene assets-local
+```
+
+Congela o relogio do OS, sobe o boot, entra no titulo e roda `gm_801A4D34`
+ate a cena pedir para sair. Sai com erro se nao forem os 621 frames da
+contagem e do tempo limite do titulo, sem botoes e com frames desenhados.
+
+- Congele o relogio antes do boot (`melee_host_os_time_freeze`). Congelado, o
+  tempo so anda quando o jogo espera o proximo alarme em `lb_800195D0`, e cada
+  execucao repete os mesmos frames. Sem congelar, os alarmes seguem o relogio
+  de parede e o laco gira enquanto espera.
+- Uma espera que nao termina quase sempre e uma interrupcao que o host nao
+  entrega. No console elas chegam no meio de qualquer espera; no host chegam
+  em pontos escolhidos: alarmes em `lb_800195D0`, draw done em
+  `VIWaitForRetrace` e `GXWaitDrawDone`. Leia o que a espera testa e procure
+  quem mudaria aquele estado.
+- Uma cena que desenha todo frame precisa de um frame sink
+  (`melee_host_gx_set_frame_sink`), senao a captura do GX cresce sem limite.
+- Codigo de depuracao alcancavel pelo laco (`gm_801A4970`, screenshot, USB)
+  so roda sob uma condicao de `DbLevel` ou de evento. Confira a condicao antes
+  de portar; se o host nunca a satisfaz, pare com nome em `unported.c`.
+
 ## Carga de cena pela camada de objetos
 
 O comando abaixo materializa os descritores do arquivo em layout host e chama

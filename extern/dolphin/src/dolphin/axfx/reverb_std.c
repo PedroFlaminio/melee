@@ -3,8 +3,8 @@
 #include <dolphin/axfx.h>
 
 // functions
-static void DLsetdelay(struct AXFX_REVSTD_DELAYLINE* dl, long lag);
-static void DLcreate(struct AXFX_REVSTD_DELAYLINE* dl, long max_length);
+static void DLsetdelay(struct AXFX_REVSTD_DELAYLINE* dl, s32 lag);
+static void DLcreate(struct AXFX_REVSTD_DELAYLINE* dl, s32 max_length);
 static void DLdelete(struct AXFX_REVSTD_DELAYLINE* dl);
 static int ReverbSTDCreate(struct AXFX_REVSTD_WORK* rv, float coloration,
                            float time, float mix, float damping,
@@ -12,12 +12,12 @@ static int ReverbSTDCreate(struct AXFX_REVSTD_WORK* rv, float coloration,
 static int ReverbSTDModify(struct AXFX_REVSTD_WORK* rv, float coloration,
                            float time, float mix, float damping,
                            float predelay);
-static void HandleReverb(long* sptr, struct AXFX_REVSTD_WORK* rv);
-static void ReverbSTDCallback(long* left, long* right, long* surround,
+static void HandleReverb(s32* sptr, struct AXFX_REVSTD_WORK* rv);
+static void ReverbSTDCallback(s32* left, s32* right, s32* surround,
                               struct AXFX_REVSTD_WORK* rv);
 static void ReverbSTDFree(struct AXFX_REVSTD_WORK* rv);
 
-static void DLsetdelay(struct AXFX_REVSTD_DELAYLINE* dl, long lag)
+static void DLsetdelay(struct AXFX_REVSTD_DELAYLINE* dl, s32 lag)
 {
     dl->outPoint = dl->inPoint - (lag * 4);
     while (dl->outPoint < 0) {
@@ -25,7 +25,7 @@ static void DLsetdelay(struct AXFX_REVSTD_DELAYLINE* dl, long lag)
     }
 }
 
-static void DLcreate(struct AXFX_REVSTD_DELAYLINE* dl, long max_length)
+static void DLcreate(struct AXFX_REVSTD_DELAYLINE* dl, s32 max_length)
 {
     dl->length = (max_length * 4);
     dl->inputs = __AXFXAlloc(max_length * 4);
@@ -47,7 +47,7 @@ static int ReverbSTDCreate(struct AXFX_REVSTD_WORK* rv, float coloration,
 {
     u8 i;
     u8 k;
-    static long lens[4] = {
+    static s32 lens[4] = {
         0x000006FD,
         0x000007CF,
         0x000001B1,
@@ -135,7 +135,7 @@ static int ReverbSTDModify(struct AXFX_REVSTD_WORK* rv, float coloration,
 #ifdef MELEE_HOST
 /* The reverb loop is PowerPC assembly.  It runs from the mixer's aux
  * callback, and the host has no mixer yet; a portable version comes with it. */
-static void HandleReverb(long* sptr, struct AXFX_REVSTD_WORK* rv)
+static void HandleReverb(s32* sptr, struct AXFX_REVSTD_WORK* rv)
 {
     (void) sptr;
     (void) rv;
@@ -146,7 +146,7 @@ const static float value0_3 = 0.3f;
 const static float value0_6 = 0.6f;
 const static double i2fMagic = 4503601774854144.0;
 
-asm static void HandleReverb(register long* sptr,
+asm static void HandleReverb(register s32* sptr,
                              register struct AXFX_REVSTD_WORK* rv)
 {
     // clang-format off
@@ -412,7 +412,7 @@ L_0000090C:
 }
 #endif
 
-static void ReverbSTDCallback(long* left, long* right, long* surround,
+static void ReverbSTDCallback(s32* left, s32* right, s32* surround,
                               struct AXFX_REVSTD_WORK* rv)
 {
     HandleReverb(left, rv);

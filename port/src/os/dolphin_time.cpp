@@ -1,5 +1,6 @@
 #include <melee_host/dolphin_time.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -9,6 +10,11 @@ namespace {
 constexpr std::int64_t kTicksPerSecond = 40'500'000;
 constexpr auto kGameCubeEpoch =
     std::chrono::sys_days{ std::chrono::year{ 2000 } / std::chrono::January / 1 };
+
+/* Game code reads the clock from one thread; the atomics keep a host thread
+ * that freezes or advances it from racing that reader. */
+std::atomic<bool> time_frozen{ false };
+std::atomic<OSTime> frozen_time{ 0 };
 
 OSTime duration_to_ticks(std::chrono::nanoseconds duration)
 {
@@ -20,21 +26,63 @@ OSTime duration_to_ticks(std::chrono::nanoseconds duration)
                                    1'000'000'000);
 }
 
-} // namespace
-
-extern "C" OSTime OSGetTime(void)
+OSTime host_time()
 {
     const auto now = std::chrono::system_clock::now();
     return duration_to_ticks(
         std::chrono::duration_cast<std::chrono::nanoseconds>(now - kGameCubeEpoch));
 }
 
+OSTick low_word(OSTime ticks)
+{
+    return static_cast<OSTick>(static_cast<std::uint64_t>(ticks) & 0xFFFFFFFFU);
+}
+
+} // namespace
+
+extern "C" OSTime OSGetTime(void)
+{
+    if (time_frozen.load()) {
+        return frozen_time.load();
+    }
+    return host_time();
+}
+
+/* Frozen, the tick is the low word of the frozen time, so both readings move
+ * together. */
 extern "C" OSTick OSGetTick(void)
 {
+    if (time_frozen.load()) {
+        return low_word(frozen_time.load());
+    }
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    const OSTime ticks = duration_to_ticks(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(now));
-    return static_cast<OSTick>(static_cast<std::uint64_t>(ticks) & 0xFFFFFFFFU);
+    return low_word(duration_to_ticks(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now)));
+}
+
+extern "C" void melee_host_os_time_freeze(void)
+{
+    if (!time_frozen.load()) {
+        frozen_time.store(host_time());
+        time_frozen.store(true);
+    }
+}
+
+extern "C" void melee_host_os_time_thaw(void)
+{
+    time_frozen.store(false);
+}
+
+extern "C" BOOL melee_host_os_time_frozen(void)
+{
+    return time_frozen.load() ? TRUE : FALSE;
+}
+
+extern "C" void melee_host_os_time_advance(s64 ticks)
+{
+    if (time_frozen.load() && ticks > 0) {
+        frozen_time.fetch_add(ticks);
+    }
 }
 
 extern "C" void OSTicksToCalendarTime(OSTime ticks, OSCalendarTime* output)

@@ -800,6 +800,21 @@ static void fn_8038DA5C(s32 result, DVDFileInfo* fileInfo)
     }
 }
 
+#ifdef MELEE_HOST
+/* One big-endian word of the sound table, which must lie inside the file. */
+static s32 AXDriver_HostReadWord(u32 offset)
+{
+    const u8* p;
+
+    if (offset > AXDriver_804D779C || AXDriver_804D779C - offset < 4) {
+        OSPanic(__FILE__, __LINE__, "sound table is shorter than it says");
+    }
+    p = (const u8*) AXDriver_804D7798 + offset;
+    return (s32) (((u32) p[0] << 24) | ((u32) p[1] << 16) |
+                  ((u32) p[2] << 8) | (u32) p[3]);
+}
+#endif
+
 void AXDriver_8038DA70(const char* path, void (*callback)(void))
 {
     DVDFileInfo fileInfo;
@@ -835,6 +850,67 @@ void AXDriver_8038DA70(const char* path, void (*callback)(void))
 
     DVDClose(&fileInfo);
 
+#ifdef MELEE_HOST
+    /* The file is big-endian, and its pointer tables hold 32-bit offsets that
+     * the console turns into addresses in place.  The host reads counts and
+     * offsets in its own order.  Of the four tables the driver reads two: the
+     * per-bank sample indices, swapped in place, and the command stream of
+     * each sample, kept as a separate array of host pointers.  The other two
+     * are not relocated because nothing reads them.  The command streams
+     * themselves stay big-endian: the host has no voice to run them yet. */
+    (void) ptr;
+    (void) count;
+    (void) i;
+    offset = 0;
+    AXDriver_804D77A0 = AXDriver_HostReadWord(offset);
+    AXDriver_804D77A4 = AXDriver_804D77A0 != 0
+                            ? (u8*) AXDriver_804D7798 + 4
+                            : NULL;
+    offset = AXDriver_804D77A0 * 4 + 4;
+
+    AXDriver_804D77A8 = AXDriver_HostReadWord(offset);
+    offset += 4;
+    AXDriver_804D77AC = AXDriver_804D77A8 != 0
+                            ? (u8*) AXDriver_804D7798 + offset
+                            : NULL;
+    offset += AXDriver_804D77A8 * 4;
+
+    AXDriver_804D77B0 = AXDriver_HostReadWord(offset);
+    offset += 4;
+    AXDriver_804D77B4 = AXDriver_804D77B0 != 0
+                            ? (u32*) ((u8*) AXDriver_804D7798 + offset)
+                            : NULL;
+    for (j = 0; j < AXDriver_804D77B0; j++) {
+        AXDriver_804D77B4[j] = (u32) AXDriver_HostReadWord(offset + j * 4);
+    }
+    offset += AXDriver_804D77B0 * 4;
+
+    AXDriver_804D77B8 = AXDriver_HostReadWord(offset);
+    offset += 4;
+    if (AXDriver_804D77BC != NULL) {
+        HSD_AudioFree(AXDriver_804D77BC);
+    }
+    AXDriver_804D77BC = NULL;
+    if (AXDriver_804D77B8 != 0) {
+        AXDriver_804D77BC =
+            HSD_AudioMalloc(sizeof(*AXDriver_804D77BC) * AXDriver_804D77B8);
+        for (j = 0; j < AXDriver_804D77B8; j++) {
+            u32 stream = (u32) AXDriver_HostReadWord(offset + j * 4);
+            if (stream >= AXDriver_804D779C) {
+                OSPanic(__FILE__, __LINE__,
+                        "sound command stream lies outside the file");
+            }
+            AXDriver_804D77BC[j] = (u32*) ((u8*) AXDriver_804D7798 + stream);
+        }
+    }
+    offset += AXDriver_804D77B8 * 4;
+
+    AXDriver_804D77C0 = AXDriver_HostReadWord(offset);
+    offset += 4;
+    AXDriver_804D77C4 = AXDriver_804D77C0 != 0
+                            ? (u8*) AXDriver_804D7798 + offset
+                            : NULL;
+#else
     AXDriver_804D77A0 = ((s32*) AXDriver_804D7798)[0];
     count = AXDriver_804D77A0;
     if (count != 0) {
@@ -902,6 +978,7 @@ void AXDriver_8038DA70(const char* path, void (*callback)(void))
         *(u32*) ((u8*) AXDriver_804D77C4 + i) += (u32) AXDriver_804D7798 & ~3u;
         i += 4;
     }
+#endif
 }
 
 void AXDriver_8038DCFC(void)
@@ -910,6 +987,12 @@ void AXDriver_8038DCFC(void)
         HSD_AudioFree(AXDriver_804D7798);
     }
     AXDriver_804D7798 = NULL;
+#ifdef MELEE_HOST
+    if (AXDriver_804D77BC != NULL) {
+        HSD_AudioFree(AXDriver_804D77BC);
+    }
+    AXDriver_804D77BC = NULL;
+#endif
 }
 
 int AXDriverSetupAux(int channel, AXDriverAuxType type, void* param)

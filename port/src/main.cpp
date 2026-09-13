@@ -21,6 +21,7 @@
 #include <melee_host/archive_probe.h>
 #include <melee_host/baselib.h>
 #include <melee_host/boot.h>
+#include <melee_host/dolphin_time.h>
 #include <melee_host/hsd_archive.h>
 #include <melee_host/gx.h>
 #include <melee_host/host.h>
@@ -1671,8 +1672,74 @@ int main(int argc, char** argv)
                 return 1;
             }
             melee_host_title_scene_enter();
+            MeleeHostTitleSceneReport scene{};
+            const MeleeHostStatus reported =
+                melee_host_title_scene_report(&scene);
             melee_host_destroy(context);
-            return 0;
+            if (reported != MELEE_HOST_OK) {
+                std::cerr << "the scene built no GObj lists\n";
+                return 1;
+            }
+            std::cout << "entered the title screen through gm_801A4BD4 and "
+                         "gm_Scene_Title_OnEnter\n"
+                      << "  GObjs: " << scene.gobjs << " ("
+                      << scene.rendered << " with a render callback)\n"
+                      << "  cameras: " << scene.cameras
+                      << ", lights: " << scene.lights
+                      << ", fogs: " << scene.fogs
+                      << ", models: " << scene.models << '\n'
+                      << "  processes: " << scene.procs << '\n'
+                      << "  JObjs: " << scene.jobjs
+                      << ", LObjs: " << scene.lobjs << '\n';
+            /* What gmtitle.c builds: two cameras (clear and draw), a light
+             * list, a fog, the title logo and the background.  The scene
+             * manager adds the third camera, the one DevText_CreateCObj gives
+             * the debug text overlay. */
+            const bool complete = scene.cameras == 3 && scene.lights == 1 &&
+                                  scene.fogs == 1 && scene.models == 2;
+            return complete ? 0 : 1;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--run-title-scene") {
+            MeleeHostContext* context = nullptr;
+            const std::string root = argv[2];
+            const MeleeHostConfig config{ .resource_root = root.c_str(),
+                                          .headless = true };
+            /* Frozen before boot, so the disc waits take the same pad samples
+             * on every run as well. */
+            melee_host_os_time_freeze();
+            if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+                melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
+                melee_host_boot_memory_init(0) != MELEE_HOST_OK ||
+                melee_host_boot_load_dol_data(
+                    (root + "/sys/main.dol").c_str()) != MELEE_HOST_OK) {
+                std::cerr << "boot failed\n";
+                melee_host_destroy(context);
+                return 1;
+            }
+            melee_host_title_scene_enter();
+            MeleeHostTitleRunReport run{};
+            const MeleeHostStatus ran = melee_host_title_scene_run(&run);
+            melee_host_destroy(context);
+            if (ran != MELEE_HOST_OK) {
+                std::cerr << "the title scene did not run\n";
+                return 1;
+            }
+            std::cout << "ran the title screen through gm_801A4D34\n"
+                      << "  scene frames: " << run.scene_frames << '\n'
+                      << "  drawn frames: " << run.drawn_frames << " ("
+                      << run.last_frame_triangles
+                      << " triangles in the last)\n"
+                      << "  retraces: " << run.retraces << '\n'
+                      << "  exit buttons: 0x" << std::hex << run.exit_buttons
+                      << std::dec << '\n'
+                      << "  OS time: " << run.elapsed_ticks << " ticks\n";
+            /* gm_Scene_Title_OnFrame counts down 20 frames, then leaves with
+             * no buttons on the frame its counter passes 600. */
+            const bool timed_out = run.scene_frames == 621 &&
+                                   run.exit_buttons == 0 &&
+                                   run.drawn_frames > 0 &&
+                                   run.last_frame_triangles > 0;
+            return timed_out ? 0 : 1;
         }
         if ((argc == 4 || argc == 5) &&
             std::string(argv[1]) == "--load-scene") {

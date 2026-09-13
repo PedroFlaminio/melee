@@ -12,6 +12,8 @@
 
 #include <melee_host/video.h>
 
+#include <melee_host/gx.h>
+
 #include <dolphin/gx/GXStruct.h>
 #include <dolphin/types.h>
 #include <dolphin/vi.h>
@@ -162,6 +164,12 @@ void VIFlush(void)
 
 void VIWaitForRetrace(void)
 {
+    /* The console takes interrupts while it waits for a retrace, and HSD's XFB
+     * cycle needs the draw-done one: it is what turns the frame GX finished
+     * into one a retrace can display, and HSD waits on retraces until one is.
+     * The host has no graphics processor to raise it, so a fence still pending
+     * is delivered here. */
+    static_cast<void>(melee_host_gx_drain_draw_done());
     RetraceDelivery delivery;
     {
         const std::lock_guard<std::mutex> guard(video_mutex);

@@ -8,9 +8,13 @@
 
 #include <melee/ef/efasync.h>
 #include <melee/ft/ftdata.h>
+#include <melee/gm/gm_16F1.h>
 #include <melee/gr/grdatfiles.h>
+#include <sysdolphin/baselib/hsd_3982.h>
+#include <sysdolphin/baselib/leak.h>
 
 #include <dolphin/os.h>
+#include <dolphin/os/OSThread.h>
 
 #define MELEE_HOST_UNPORTED(name)                                             \
     OSPanic(__FILE__, __LINE__, "%s is not ported to the host yet", name)
@@ -51,4 +55,46 @@ void grDatFiles_801C5FC0(HSD_Archive* archive, void* data, size_t length)
     (void) data;
     (void) length;
     MELEE_HOST_UNPORTED("grDatFiles_801C5FC0");
+}
+
+/* gmtitlemode.c's onExit picks the mode that follows the title screen.  The
+ * title state's table names it, so the link needs what it calls, but the host
+ * does not run the state's on_exit yet. */
+bool gm_80173754(u8 arg0, u8 arg1)
+{
+    (void) arg0;
+    (void) arg1;
+    MELEE_HOST_UNPORTED("gm_80173754");
+    return false;
+}
+
+void gm_80173EEC(void)
+{
+    MELEE_HOST_UNPORTED("gm_80173EEC");
+}
+
+/* gm_801A4D34 runs gm_801A4970, the debug pause and report handler, and checks
+ * the thread list only at the debug levels, which the host does not select.
+ * These are what the report and the check call. */
+int HSD_Leak_80387DF8(int arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("HSD_Leak_80387DF8");
+    return 0;
+}
+
+HSD_GObj* hsd_80398310(u16 arg0, u8 arg1, u8 arg2, u32 arg3)
+{
+    (void) arg0;
+    (void) arg1;
+    (void) arg2;
+    (void) arg3;
+    MELEE_HOST_UNPORTED("hsd_80398310");
+    return NULL;
+}
+
+long OSCheckActiveThreads(void)
+{
+    MELEE_HOST_UNPORTED("OSCheckActiveThreads");
+    return 0;
 }

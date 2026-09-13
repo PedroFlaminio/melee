@@ -121,10 +121,20 @@ static f32 parseFloat(u8** pos, u8 frac)
     s32 denom;
 
     if (frac == HSD_A_FRAC_FLOAT) {
+#ifdef MELEE_HOST
+        /* The same bytes, shifted in an unsigned type: a byte of 0x80 or more
+         * shifted into the sign bit of an int is undefined behaviour the
+         * sanitizers report. */
+        u.d = (u32) ((*pos)++)[0];
+        u.d |= (u32) ((*pos)++)[0] << 8;
+        u.d |= (u32) ((*pos)++)[0] << 16;
+        u.d |= (u32) ((*pos)++)[0] << 24;
+#else
         u.d = (s32) ((*pos)++)[0];
         u.d |= ((*pos)++)[0] << 8;
         u.d |= ((*pos)++)[0] << 16;
         u.d |= ((*pos)++)[0] << 24;
+#endif
         return u.f;
     }
 

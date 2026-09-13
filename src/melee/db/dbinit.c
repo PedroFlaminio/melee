@@ -140,6 +140,14 @@ void db_PrintEntityCounts(void)
 
 void db_PrintThreadInfo(void)
 {
+#ifdef MELEE_HOST
+    /* _stack_addr and _stack_end are the main thread's stack bounds from the
+     * DOL's linker script, and the report scans that stack for the 0xAA its
+     * unused part holds.  A host process has no such region to measure. */
+    OSReport("------ Thread info ------\n");
+    OSReport("the host has no fixed main thread stack to measure\n");
+    OSReport("\n");
+#else
     u8* peak = _stack_end + 4;
     while (*peak == 0xAA) {
         peak += 1;
@@ -148,6 +156,7 @@ void db_PrintThreadInfo(void)
     OSReport("base:%x, end:%x, size:%d peak:%d \n", _stack_addr, _stack_end,
              _stack_addr - _stack_end, _stack_addr - peak);
     OSReport("\n");
+#endif
 }
 
 static inline int db_get_pad_button(int i)

@@ -5,6 +5,7 @@
 
 MELEE_HOST_TEST_HSD_BEGIN
 #include <dolphin/gx/GXFrameBuffer.h>
+#include <dolphin/gx/GXManage.h>
 #include <dolphin/gx/GXStruct.h>
 #include <dolphin/vi.h>
 #include <dolphin/vi/vitypes.h>
@@ -198,4 +199,33 @@ TEST_CASE("the host refuses to advance a display that was never initialized")
     melee_host_video_reset();
     REQUIRE(melee_host_video_advance_retrace() == MELEE_HOST_NOT_READY);
     REQUIRE(melee_host_video_state(nullptr) == MELEE_HOST_INVALID_ARGUMENT);
+}
+
+namespace {
+
+int retrace_draw_done_calls = 0;
+
+void count_draw_done()
+{
+    retrace_draw_done_calls += 1;
+}
+
+} // namespace
+
+TEST_CASE("waiting for a retrace delivers a pending draw-done fence")
+{
+    melee_host_video_reset();
+    VIInit();
+    retrace_draw_done_calls = 0;
+    static_cast<void>(GXSetDrawDoneCallback(count_draw_done));
+
+    GXSetDrawDone();
+    VIWaitForRetrace();
+    REQUIRE(retrace_draw_done_calls == 1);
+
+    // With no fence outstanding a retrace delivers nothing.
+    VIWaitForRetrace();
+    REQUIRE(retrace_draw_done_calls == 1);
+
+    static_cast<void>(GXSetDrawDoneCallback(nullptr));
 }

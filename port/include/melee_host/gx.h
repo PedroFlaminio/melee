@@ -461,6 +461,14 @@ void melee_host_gx_draw_sync_state(MeleeHostGxDrawSyncState* output);
 /* Delivers a pending draw-done callback from the host frame loop.  Returns
  * true when a fence was outstanding and its callback ran. */
 bool melee_host_gx_drain_draw_done(void);
+/* Receives each frame GXCopyDisp completes, with everything captured since the
+ * previous copy still readable through the accessors above.  The capture is
+ * cleared when the sink returns, so a scene drawing every frame does not grow
+ * it without bound.  With no sink, GXCopyDisp only records the copy and the
+ * capture keeps accumulating, which is what the single-frame diagnostics read.
+ * The sink runs outside the recorder's locks. */
+typedef void (*MeleeHostGxFrameSink)(void* user_data);
+void melee_host_gx_set_frame_sink(MeleeHostGxFrameSink sink, void* user_data);
 /* Reads a 3x4 matrix out of GX matrix memory at the given row id. */
 bool melee_host_gx_matrix(mh_u32 row_id, MeleeHostGxAffineTransform* output);
 /* Whether the game actually loaded all three rows of that matrix.  Matrix

@@ -704,3 +704,45 @@ TEST_CASE("a draw-done fence stays pending until something drains it")
     GXDrawDone();
     REQUIRE(draw_done_calls == 3);
 }
+
+namespace {
+
+int frames_received = 0;
+size_t commands_in_frame = 0;
+
+void record_frame(void* user_data)
+{
+    frames_received += 1;
+    commands_in_frame = melee_host_gx_command_count();
+    *static_cast<int*>(user_data) += 1;
+}
+
+} // namespace
+
+TEST_CASE("a frame sink receives each display copy's capture before it clears")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+    frames_received = 0;
+    commands_in_frame = 0;
+    int user_calls = 0;
+
+    melee_host_gx_submit_u32(1);
+    melee_host_gx_set_frame_sink(record_frame, &user_calls);
+    GXCopyDisp(nullptr, GX_TRUE);
+    REQUIRE(frames_received == 1);
+    REQUIRE(user_calls == 1);
+    REQUIRE(commands_in_frame == 1);
+    REQUIRE(melee_host_gx_command_count() == 0);
+
+    // Without a sink the copy is only counted and the capture accumulates.
+    melee_host_gx_set_frame_sink(nullptr, nullptr);
+    melee_host_gx_submit_u32(2);
+    GXCopyDisp(nullptr, GX_TRUE);
+    REQUIRE(frames_received == 1);
+    REQUIRE(melee_host_gx_command_count() == 1);
+    MeleeHostGxDisplayCopyState copy{};
+    melee_host_gx_display_copy_state(&copy);
+    REQUIRE(copy.copy_count == 2);
+    melee_host_gx_reset_command_log();
+}

@@ -14,6 +14,7 @@ add_library(melee_host STATIC
     src/video/vi.cpp
     src/host.cpp
     src/os/clock.cpp
+    src/os/absent_devices.c
     src/os/alarm.c
     src/os/baselib_support.c
     src/os/dolphin_mtx.c
@@ -185,12 +186,24 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbsnap.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lb_0195.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lb_013B.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lb_00B0.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ty/toy.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnname.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnnamenew.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_16F1.c
     ${CMAKE_SOURCE_DIR}/src/melee/if/if_2FF2.c
     ${CMAKE_SOURCE_DIR}/src/melee/if/textdraw.c
     ${CMAKE_SOURCE_DIR}/src/melee/if/textlib_1.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3915.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/sobjlib.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3924.c
+    # The title's state table, and what the scene frame loop (gm_801A4D34) and
+    # its pad alarm call every frame.
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmtitlemode.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_392C.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3933.c
+    ${CMAKE_SOURCE_DIR}/src/melee/db/dbscreenshot.c
+    ${CMAKE_SOURCE_DIR}/src/melee/lb/lbcardgame.c
     src/game/unported.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     src/os/os_heap.c
@@ -237,6 +250,16 @@ if(MELEE_HOST_ENABLE_SANITIZERS)
         # Both refer to the unported preload cache in lbdvd.c.
         ${CMAKE_SOURCE_DIR}/src/melee/lb/lbarchive.c
         ${CMAKE_SOURCE_DIR}/src/melee/lb/lbfile.c
+        # The title screen's path reaches these, and each also names menus,
+        # stages or card code the host does not build yet.
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1601.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmcameramode.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain_lib.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmopeningmode.c
+        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbaudio_ax.c
+        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmain.c
+        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnname.c
+        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnnamenew.c
         PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address,undefined"
     )
 endif()
@@ -287,6 +310,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/gx_texture_test.cpp
         tests/hsd_schema_test.cpp
         tests/interrupts_test.cpp
+        tests/os_clock_test.cpp
         tests/virtual_disc_test.cpp
         tests/dvd_test.cpp
         tests/host_test.cpp
@@ -398,6 +422,33 @@ if(MELEE_HOST_BUILD_TESTS)
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_tests_properties(melee-host-boot-title-archive-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
+    # The title screen entered by its own code: the scene manager's setup
+    # (gm_801A4BD4) and gm_Scene_Title_OnEnter, after gmMain's boot.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/sys/main.dol")
+        add_test(
+            NAME melee-host-title-scene-asset
+            COMMAND melee-pc --boot-title-scene
+                    ${CMAKE_SOURCE_DIR}/assets-local
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-title-scene-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+        # The title screen's own frame loop, gm_801A4D34, on a frozen OS clock:
+        # the scene has to draw its frames and leave by itself when its
+        # countdown and 600 frames run out.
+        add_test(
+            NAME melee-host-title-frames-asset
+            COMMAND melee-pc --run-title-scene
+                    ${CMAKE_SOURCE_DIR}/assets-local
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-title-frames-asset PROPERTIES
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()

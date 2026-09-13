@@ -1041,7 +1041,15 @@ void HSD_TExpSetReg(HSD_TExp* texp)
     u32 changed;
     HSD_TECnst* clist;
 
+#ifdef MELEE_HOST
+    /* HSD_TExp is a union, so the original expression is NULL for a NULL
+     * texp, and the loop below never starts.  The host spells that out,
+     * because reaching through a null pointer for a member address is
+     * undefined behaviour the sanitizers report. */
+    clist = texp != NULL ? &texp->cnst : NULL;
+#else
     clist = &texp->cnst;
+#endif
     changed = 0;
 
     while (clist != NULL) {

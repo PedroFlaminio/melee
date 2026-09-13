@@ -280,6 +280,14 @@ BOOL OSGetResetSwitchState(void)
     return FALSE;
 }
 
+/* The console keeps why it last reset in low memory; zero is a cold power-on,
+ * which is the only way the host starts.  gmMainLib_8015FCC0 reads it to
+ * decide whether the intro is skipped. */
+unsigned long OSGetResetCode(void)
+{
+    return 0;
+}
+
 void ARQPostRequest(ARQRequest* request, u32 owner, u32 type, u32 priority,
                     ARQAddress source, ARQAddress dest, u32 length,
                     ARQCallback callback)

@@ -570,6 +570,166 @@ Atualizado em 13 de setembro de 2026.
   sprite do logo tem imagem. Virou o teste
   `melee-host-boot-title-archive-asset`, em processo proprio porque move a
   arena do OS.
+- [x] Tela de titulo entrada pelo codigo do jogo: `gm_801A4BD4`, o setup que o
+  gerenciador de cenas faz antes de toda cena, e `gm_Scene_Title_OnEnter`,
+  depois do boot do `gmMain` (`melee-pc --boot-title-scene`). O relatorio le as
+  listas da propria biblioteca de GObj: 9 GObjs (8 com callback de render),
+  3 cameras (a de limpeza e a de desenho do titulo, mais a que
+  `DevText_CreateCObj` cria para o texto de depuracao), 1 lista de luzes,
+  1 fog, 2 modelos, 4 processos, 37 JObjs e 2 LObjs. Virou o teste
+  `melee-host-title-scene-asset`.
+- [x] O boot segue o `main()` original ate o fim: nivel `Master` sem
+  `/develop.ini` (espelho de `gmMain_8015FDA4`, que e `static`),
+  `lbAudioAx_8002838C` antes de `lbMemory_8001564C`, `lbDvd_80018F68`,
+  `gmMainLib_8015FCC0`, `HSD_SisLib_803A6048(0xC000)` e `gmMainLib_8015FBA4`
+  (idioma, regras e o banco de som principal).
+- [x] Modulos originais que entraram no build por essa cadeia: `dbinit.c`,
+  `gm_1601.c`, `gm_16F1.c`, `gm_1A3F.c`, `gmcameramode.c`, `gmopening.c`,
+  `gmopeningmode.c`, `gmtitle.c`, `lb_00B0.c`, `lb_013B.c`, `lb_0195.c`,
+  `lbaudio_ax.c`, `lbdvd.c`, `lbmthp.c`, `lbsnap.c`, `lbspdisplay.c`,
+  `mn_22EC.c`, `mnname.c`, `mnnamenew.c`, `if_2FF2.c`, `textdraw.c`,
+  `textlib_1.c`, `toy.c`, `stage.c`, `sislib.c`, `sobjlib.c`, `hsd_3915.c`,
+  `hsd_3924.c`, `hsd_3A64.c`, `hsd_3A76.c`, `axdriver.c` e os efeitos AXFX da
+  SDK (`axfx.c`, `chorus.c`, `delay.c`, `reverb_hi.c`, `reverb_std.c`).
+- [x] Alarmes do OS no host (`port/src/os/alarm.c`): fila ordenada pelo tempo
+  de disparo, periodicos rearmados antes do handler, como no `InsertAlarm` da
+  SDK. Disparam onde o host devolve o controle ao jogo: na espera de disco e na
+  fronteira de frame. O relogio de frame da cena e um deles:
+  `lb_80019628` arma um alarme periodico de 1/60 s que amostra o pad.
+- [x] `__OSBusClock` e `__OSCoreClock` sao constantes sob `MELEE_HOST`; fora do
+  compilador da build matching eles liam o endereco `0x800000F8`.
+- [x] `VA_END_PTR` em `src/Runtime/platform.h`: termina uma lista variadica de
+  ponteiros. O jogo escreve `0`, que um callee de 64 bits le de volta como
+  ponteiro e que, passado na pilha, pode trazer lixo na metade alta. Expande
+  para `0` na build PowerPC e para um ponteiro nulo no host. Aplicado a
+  `gmTitle_801A1AC0` e `lb_80014534`.
+- [x] Dados que vivem dentro do DOL, e nao num arquivo do disco, lidos do
+  `main.dol` extraido pelo usuario pelo endereco que o jogo usa
+  (`port/src/assets/dol_image.cpp`): o atlas da fonte SIS (`0x8040CD40`,
+  287 glifos de 512 bytes) e o atlas de depuracao (`0x804088B8`, `0x1C00`
+  bytes), com os tamanhos de `config/GALE01/symbols.txt`. A build matching
+  embute esses bytes por `.inc` gerados; o host nao os compila nem distribui.
+- [x] `lbRumbleData` traduzido pela API de arquivo, reconhecido pelo nome
+  inteiro: 40 registros de lista de comandos e prioridade.
+- [x] Estagios fora do build sao referencias `weak` em `ground.c`, por um
+  header forcado (`port/src/game/host_weak_stages.h`), sem editar a decomp: a
+  entrada da tabela fica nula, que `Ground_801C06B8` ja trata como estagio sem
+  dados.
+- [x] Funcoes nao portadas que o link alcanca param com o proprio nome
+  (`port/src/game/unported.c`): `ftData_800855C8`, `ftData_8008578C`,
+  `efAsync_OnLoad` e `grDatFiles_801C5FC0`, alcancaveis so pelo preload de VS.
+- [x] Audio sem mixer: `ARInit`, `ARQInit` e `AIInit` como fachada;
+  `AXAcquireVoice` devolve NULL, que o synth trata como vozes esgotadas, e os
+  setters de voz so recebem voz entregue por ele. Os nucleos de DSP do reverb e
+  do chorus da SDK sao assembly PowerPC e, sob `MELEE_HOST`, param com nome:
+  so rodam dentro do callback aux do mixer.
+- [x] Carga de bancos de SFX em `synth.c`: o cabecalho SSM e big-endian e e
+  convertido antes do teste de espaco. O console monta os descritores de
+  amostra sobre o proprio buffer com tamanhos PowerPC; o host mantem a
+  contabilidade (callback do jogo e espaco do banco) e nao monta descritores.
+  `HSD_SynthSFXBankDeflag` escrevia 32 posicoes alem do vetor de listas de
+  grupo, o que no PowerPC cai em `hsd_SynthSFXBank`; no host o banco e nomeado
+  direto.
+- [x] Tabela de sons `.sem` em `axdriver.c`: big-endian e com ponteiros de 32
+  bits relocados no lugar. O host le contagens e offsets, converte a tabela de
+  indices de amostra e monta a de fluxos de comando como vetor de ponteiros a
+  parte; as outras duas tabelas nao tem leitor e nao sao relocadas.
+- [x] `hsd_3A76.c` passava um `Mtx` de tres linhas a `MTXOrtho` fora de
+  `MUST_MATCH`; agora e `Mtx44`. `hsd_3915.c` escrevia direto em `GXWGFifo`; sob
+  `MELEE_HOST` usa `GXPosition2f32`, que grava os mesmos dois floats.
+- [x] Matching das mudancas na decomp e na SDK desta etapa, contra
+  `e8a86e9ac`: 12 dos 19 arquivos `.c` pre-processam identicos com
+  `-DMUST_MATCH` e sem `MELEE_HOST`; `lb_013B.c`, `lbarchive.c`, `lbfile.c` e
+  `lbmemory.c` geram objetos identicos com `cc -m32 -O2 -DMUST_MATCH`;
+  `ftdata.c`, `gm_1A3F.c` e `lbdvd.c` diferem so por `HSD_DevComArg` no lugar de
+  `int`, que e `int` na build PowerPC, e nao compilam com o `cc` do host para a
+  comparacao de objeto.
+- [x] Amostras de audio com 32 bits no host. `axfx.h`, `ax.h` e os efeitos
+  AXFX declaravam amostras, ponteiros de amostra e contadores de linha de
+  atraso como `long`, que tem 64 bits no host. `AXFXDelaySettings`, que o boot
+  alcanca por `lbAudioAx_8002838C`, reservava `n * 4` bytes e zerava `n * 8`,
+  alem do bloco. Agora sao `s32` e `u32`, que na build PowerPC sao o mesmo
+  `signed long` e `unsigned long`. O build de debug passava por cima do erro; o
+  ASan parou nele.
+- [x] Bloco de `.bss` do `toy.c` num objeto so no host. O codigo de trofeus
+  enderecava de `0x804A26B8` a `0x804A2ABC` como um `Toy26B8`, atravessando
+  cinco objetos que o DOL guarda em sequencia, e `Toy_80311960`, que o boot
+  alcanca por `gmMainLib_8015F600`, escrevia fora deles. Sob `MELEE_HOST` o
+  bloco e uma unica definicao de `Toy26B8`, e `_Toy_804A26B8`, os dois buffers
+  de DevText, `Toy_804A284C` e `Toy_804A2AA8` sao macros para as partes nos
+  deslocamentos do DOL, com o tipo de array preservado. Um `_Static_assert`
+  confere o deslocamento `0x3F0` de `Toy_804A2AA8`.
+- [x] Matching dessas duas mudancas contra `3b01b4a5f`: `axfx.c`, `delay.c` e
+  `AXAux.c` geram objetos identicos com `cc -m32 -O2 -DMUST_MATCH`; em
+  `chorus.c`, `reverb_hi.c` e `reverb_std.c`, que tem assembly, o
+  pre-processamento so troca `long` por `s32` e realinha uma linha; `toy.c`,
+  `tydisplay.c`, `tylist.c`, `tyfigupon.c` e `gmmain_lib.c` pre-processam
+  identicos, ignorando linhas vazias. `toy.c` nao compila com o `cc` do host
+  para comparar objeto, ja no commit base, por asserts de tamanho de `gmm_x0`.
+- [x] Medido depois delas: `host-debug` com 167/167 testes unitarios e ctest
+  10/10; `host-sanitize` com ctest 10/10, antes 8/10 com o boot parando no
+  ASan. A cena de titulo segue com 9 GObjs (8 com render), 3 cameras, 1 luz,
+  1 fog, 2 modelos, 4 processos, 37 JObjs e 2 LObjs.
+- [x] Laco de frame original da tela de titulo. `melee-pc --run-title-scene`
+  congela o relogio do OS, sobe o boot, entra no titulo e roda `gm_801A4D34`
+  com o `on_frame` da cena ate a propria cena pedir para sair. Medido: 621
+  frames de jogo (20 de contagem e 601 ate o contador passar de 600), 621
+  frames desenhados por `HSD_GObj_80390FC0` e copiados para XFB, 621
+  retraces, saida sem botoes, 2679 triangulos capturados no ultimo frame e
+  419175000 ticks de OS, exatamente 621 periodos de 1/60 s. Leva 2,0 s em
+  `host-debug` e 10,6 s em `host-sanitize`, com o mesmo relatorio.
+- [x] O titulo entra pelo estado real de `gmtitlemode.c`: `gm_801A4BD4`,
+  `gm_801A4B88` com a `GameSceneInfo` do estado (a `exit_data` que o `onExit`
+  le) e `gm_Scene_Title_OnEnter`, o meio de `gm_801A4014`.
+- [x] Relogio do OS congelavel (`melee_host_os_time_freeze`): congelado,
+  `OSGetTime` e `OSGetTick` so andam por `melee_host_os_time_advance`. A espera
+  do jogo, `lb_800195D0`, salta ate o proximo alarme quando o relogio esta
+  congelado e a fila bruta de pad esta vazia. `gm_801A4D34` passa por ali uma
+  vez antes de rodar os frames enfileirados e outra depois, com a fila vazia,
+  entao o salto acontece uma vez por frame.
+- [x] Boot com a inicializacao de pad e video de `main()`: `lb_80019AAC` com um
+  espelho de `gmMain_8015FD24`, que e `static` (fila de 5 amostras, 12
+  entradas de rumble, clamps de stick e gatilho), o callback vazio de
+  `gmMain_8015FDA0` como pos-retrace, `HSD_VIDrawDoneXFB` como callback de
+  draw done e `HSD_VISetBlack(0)`. O alarme periodico de pad fica armado desde
+  o boot.
+- [x] `VIWaitForRetrace` entrega a cerca de draw done pendente antes do
+  retrace. Pela leitura de `video.c`, sem essa interrupcao o XFB desenhado
+  fica em `WAITDONE`, e `HSD_VIWaitXFBDrawEnable` e o `HSD_VIWaitXFBFlush` do
+  fim do laco esperam retraces para sempre.
+- [x] Frame sink do GX (`melee_host_gx_set_frame_sink`): `GXCopyDisp` entrega a
+  captura do frame ao sink e depois a limpa. Sem sink nada muda para os
+  diagnosticos de um frame.
+- [x] Modulos originais que entraram por esse laco: `gmtitlemode.c`,
+  `hsd_392C.c` e `hsd_3933.c` (as bombas de eventos do adaptador USB, que
+  retornam na hora: so os callbacks que `MCCInit` e `MCCOpen` registram enchem
+  essas filas), `dbscreenshot.c` e `lbcardgame.c`.
+- [x] Perifericos ausentes (`port/src/os/absent_devices.c`): as sondagens de
+  MCC e FIO respondem adaptador ausente nos termos da SDK (`MCCInit`,
+  `FIOInit` e `MCCOpen` devolvem 0, `MCCGetLastError` devolve 1, que o jogo
+  chama de "MCC is no initialize"); o que so faz sentido com um canal aberto
+  para com o nome. `CARDProbe` nao encontra cartao.
+- [x] Paradas com nome em `unported.c`: `gm_80173754` e `gm_80173EEC`, que o
+  `onExit` do estado de titulo chama e o host ainda nao roda;
+  `HSD_Leak_80387DF8`, `hsd_80398310` e `OSCheckActiveThreads`, que o laco so
+  alcanca nos niveis de depuracao. `db_PrintThreadInfo` ganhou um ramo
+  `MELEE_HOST`: `_stack_addr` e `_stack_end` sao limites da pilha no linker
+  script do DOL, e o host nao tem essa regiao.
+- [x] Tres relatos do UBSan no caminho do titulo ficaram explicitos sob
+  `MELEE_HOST`: o alarme de pad armava `fn_800195FC(void)` como
+  `OSAlarmHandler` (`lb_0195.c` agora arma um handler do tipo certo),
+  `parseFloat` deslocava um byte para o bit de sinal de um `int` (`fobj.c`) e
+  `HSD_TExpSetReg` tomava o endereco de um membro de `texp` nulo (`texp.c`).
+- [x] Matching contra `3b01b4a5f`, com `-DMUST_MATCH` e sem `MELEE_HOST`:
+  `lb_0195.c`, `fobj.c` e `texp.c` pre-processam identicos e geram objetos
+  identicos com `cc -m32 -O2`; `dbinit.c` pre-processa identico (14213 linhas
+  nao vazias) e nao compila com o `cc` do host para comparar objeto, ja no
+  commit base.
+- [x] Medido ao fim: `host-debug` com 171/171 testes unitarios (novos: relogio
+  congelado, fila de alarmes vazia, frame sink e draw done no retrace) e ctest
+  11/11; `host-sanitize` com ctest 11/11. Os testes da cena de titulo e do
+  laco nao tem relato do UBSan; na suite inteira restam dois, listados nas
+  limitacoes.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -602,16 +762,13 @@ Atualizado em 13 de setembro de 2026.
 
 ## Proximos gates
 
-1. Tela de titulo montada pelo codigo original: compilar `gmtitle.c` e rodar
-   `gm_Scene_Title_OnEnter`, que ja tem o arquivo, a memoria e o disco de que
-   precisa. Faltam as fachadas que ele chama: audio (`lbAudioAx_*`), filme
-   (`lbMthp_8001F614`), texto (`HSD_SisLib_*`), `lbspdisplay.c`
-   (`lb_80013B14`, `lb_80011AC4`, `lb_80011E24`) e as rotinas de menu e de
-   demo do titulo; e o terminador `0` da lista variadica, que precisa ser NULL
-   em 64 bits.
-2. Laco de frame desenhando pelos GX links dos GObjs e apresentado pelo
-   SDL/OpenGL com a camera e a projecao do jogo, em vez da camera orbital do
-   preview.
+1. Apresentar pelo SDL/OpenGL a captura que o frame sink recebe do laco de
+   titulo, com a camera e a projecao do jogo em vez da camera orbital do
+   preview, a 60 Hz de relogio de parede.
+2. `gm_801A4014` inteiro para o titulo: o preload e o `on_enter` do estado
+   antes, o `on_exit` (que escolhe o proximo modo) e o roteamento depois. Isso
+   traz `gm_1736.c` e, pelo fim de `gm_801A4014`, o cartao de memoria de
+   `lbcardnew.c`.
 3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
    confundir isso com uma saida DSP real.
 4. Fechar o que o TEV por fragmento nao cobre: bump, fog e copias de EFB.
@@ -720,16 +877,44 @@ Atualizado em 13 de setembro de 2026.
   drive, reset e cartao nao existem. Uma leitura que falha marca o erro
   estatico do devcom, que nao chama o callback, e o jogo espera para sempre; a
   flag e `static` e o host ainda nao a enxerga.
-- O boot pula `lbAudioAx_8002838C` (a ARAM comeca mais baixo que no console),
-  `lbDvd_80018F68` (nao ha cache de preload) e `GXInit` (a FIFO e reservada na
-  arena, mas nao entregue). `lbdvd.c` nao compila: `lbArchive_80016F80`,
-  `lbArchive_80017040`, `lbArchive_800171CC` e `lbFile_800168A0` citam o cache
-  de preload e so ligam enquanto ninguem os chama. No build com sanitizers,
-  `lbarchive.c` e `lbfile.c` compilam sem instrumentacao pelo mesmo motivo.
+- O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue),
+  `lbArq_80014D2C`, `lb_8001C5BC`, `lb_8001D21C`, `lbSnap_8001E290` e
+  `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao e
+  selecionado.
+- No build com sanitizers, `lbarchive.c`, `lbfile.c`, `gm_1601.c`,
+  `gmcameramode.c`, `gmmain_lib.c`, `gmopeningmode.c`, `lbaudio_ax.c`,
+  `mnmain.c`, `mnname.c` e `mnnamenew.c` compilam sem instrumentacao: a
+  instrumentacao mantem vivas referencias a menus, estagios e cartao que o
+  `--gc-sections` descartaria.
+- Nenhum efeito sonoro pode tocar: o host nao monta descritores de amostra, os
+  fluxos de comando do `.sem` continuam big-endian e os nucleos de reverb e
+  chorus param se o mixer os chamar. O carregador de SFX de `synth.c` precisa
+  de um port de verdade quando o mixer existir. Ate la, deflag e descarga de
+  banco voltam o banco a cabeca, porque os grupos nao sao registrados.
+- Os alarmes seguem o relogio de parede, a nao ser que o host congele o
+  relogio do OS. Congelado, o tempo so anda na espera de `lb_800195D0`, e so
+  quando a fila bruta de pad esta vazia: uma espera por outro alarme com
+  amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
+  relogio de parede ainda.
+- O laco de titulo roda sem o preload e o `on_enter` do estado antes e sem o
+  `on_exit` e o roteamento de `gm_801A4014` depois. `gm_80173754` e
+  `gm_80173EEC` param com nome se algo chamar o `onExit`.
+- Com um frame sink instalado, a captura do GX so vale ate o `GXCopyDisp`
+  seguinte; quem precisa dela depois tem de copiar dentro do sink.
+- `db_TakeScreenshotIfPending` passa o endereco do XFB como `int` para
+  `hsd_80393A5C`, o que trunca um ponteiro de 64 bits. So roda com um
+  screenshot pendente, que `db_CheckScreenshot` marca nos niveis de
+  depuracao.
+- O ctest nao falha por relato do UBSan, que so imprime; confira com
+  `ctest --preset host-sanitize -V`. Restam dois, no sistema de classes do
+  HSD: `FogRelease` chamado pelo ponteiro de release de `class.h` e
+  `HSD_JObjRemoveAll` por `gobjobject.c`, ambos por um ponteiro de funcao de
+  outro tipo.
+- Uma referencia `weak` nao puxa membro de biblioteca estatica. Um estagio
+  portado precisa de uma referencia forte, senao sua entrada continua nula.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
-- Listas variadicas terminadas por `0`, como a de `gmTitle_801A1AC0`, sao
-  lidas de volta como ponteiro por `va_arg`; em 64 bits isso e comportamento
-  indefinido. Quando essas unidades entrarem no build, o terminador precisa
-  ser NULL sob `MELEE_HOST`.
+- O jogo tem 59 listas variadicas de ponteiros terminadas por `0`; so as de
+  `gmTitle_801A1AC0` e `lb_80014534` usam `VA_END_PTR`. Cada unidade que
+  entrar no build com uma dessas listas precisa da mesma troca.

@@ -68,8 +68,19 @@
 /* 31263C */ void Toy_8031263C(void);
 /* 3127D4 */ void Toy_803127D4(void);
 /* 3FE5E8 */ extern char Toy_str_ScMenFigure_cam_int1_camera[];
+#ifdef MELEE_HOST
+/* The trophy code reaches the .bss from 0x804A26B8 to 0x804A2ABC as one
+ * Toy26B8, across the objects the DOL keeps there in sequence.  A host
+ * compiler places globals independently, so the host keeps the block in one
+ * object and names its parts at the DOL offsets. */
+/* 4A26B8 */ extern Toy26B8 Toy_HostBss_804A26B8;
+#define Toy_804A284C                                                          \
+    (*(u16(*)[302])((u8*) &Toy_HostBss_804A26B8 + 0x194))
+#define Toy_804A2AA8 (Toy_HostBss_804A26B8.anim)
+#else
 /* 4A284C */ extern u16 Toy_804A284C[302];
 /* 4A2AA8 */ extern ToyAnimState Toy_804A2AA8;
+#endif
 /* 4D6EAC */ extern TyDspEntry* Toy_sbss_804D6EAC;
 /* 4D6EB0 */ extern TyDspEntry* Toy_sbss_804D6EB0;
 /* 4D6EC8 */ extern HSD_Archive* Toy_sbss_804D6EC8;

@@ -62,6 +62,19 @@ void fn_800195FC(void)
     lbSnap_8001D2BC();
 }
 
+#ifdef MELEE_HOST
+/* lb_80019628 arms fn_800195FC, which takes nothing, as an OSAlarmHandler,
+ * which is called with the alarm and the interrupted context.  Both ABIs
+ * ignore the extra arguments, but the call is undefined behaviour in C and the
+ * sanitizers report it, so the host arms a handler of the right type. */
+static void fn_800195FC_OnAlarm(OSAlarm* alarm, OSContext* context)
+{
+    (void) alarm;
+    (void) context;
+    fn_800195FC();
+}
+#endif
+
 void lb_80019628(void)
 {
     int i;
@@ -112,8 +125,13 @@ void lb_80019628(void)
         OSCancelAlarm(&lb_804329F0.alarm);
     }
     OSCreateAlarm(&lb_804329F0.alarm);
+#ifdef MELEE_HOST
+    OSSetPeriodicAlarm(&lb_804329F0.alarm, lb_804329F0.x40, lb_804329F0.x40,
+                       fn_800195FC_OnAlarm);
+#else
     OSSetPeriodicAlarm(&lb_804329F0.alarm, lb_804329F0.x40, lb_804329F0.x40,
                        (OSAlarmHandler) fn_800195FC);
+#endif
     lb_804329F0.x48 = 1;
 }
 

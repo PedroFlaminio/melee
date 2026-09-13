@@ -58,11 +58,16 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   setup de heap de cena (`lbHeap_80015900`) rodam no host, e
   `lbArchive_LoadSymbols` lê o arquivo da tela de título por `lbFile`, pela
   fila devcom e pelo DVD do host.
-- Próximo bloqueio: `gm_Scene_Title_OnEnter`. O arquivo, a memória e o disco
-  de que ele precisa já existem; faltam as fachadas de áudio, filme, texto e
-  `lbspdisplay.c` que ele chama. Depois vêm `gmMain` e o laço de cenas, para
-  que os callbacks de render de `gmscene.c`, `ground.c` e `fighter.c` cheguem
-  ao recorder.
+- Executado: a primeira cena do jogo entrando pelo próprio código. O boot
+  segue o `main()` original, e `gm_801A4BD4` e `gm_Scene_Title_OnEnter` montam
+  câmeras, luz, fog e os dois modelos do título.
+- Executado: o laço de frame original (`gm_801A4D34`) na tela de título, com o
+  relógio do OS congelado: 621 frames até a cena sair sozinha, todos
+  desenhados por `HSD_GObj_80390FC0` e copiados para XFB pelo ciclo de
+  `video.c`.
+- Próximo bloqueio: apresentar essa captura pelo SDL/OpenGL com a câmera do
+  jogo, e rodar o `gm_801A4014` inteiro (preload e `on_enter` do estado antes,
+  `on_exit` e roteamento depois), que é o que leva do título à próxima cena.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

@@ -105,6 +105,8 @@ MeleeHostGxCopyState copy_state{};
 MeleeHostGxDisplayCopyState display_copy_state{};
 MeleeHostGxDrawSyncState draw_sync_state{};
 GXDrawDoneCallback draw_done_callback = nullptr;
+MeleeHostGxFrameSink frame_sink = nullptr;
+void* frame_sink_user_data = nullptr;
 std::array<MeleeHostGxChannelControl, kChannels> channel_controls{};
 std::array<MeleeHostGxTextureDesc, kTexMaps> bound_textures{};
 std::array<MeleeHostGxTlutDesc, kTluts> loaded_tluts{};
@@ -1352,6 +1354,43 @@ GXRenderModeObj GXNtsc480IntDf = {
     { 8, 8, 10, 12, 10, 8, 8 },
 };
 
+/* The same mode without deflicker, and the progressive-scan one.  The game
+ * picks between the three by its deflicker and progressive settings
+ * (gmMainLib_8015F500).  Values are the SDK's. */
+GXRenderModeObj GXNtsc480Int = {
+    VI_TVMODE_NTSC_INT,
+    640,
+    480,
+    480,
+    40,
+    0,
+    640,
+    480,
+    VI_XFBMODE_DF,
+    GX_FALSE,
+    GX_FALSE,
+    { { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 },
+      { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 } },
+    { 0, 0, 21, 22, 21, 0, 0 },
+};
+
+GXRenderModeObj GXNtsc480Prog = {
+    VI_TVMODE_NTSC_PROG,
+    640,
+    480,
+    480,
+    40,
+    0,
+    640,
+    480,
+    VI_XFBMODE_SF,
+    GX_FALSE,
+    GX_FALSE,
+    { { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 },
+      { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 }, { 6, 6 } },
+    { 0, 0, 21, 22, 21, 0, 0 },
+};
+
 void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht)
 {
     const std::lock_guard<std::mutex> guard(state_mutex);
@@ -1432,14 +1471,32 @@ void GXSetCopyFilter(GXBool aa, const u8 sample_pattern[12][2], GXBool vf,
 }
 
 /* Like GXCopyTex, this records the request: there is no host framebuffer to
- * resolve the EFB into yet. */
+ * resolve the EFB into yet.  The copy ends a frame, so a frame sink receives
+ * the capture here. */
 void GXCopyDisp(void* dest, GXBool clear)
 {
+    MeleeHostGxFrameSink sink = nullptr;
+    void* sink_user_data = nullptr;
+    {
+        const std::lock_guard<std::mutex> guard(state_mutex);
+        ensure_initialized_locked();
+        display_copy_state.copy_count += 1;
+        display_copy_state.last_destination = dest;
+        display_copy_state.last_clear = clear != GX_FALSE;
+        sink = frame_sink;
+        sink_user_data = frame_sink_user_data;
+    }
+    if (sink != nullptr) {
+        sink(sink_user_data);
+        melee_host_gx_reset_command_log();
+    }
+}
+
+void melee_host_gx_set_frame_sink(MeleeHostGxFrameSink sink, void* user_data)
+{
     const std::lock_guard<std::mutex> guard(state_mutex);
-    ensure_initialized_locked();
-    display_copy_state.copy_count += 1;
-    display_copy_state.last_destination = dest;
-    display_copy_state.last_clear = clear != GX_FALSE;
+    frame_sink = sink;
+    frame_sink_user_data = user_data;
 }
 
 GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb)

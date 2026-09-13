@@ -53,8 +53,52 @@ melee_host_boot_load_title_archive(MeleeHostTitleArchiveReport* out_report);
  * as the SIS font atlas, from the user's extracted DOL. */
 MeleeHostStatus melee_host_boot_load_dol_data(const char* dol_path);
 
-/* gm_Scene_Title_OnEnter, the title screen's own scene entry. */
+/* The middle of gm_801A4014 for the title screen: gm_801A4BD4, the scene
+ * manager's per-scene setup; gm_801A4B88 with the scene info of the title's
+ * state in gmtitlemode.c; then gm_Scene_Title_OnEnter.  The state's preload and
+ * on_enter, which come before it, are not run. */
 void melee_host_title_scene_enter(void);
+
+typedef struct MeleeHostTitleSceneReport {
+    /* GObjs on the process lists, and those with a render callback. */
+    mh_u32 gobjs;
+    mh_u32 rendered;
+    /* GObjs by the object they hold. */
+    mh_u32 cameras;
+    mh_u32 lights;
+    mh_u32 fogs;
+    mh_u32 models;
+    mh_u32 procs;
+    mh_u32 jobjs;
+    mh_u32 lobjs;
+} MeleeHostTitleSceneReport;
+
+/* What the scene built, read from the GObj library's own lists. */
+MeleeHostStatus
+melee_host_title_scene_report(MeleeHostTitleSceneReport* out_report);
+
+typedef struct MeleeHostTitleRunReport {
+    /* Calls of the scene's on_frame: one per game frame gm_801A4D34 runs. */
+    mh_u32 scene_frames;
+    /* Frames the loop drew and copied to an XFB, and the triangles captured
+     * in the last of them. */
+    mh_u32 drawn_frames;
+    mh_u32 last_frame_triangles;
+    /* Retraces VI ran during the loop. */
+    mh_u32 retraces;
+    /* What gm_Scene_Title_OnFrame left in the state's exit data: the buttons
+     * that ended the scene, or zero when it timed out. */
+    mh_u32 exit_buttons;
+    /* OS time the loop took, in ticks. */
+    mh_u64 elapsed_ticks;
+} MeleeHostTitleRunReport;
+
+/* gm_801A4D34, the scene manager's frame loop, with the title's on_frame, until
+ * the scene asks to leave.  Each drawn frame's GX capture goes to a frame sink
+ * and is cleared.  The scene has to have been entered.  With the OS clock
+ * frozen the loop runs as fast as it computes; otherwise it follows the wall
+ * clock, spinning while it waits. */
+MeleeHostStatus melee_host_title_scene_run(MeleeHostTitleRunReport* out_report);
 
 #ifdef __cplusplus
 }
