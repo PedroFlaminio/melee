@@ -248,6 +248,29 @@ contagem e do tempo limite do titulo, sem botoes e com frames desenhados.
   so roda sob uma condicao de `DbLevel` ou de evento. Confira a condicao antes
   de portar; se o host nunca a satisfaz, pare com nome em `unported.c`.
 
+## Apresentacao pela janela
+
+```sh
+./build/host-debug/port/melee-pc --view-title-scene assets-local
+./build/host-debug/port/melee-pc --view-title-scene assets-local /tmp/f.bmp 120
+```
+
+A primeira forma abre a janela e segue ate a cena sair ou ate Esc. A segunda
+desenha escondida, grava o frame pedido e imprime a captura dele: as texturas
+com formato e tamanho, as views e as runs na ordem do jogo, cada uma com blend,
+alpha compare, programa TEV, texturas e a caixa que cobre na tela.
+
+- Para achar o que esta errado numa imagem, case a regiao com a caixa das
+  runs. Os retangulos brancos do titulo eram as runs 10 e 15, ambas com
+  textura I4, e o erro estava no decodificador, nao no shader: a conformidade
+  do TEV sorteia texels, entao nao cobre o que o decodificador entrega.
+- Uma cena pelo avesso, ou que some, e culling; confira o front face antes de
+  mexer na projecao.
+- O presenter guarda uma textura GL por endereco de imagem, e o cache do
+  titulo decodifica cada textura uma vez pelo endereco dos dados e da paleta.
+  Uma animacao que reescreva uma imagem ou uma paleta no mesmo endereco
+  precisa de outra chave.
+
 ## Carga de cena pela camada de objetos
 
 O comando abaixo materializa os descritores do arquivo em layout host e chama

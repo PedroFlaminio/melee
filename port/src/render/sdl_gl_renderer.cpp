@@ -1,10 +1,12 @@
 #include "render/sdl_gl_renderer.hpp"
 
 #include "gx/tev.hpp"
+#include "gx/view.hpp"
 
 #include <melee_host/gx.h>
 #include <melee_host/input.h>
 #include <melee_host/host.h>
+#include <melee_host/video.h>
 
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
@@ -419,12 +421,13 @@ void append_vertex(std::vector<float>* out,
     }
 }
 
-/* A run of consecutive triangles sharing pixel state, TEV program and texture
- * set, which is what one GL draw call can cover. */
+/* A run of consecutive triangles sharing pixel state, TEV program, texture
+ * set and view, which is what one GL draw call can cover. */
 struct DrawRun {
     mh_u32 draw_state = 0;
     mh_u32 tev_state = 0;
     mh_u32 texture_set = 0;
+    mh_u32 view_state = 0;
     GLint first = 0;
     GLsizei count = 0;
     bool blended = false;
@@ -436,11 +439,13 @@ struct Capture {
     Bounds bounds;
 };
 
-/* Reads the capture in draw order.  Runs that blend move behind the ones that
- * do not, keeping their relative order, so opaque geometry has written depth
- * before a translucent run reads it; the original render passes already draw
- * that way, and this keeps a capture that interleaves them readable. */
-Capture read_capture()
+/* Reads the capture in draw order.  For the preview, runs that blend move
+ * behind the ones that do not, keeping their relative order, so opaque
+ * geometry has written depth before a translucent run reads it; the original
+ * render passes already draw that way, and this keeps a capture that
+ * interleaves them readable.  A frame the game drew keeps its own order,
+ * because it layers cameras and passes on purpose. */
+Capture read_capture(bool keep_draw_order = false)
 {
     Capture capture;
     const std::size_t triangle_count = melee_host_gx_triangle_count();
@@ -460,7 +465,8 @@ Capture read_capture()
         }
         if (!runs.empty() && runs.back().draw_state == lead.draw_state &&
             runs.back().tev_state == lead.tev_state &&
-            runs.back().texture_set == lead.texture_set)
+            runs.back().texture_set == lead.texture_set &&
+            runs.back().view_state == lead.view_state)
         {
             runs.back().count += 3;
             continue;
@@ -469,6 +475,7 @@ Capture read_capture()
         run.draw_state = lead.draw_state;
         run.tev_state = lead.tev_state;
         run.texture_set = lead.texture_set;
+        run.view_state = lead.view_state;
         run.first = first;
         run.count = 3;
         MeleeHostGxDrawState state{};
@@ -477,8 +484,10 @@ Capture read_capture()
                       is_blended(state);
         runs.push_back(run);
     }
-    std::stable_partition(runs.begin(), runs.end(),
-                          [](const DrawRun& run) { return !run.blended; });
+    if (!keep_draw_order) {
+        std::stable_partition(runs.begin(), runs.end(),
+                              [](const DrawRun& run) { return !run.blended; });
+    }
     capture.runs = std::move(runs);
     return capture;
 }
@@ -504,41 +513,55 @@ GLuint create_texture(const TextureImage& image)
     return texture;
 }
 
+/* Renders one run into the current framebuffer, viewport and scissor box. */
+void draw_run(const DrawRun& run, ProgramCache* programs,
+              const std::vector<GLuint>& textures, GLuint white_texture,
+              const Mat4& mvp, bool front_face_cw)
+{
+    MeleeHostGxDrawState state{};
+    MeleeHostGxTevState tev{};
+    if (!melee_host_gx_captured_draw_state_at(run.draw_state, &state) ||
+        !melee_host_gx_captured_tev_state_at(run.tev_state, &tev) ||
+        !apply_draw_state(state, front_face_cw))
+    {
+        return;
+    }
+    const TevProgram* const program = programs->get(tev);
+    if (program == nullptr) {
+        return;
+    }
+    set_program_uniforms(*program, mvp, tev, state);
+    std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP> set{};
+    set.fill(MELEE_HOST_GX_NO_TEXTURE);
+    melee_host_gx_captured_texture_set_at(run.texture_set, set.data());
+    for (std::size_t map = 0; map < set.size(); ++map) {
+        glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + map));
+        glBindTexture(GL_TEXTURE_2D, set[map] < textures.size()
+                                         ? textures[set[map]]
+                                         : white_texture);
+    }
+    glDrawArrays(GL_TRIANGLES, run.first, run.count);
+}
+
+/* Puts back what draw_run changes, for whatever draws next. */
+void restore_draw_defaults()
+{
+    glActiveTexture(GL_TEXTURE0);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
 /* Renders every run of the capture with the current framebuffer bound. */
 void draw_capture(const Capture& capture, ProgramCache* programs,
                   const std::vector<GLuint>& textures, GLuint white_texture,
                   const Mat4& mvp, bool front_face_cw)
 {
     for (const DrawRun& run : capture.runs) {
-        MeleeHostGxDrawState state{};
-        MeleeHostGxTevState tev{};
-        if (!melee_host_gx_captured_draw_state_at(run.draw_state, &state) ||
-            !melee_host_gx_captured_tev_state_at(run.tev_state, &tev) ||
-            !apply_draw_state(state, front_face_cw))
-        {
-            continue;
-        }
-        const TevProgram* const program = programs->get(tev);
-        if (program == nullptr) {
-            continue;
-        }
-        set_program_uniforms(*program, mvp, tev, state);
-        std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP> set{};
-        set.fill(MELEE_HOST_GX_NO_TEXTURE);
-        melee_host_gx_captured_texture_set_at(run.texture_set, set.data());
-        for (std::size_t map = 0; map < set.size(); ++map) {
-            glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + map));
-            glBindTexture(GL_TEXTURE_2D, set[map] < textures.size()
-                                             ? textures[set[map]]
-                                             : white_texture);
-        }
-        glDrawArrays(GL_TRIANGLES, run.first, run.count);
+        draw_run(run, programs, textures, white_texture, mvp, front_face_cw);
     }
-    glActiveTexture(GL_TEXTURE0);
-    glDepthMask(GL_TRUE);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_BLEND);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    restore_draw_defaults();
 }
 
 struct GlWindow {
@@ -638,6 +661,11 @@ bool save_framebuffer_bmp(const char* path, int width, int height,
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE,
                  pixels.data());
+    /* A displayed frame has no alpha: the console scans out a YUV XFB.  The
+     * alpha a frame keeps for blending would make the file transparent. */
+    for (std::size_t alpha = 3; alpha < pixels.size(); alpha += 4) {
+        pixels[alpha] = 255;
+    }
     /* GL reads bottom-up; an image file is top-down. */
     std::vector<std::uint8_t> flipped(pixels.size());
     for (int row = 0; row < height; ++row) {
@@ -1112,6 +1140,258 @@ bool run_tev_conformance(std::size_t cases_per_program,
 void set_texture_images(std::vector<TextureImage> images)
 {
     texture_images = std::move(images);
+}
+
+struct FramePresenter::State {
+    GlWindow window;
+    std::unique_ptr<OffscreenTarget> target;
+    std::unique_ptr<ProgramCache> programs;
+    GLuint vertex_array = 0;
+    GLuint vertex_buffer = 0;
+    GLuint white_texture = 0;
+    std::map<const TextureImage*, GLuint> textures;
+    SDL_Gamepad* gamepad = nullptr;
+    int width = 0;
+    int height = 0;
+    Uint64 next_frame_ns = 0;
+};
+
+FramePresenter::FramePresenter() = default;
+
+FramePresenter::~FramePresenter()
+{
+    if (state_ == nullptr) {
+        return;
+    }
+    for (const auto& entry : state_->textures) {
+        glDeleteTextures(1, &entry.second);
+    }
+    glDeleteTextures(1, &state_->white_texture);
+    glDeleteBuffers(1, &state_->vertex_buffer);
+    glDeleteVertexArrays(1, &state_->vertex_array);
+    state_->programs.reset();
+    state_->target.reset();
+    if (state_->gamepad != nullptr) {
+        SDL_CloseGamepad(state_->gamepad);
+    }
+    close_gl_window(&state_->window);
+}
+
+bool FramePresenter::open(bool hidden, std::string* error)
+{
+    std::string ignored;
+    std::string& message = error != nullptr ? *error : ignored;
+    if (state_ != nullptr) {
+        message = "the presenter is already open";
+        return false;
+    }
+    auto state = std::make_unique<State>();
+    if (!open_gl_window(hidden, &state->window, &message)) {
+        return false;
+    }
+    SDL_SetWindowTitle(state->window.window,
+                       "Melee PC — Enter é START, WASD o analógico; Esc sai");
+    /* pace() keeps the game's frame rate.  Waiting for vsync on top of it
+     * would stack a second wait, and tie the game to the monitor's rate. */
+    SDL_GL_SetSwapInterval(0);
+    int gamepad_count = 0;
+    SDL_JoystickID* const gamepad_ids = SDL_GetGamepads(&gamepad_count);
+    state->gamepad =
+        gamepad_count > 0 ? SDL_OpenGamepad(gamepad_ids[0]) : nullptr;
+    SDL_free(gamepad_ids);
+
+    constexpr std::array<std::uint8_t, 4> kWhite{ 255, 255, 255, 255 };
+    state->white_texture = create_texture(
+        { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false });
+    state->programs = std::make_unique<ProgramCache>();
+    glGenVertexArrays(1, &state->vertex_array);
+    glBindVertexArray(state->vertex_array);
+    glGenBuffers(1, &state->vertex_buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, state->vertex_buffer);
+    bind_vertex_layout();
+
+    if (hidden) {
+        MeleeHostVideoState video{};
+        static_cast<void>(melee_host_video_state(&video));
+        state->target = std::make_unique<OffscreenTarget>(
+            static_cast<GLsizei>(video.framebuffer_width),
+            static_cast<GLsizei>(video.embedded_framebuffer_height));
+        if (!state->target->complete()) {
+            message = "offscreen framebuffer is incomplete";
+            /* Kept, so the destructor releases what was created. */
+            state_ = std::move(state);
+            return false;
+        }
+    }
+    state_ = std::move(state);
+    return true;
+}
+
+void FramePresenter::present(const std::vector<const TextureImage*>& images)
+{
+    if (state_ == nullptr) {
+        return;
+    }
+    State& state = *state_;
+    MeleeHostVideoState video{};
+    static_cast<void>(melee_host_video_state(&video));
+    const int framebuffer_width = video.framebuffer_width;
+    const int framebuffer_height = video.embedded_framebuffer_height;
+    if (state.target != nullptr) {
+        glBindFramebuffer(GL_FRAMEBUFFER, state.target->framebuffer);
+        state.width = framebuffer_width;
+        state.height = framebuffer_height;
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        SDL_GetWindowSizeInPixels(state.window.window, &state.width,
+                                  &state.height);
+    }
+    if (state.width <= 0 || state.height <= 0) {
+        return;
+    }
+
+    /* GX cleared the framebuffer to the display copy's colour and depth when
+     * it copied the previous frame out. */
+    MeleeHostGxDisplayCopyState copy{};
+    melee_host_gx_display_copy_state(&copy);
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, state.width, state.height);
+    glDepthRange(0.0, 1.0);
+    glDepthMask(GL_TRUE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(static_cast<float>(copy.clear_color[0]) / 255.0F,
+                 static_cast<float>(copy.clear_color[1]) / 255.0F,
+                 static_cast<float>(copy.clear_color[2]) / 255.0F,
+                 static_cast<float>(copy.clear_color[3]) / 255.0F);
+    glClearDepth(static_cast<double>(copy.clear_depth) / 16777215.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    std::vector<GLuint> textures;
+    textures.reserve(images.size());
+    for (const TextureImage* const image : images) {
+        if (image == nullptr) {
+            textures.push_back(state.white_texture);
+            continue;
+        }
+        auto found = state.textures.find(image);
+        if (found == state.textures.end()) {
+            found = state.textures.emplace(image, create_texture(*image)).first;
+        }
+        textures.push_back(found->second);
+    }
+
+    const Capture capture = read_capture(true);
+    glBindVertexArray(state.vertex_array);
+    glBindBuffer(GL_ARRAY_BUFFER, state.vertex_buffer);
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(capture.vertices.size() *
+                                         sizeof(float)),
+                 capture.vertices.data(), GL_STREAM_DRAW);
+    for (const DrawRun& run : capture.runs) {
+        MeleeHostGxViewState view{};
+        if (!melee_host_gx_captured_view_state_at(run.view_state, &view)) {
+            continue;
+        }
+        const melee::gx::WindowRect viewport = melee::gx::window_rect(
+            view.viewport_left, view.viewport_top, view.viewport_width,
+            view.viewport_height, framebuffer_width, framebuffer_height,
+            state.width, state.height);
+        glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+        glDepthRange(static_cast<double>(view.viewport_near),
+                     static_cast<double>(view.viewport_far));
+        /* The host has no GXInit to set a scissor over the whole framebuffer,
+         * so a box nothing set is empty, and means no scissor. */
+        if (view.scissor_width != 0 && view.scissor_height != 0) {
+            const melee::gx::WindowRect scissor = melee::gx::window_rect(
+                static_cast<float>(view.scissor_left),
+                static_cast<float>(view.scissor_top),
+                static_cast<float>(view.scissor_width),
+                static_cast<float>(view.scissor_height), framebuffer_width,
+                framebuffer_height, state.width, state.height);
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(scissor.x, scissor.y, scissor.width, scissor.height);
+        } else {
+            glDisable(GL_SCISSOR_TEST);
+        }
+        /* Front faces wind clockwise in GL's terms through this projection. */
+        draw_run(run, state.programs.get(), textures, state.white_texture,
+                 melee::gx::clip_matrix(view), true);
+    }
+    restore_draw_defaults();
+    glDisable(GL_SCISSOR_TEST);
+    glDepthRange(0.0, 1.0);
+    if (state.target == nullptr) {
+        SDL_GL_SwapWindow(state.window.window);
+    }
+}
+
+bool FramePresenter::save_bmp(const char* path, std::string* error)
+{
+    std::string ignored;
+    std::string& message = error != nullptr ? *error : ignored;
+    if (state_ == nullptr || state_->target == nullptr) {
+        message = "only a hidden presenter keeps its last frame";
+        return false;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, state_->target->framebuffer);
+    return save_framebuffer_bmp(path, state_->width, state_->height,
+                                &message);
+}
+
+bool FramePresenter::poll(MeleeHostPadState* pad)
+{
+    if (state_ == nullptr) {
+        return false;
+    }
+    State& state = *state_;
+    bool running = true;
+    SDL_Event event{};
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_QUIT) {
+            running = false;
+        } else if (event.type == SDL_EVENT_KEY_DOWN &&
+                   event.key.scancode == SDL_SCANCODE_ESCAPE)
+        {
+            running = false;
+        } else if (event.type == SDL_EVENT_GAMEPAD_ADDED &&
+                   state.gamepad == nullptr)
+        {
+            state.gamepad = SDL_OpenGamepad(event.gdevice.which);
+        } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED &&
+                   state.gamepad != nullptr &&
+                   SDL_GetGamepadID(state.gamepad) == event.gdevice.which)
+        {
+            SDL_CloseGamepad(state.gamepad);
+            state.gamepad = nullptr;
+        }
+    }
+    /* read_pad also steers the preview's camera, which the game has no use
+     * for. */
+    float yaw = 0.0F;
+    float pitch = 0.0F;
+    float zoom = 1.0F;
+    const MeleeHostPadState sample =
+        read_pad(state.gamepad, &yaw, &pitch, &zoom, &running);
+    if (pad != nullptr) {
+        *pad = sample;
+    }
+    return running;
+}
+
+void FramePresenter::pace(std::uint64_t frame_nanoseconds)
+{
+    if (state_ == nullptr) {
+        return;
+    }
+    const Uint64 now = SDL_GetTicksNS();
+    Uint64& next = state_->next_frame_ns;
+    if (next == 0 || now > next + frame_nanoseconds) {
+        next = now;
+    }
+    next += frame_nanoseconds;
+    if (next > now) {
+        SDL_DelayPrecise(next - now);
+    }
 }
 
 } // namespace melee::render

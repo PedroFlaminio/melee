@@ -17,7 +17,23 @@ TEST_CASE("GX I4 decoder follows the 8 by 8 tiled layout")
     REQUIRE(image.rgba[4] == 255);
     REQUIRE(image.rgba[8] == 136);
     REQUIRE(image.rgba[12] == 170);
-    REQUIRE(image.rgba[3] == 255);
+    // GX gives an intensity texel the same value in alpha.
+    REQUIRE(image.rgba[3] == 0);
+    REQUIRE(image.rgba[7] == 255);
+    REQUIRE(image.rgba[15] == 170);
+}
+
+TEST_CASE("GX I8 decoder carries intensity into alpha")
+{
+    std::array<std::byte, 32> data{};
+    data[0] = std::byte{ 0x40 };
+    data[9] = std::byte{ 0xC8 };
+    const auto image = melee::assets::decode_gx_texture(data, 8, 4, 1);
+
+    REQUIRE(image.rgba[0] == 0x40);
+    REQUIRE(image.rgba[3] == 0x40);
+    REQUIRE(image.rgba[(8U + 1U) * 4U] == 0xC8);
+    REQUIRE(image.rgba[(8U + 1U) * 4U + 3U] == 0xC8);
 }
 
 TEST_CASE("GX IA4 decoder follows the 8 by 4 tiled layout")

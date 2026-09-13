@@ -29,6 +29,8 @@ std::size_t ceil_div(std::size_t value, std::size_t divisor)
     return (value + divisor - 1) / divisor;
 }
 
+/* An intensity texel.  GX hands TEV an I4 or I8 texture as the same value in
+ * every channel, alpha included, so such a texture masks its own shape. */
 void write_pixel(DecodedTexture* output, std::size_t x, std::size_t y,
                  std::uint8_t intensity)
 {
@@ -39,7 +41,7 @@ void write_pixel(DecodedTexture* output, std::size_t x, std::size_t y,
     output->rgba[offset] = intensity;
     output->rgba[offset + 1] = intensity;
     output->rgba[offset + 2] = intensity;
-    output->rgba[offset + 3] = 255;
+    output->rgba[offset + 3] = intensity;
 }
 
 void write_rgba(DecodedTexture* output, std::size_t x, std::size_t y,

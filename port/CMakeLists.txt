@@ -11,6 +11,7 @@ add_library(melee_host STATIC
     src/gx/command_recorder.cpp
     src/gx/state_recorder.cpp
     src/gx/tev.cpp
+    src/gx/view.cpp
     src/video/vi.cpp
     src/host.cpp
     src/os/clock.cpp
@@ -326,6 +327,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/synth_test.cpp
         tests/gx_state_test.cpp
         tests/gx_tev_test.cpp
+        tests/gx_view_test.cpp
         tests/video_test.cpp
         tests/os_heap_test.cpp
         tests/hsd_graphics_test.cpp

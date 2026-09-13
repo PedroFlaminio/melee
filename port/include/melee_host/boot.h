@@ -1,6 +1,7 @@
 #ifndef MELEE_HOST_BOOT_H
 #define MELEE_HOST_BOOT_H
 
+#include <melee_host/gx.h>
 #include <melee_host/host.h>
 
 #ifdef __cplusplus
@@ -94,11 +95,19 @@ typedef struct MeleeHostTitleRunReport {
 } MeleeHostTitleRunReport;
 
 /* gm_801A4D34, the scene manager's frame loop, with the title's on_frame, until
- * the scene asks to leave.  Each drawn frame's GX capture goes to a frame sink
- * and is cleared.  The scene has to have been entered.  With the OS clock
- * frozen the loop runs as fast as it computes; otherwise it follows the wall
- * clock, spinning while it waits. */
-MeleeHostStatus melee_host_title_scene_run(MeleeHostTitleRunReport* out_report);
+ * the scene asks to leave.  Each drawn frame's GX capture goes to `frame_sink`,
+ * when there is one, and is then cleared.  The scene has to have been entered.
+ * With the OS clock frozen the loop runs as fast as it computes, unless the
+ * sink paces it; otherwise it follows the wall clock, spinning while it
+ * waits. */
+MeleeHostStatus melee_host_title_scene_run(MeleeHostGxFrameSink frame_sink,
+                                           void* user_data,
+                                           MeleeHostTitleRunReport* out_report);
+
+/* gm_801A4B60, what the scene itself calls to leave: the frame loop returns
+ * after the frame in progress.  The exit data keeps what the scene last left
+ * there. */
+void melee_host_title_scene_request_exit(void);
 
 #ifdef __cplusplus
 }

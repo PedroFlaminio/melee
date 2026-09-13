@@ -715,6 +715,68 @@ TEST_CASE("draws are grouped by the pixel state they ran under")
     REQUIRE(triangle.vertices[0].draw_state == 0);
 }
 
+TEST_CASE("draws carry the projection, viewport and scissor they ran under")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    const auto draw = []() {
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0F, 0.0F, -1.0F);
+        GXPosition3f32(1.0F, 0.0F, -1.0F);
+        GXPosition3f32(0.0F, 1.0F, -1.0F);
+        GXEnd();
+    };
+
+    f32 perspective[4][4] = {
+        { 1.5F, 0.0F, 0.25F, 0.0F },
+        { 0.0F, 2.0F, 0.5F, 0.0F },
+        { 0.0F, 0.0F, -0.01F, -1.01F },
+        { 0.0F, 0.0F, -1.0F, 0.0F },
+    };
+    GXSetProjection(perspective, GX_PERSPECTIVE);
+    GXSetViewport(0.0F, 0.0F, 640.0F, 480.0F, 0.0F, 1.0F);
+    GXSetScissor(0, 0, 640, 480);
+    draw();
+
+    // A second camera in the same frame: an overlay in its own box.
+    GXSetViewport(20.0F, 40.0F, 320.0F, 240.0F, 0.0F, 1.0F);
+    GXSetScissor(20, 40, 320, 240);
+    draw();
+
+    // Back to the first view, which must reuse its entry.
+    GXSetViewport(0.0F, 0.0F, 640.0F, 480.0F, 0.0F, 1.0F);
+    GXSetScissor(0, 0, 640, 480);
+    draw();
+
+    REQUIRE(melee_host_gx_captured_view_state_count() == 2);
+    MeleeHostGxViewState full{};
+    MeleeHostGxViewState overlay{};
+    REQUIRE(melee_host_gx_captured_view_state_at(0, &full));
+    REQUIRE(melee_host_gx_captured_view_state_at(1, &overlay));
+    REQUIRE(!melee_host_gx_captured_view_state_at(2, &overlay));
+    REQUIRE(full.projection_type == GX_PERSPECTIVE);
+    REQUIRE(full.projection[0] == 1.5F);
+    REQUIRE(full.projection[1] == 0.25F);
+    REQUIRE(full.projection[3] == 0.5F);
+    REQUIRE(full.projection[5] == -1.01F);
+    REQUIRE(full.viewport_width == 640.0F);
+    REQUIRE(full.viewport_far == 1.0F);
+    REQUIRE(full.scissor_height == 480);
+    REQUIRE(overlay.viewport_left == 20.0F);
+    REQUIRE(overlay.viewport_top == 40.0F);
+    REQUIRE(overlay.scissor_width == 320);
+    REQUIRE(overlay.scissor_height == 240);
+
+    MeleeHostGxCapturedTriangle triangle{};
+    REQUIRE(melee_host_gx_captured_triangle_at(0, &triangle));
+    REQUIRE(triangle.vertices[0].view_state == 0);
+    REQUIRE(melee_host_gx_captured_triangle_at(1, &triangle));
+    REQUIRE(triangle.vertices[0].view_state == 1);
+    REQUIRE(melee_host_gx_captured_triangle_at(2, &triangle));
+    REQUIRE(triangle.vertices[0].view_state == 0);
+}
+
 TEST_CASE("a captured state carries the alpha compare the draw ran under")
 {
     melee_host_gx_state_reset();

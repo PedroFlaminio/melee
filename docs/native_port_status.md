@@ -730,6 +730,38 @@ Atualizado em 13 de setembro de 2026.
   11/11; `host-sanitize` com ctest 11/11. Os testes da cena de titulo e do
   laco nao tem relato do UBSan; na suite inteira restam dois, listados nas
   limitacoes.
+- [x] Apresentacao pelo SDL/OpenGL do laco de titulo. `melee-pc
+  --view-title-scene assets-local` abre uma janela e mostra cada frame que
+  `gm_801A4D34` desenha, a 60 Hz de relogio de parede, com o teclado ou o
+  primeiro gamepad como PAD 1 (Enter e START, WASD o analogico, Esc sai).
+  `--view-title-scene DIR BMP N` desenha escondido, grava o frame N num BMP e
+  imprime a captura daquele frame. Medido no frame 120: 2679 triangulos em 33
+  runs, 37 texturas e uma unica view (perspectiva, viewport 640x480); a
+  imagem mostra o logo, "Melee", "PRESS START" e as tres linhas de copyright.
+  O frame 120 escondido leva 1,0 s em `host-debug`.
+- [x] A captura do GX guarda, por draw, a projecao nos seis numeros do GX, o
+  viewport com near e far e o scissor (`melee_host_gx_captured_view_state_*`,
+  indice `view_state` em cada vertice), como ja guardava estado de pixel e TEV.
+- [x] `port/src/gx/view.{hpp,cpp}`: projecao GX para o clip do GL, com a
+  profundidade remapeada para 2z + w (o GX poe near em -w e far em 0), e
+  retangulos do framebuffer (origem no topo) para a janela. Testado com
+  matrizes de `MTXPerspective` e `MTXOrtho` montadas a mao.
+- [x] `melee::render::FramePresenter`: desenha a captura de um frame na ordem
+  do jogo, cada run com o viewport, o depth range e o scissor da sua view,
+  sobre a cor e a profundidade de clear da copia de display. O front face do
+  GL e horario por essa projecao: com anti-horario o anel de "PRESS START"
+  aparecia pelo avesso e o logo sumia.
+- [x] Texturas de intensidade (`I4`, `I8`) decodificadas com alfa igual a
+  intensidade, como o GX as entrega ao TEV. Com alfa 255 as linhas de
+  copyright e o simbolo de marca viravam retangulos brancos e o logo ficava
+  escuro. O teste de I4 afirmava o alfa errado e foi corrigido; ha um teste de
+  I8.
+- [x] `decode_captured_textures` calculava o tamanho de uma textura fora do
+  `try`, e um formato desconhecido derrubava o processo em vez de virar um
+  texel branco. O titulo tem um: a textura Z8 do apagamento de tela.
+- [x] Medido depois dessas mudancas: 176/176 testes unitarios e ctest 11/11 em
+  `host-debug` e em `host-sanitize`; os relatos do UBSan continuam os dois do
+  sistema de classes do HSD.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -762,13 +794,12 @@ Atualizado em 13 de setembro de 2026.
 
 ## Proximos gates
 
-1. Apresentar pelo SDL/OpenGL a captura que o frame sink recebe do laco de
-   titulo, com a camera e a projecao do jogo em vez da camera orbital do
-   preview, a 60 Hz de relogio de parede.
-2. `gm_801A4014` inteiro para o titulo: o preload e o `on_enter` do estado
+1. `gm_801A4014` inteiro para o titulo: o preload e o `on_enter` do estado
    antes, o `on_exit` (que escolhe o proximo modo) e o roteamento depois. Isso
    traz `gm_1736.c` e, pelo fim de `gm_801A4014`, o cartao de memoria de
-   `lbcardnew.c`.
+   `lbcardnew.c`. E o que leva o titulo a cena seguinte.
+2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
+   que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
 3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
    confundir isso com uma saida DSP real.
 4. Fechar o que o TEV por fragmento nao cobre: bump, fog e copias de EFB.
@@ -910,6 +941,20 @@ Atualizado em 13 de setembro de 2026.
   HSD: `FogRelease` chamado pelo ponteiro de release de `class.h` e
   `HSD_JObjRemoveAll` por `gobjobject.c`, ambos por um ponteiro de funcao de
   outro tipo.
+- O presenter nao modela texturas de profundidade (`GXSetZTexture`), e o
+  decodificador nao conhece `Z8`, `Z16` nem `Z24X8`. O apagamento de tela do
+  titulo desenha seu quad com a profundidade da propria geometria, na metade
+  entre near e far, em vez de limpar para o far; so esconde o que estiver
+  alem dessa metade. As SObj que usam `GX_ZT_REPLACE` tem o mesmo desvio.
+- A janela, o ritmo de 60 Hz e a entrada de teclado e gamepad de
+  `--view-title-scene` foram escritos, mas so o caminho escondido, que grava o
+  BMP, foi executado e conferido; o que muda na janela e a troca de buffer e a
+  leitura de eventos.
+- `--view-title-scene` termina quando `gm_801A4D34` retorna: START encerra a
+  cena, e a seguinte nao existe no host ainda.
+- O cache de texturas do titulo e o presenter reconhecem uma imagem pelo
+  endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
+  mesmo endereco continua mostrando a primeira.
 - Uma referencia `weak` nao puxa membro de biblioteca estatica. Um estagio
   portado precisa de uma referencia forte, senao sua entrada continua nula.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima

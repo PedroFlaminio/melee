@@ -38,6 +38,8 @@ struct ActiveDraw {
     mh_u32 texture_image = MELEE_HOST_GX_NO_TEXTURE;
     /* Index into the captured draw-state table. */
     mh_u32 draw_state = 0;
+    /* Index into the captured view-state table. */
+    mh_u32 view_state = 0;
     /* Index into the captured TEV-state table. */
     mh_u32 tev_state = 0;
     /* Index into the captured texture-set table. */
@@ -74,6 +76,8 @@ std::vector<TextureSet> captured_texture_sets;
 std::vector<MeleeHostGxTextureDesc> captured_textures;
 /* Distinct pixel states the draws ran under, in first-use order. */
 std::vector<MeleeHostGxDrawState> captured_draw_states;
+/* Distinct projections, viewports and scissor boxes, likewise. */
+std::vector<MeleeHostGxViewState> captured_view_states;
 /* Distinct TEV configurations, likewise. */
 std::vector<MeleeHostGxTevState> captured_tev_states;
 /* The position matrix row each captured vertex was drawn with. */
@@ -240,6 +244,60 @@ mh_u32 current_draw_state_id_locked()
     }
     captured_draw_states.push_back(state);
     return static_cast<mh_u32>(captured_draw_states.size() - 1);
+}
+
+bool same_view_state(const MeleeHostGxViewState& left,
+                     const MeleeHostGxViewState& right)
+{
+    for (std::size_t index = 0; index < 6; ++index) {
+        if (left.projection[index] != right.projection[index]) {
+            return false;
+        }
+    }
+    return left.projection_type == right.projection_type &&
+           left.viewport_left == right.viewport_left &&
+           left.viewport_top == right.viewport_top &&
+           left.viewport_width == right.viewport_width &&
+           left.viewport_height == right.viewport_height &&
+           left.viewport_near == right.viewport_near &&
+           left.viewport_far == right.viewport_far &&
+           left.scissor_left == right.scissor_left &&
+           left.scissor_top == right.scissor_top &&
+           left.scissor_width == right.scissor_width &&
+           left.scissor_height == right.scissor_height;
+}
+
+/* The projection and viewport from the modelled transform state and the
+ * scissor box from the pixel state, resolved to an index in the captured
+ * table. */
+mh_u32 current_view_state_id_locked()
+{
+    MeleeHostGxTransformState transform{};
+    MeleeHostGxPixelState pixel{};
+    melee_host_gx_transform_state(&transform);
+    melee_host_gx_pixel_state(&pixel);
+    MeleeHostGxViewState view{};
+    view.projection_type = transform.projection_type;
+    for (std::size_t index = 0; index < 6; ++index) {
+        view.projection[index] = transform.projection[index];
+    }
+    view.viewport_left = transform.viewport_left;
+    view.viewport_top = transform.viewport_top;
+    view.viewport_width = transform.viewport_width;
+    view.viewport_height = transform.viewport_height;
+    view.viewport_near = transform.viewport_near;
+    view.viewport_far = transform.viewport_far;
+    view.scissor_left = pixel.scissor_left;
+    view.scissor_top = pixel.scissor_top;
+    view.scissor_width = pixel.scissor_width;
+    view.scissor_height = pixel.scissor_height;
+    for (std::size_t index = 0; index < captured_view_states.size(); ++index) {
+        if (same_view_state(captured_view_states[index], view)) {
+            return static_cast<mh_u32>(index);
+        }
+    }
+    captured_view_states.push_back(view);
+    return static_cast<mh_u32>(captured_view_states.size() - 1);
 }
 
 bool same_tev_stage(const MeleeHostGxTevStage& left,
@@ -785,6 +843,7 @@ void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
     active_draw.vertex_matrix_row = transform.current_matrix;
     active_draw.texture_image = current_texture_id_locked(0);
     active_draw.draw_state = current_draw_state_id_locked();
+    active_draw.view_state = current_view_state_id_locked();
     active_draw.tev_state = current_tev_state_id_locked();
     active_draw.texture_set = current_texture_set_id_locked();
     active_draw.vertex_texture_matrix_rows.fill(kNoMatrixIndex);
@@ -914,6 +973,7 @@ void capture_position(mh_f32 x, mh_f32 y, mh_f32 z)
     vertex.position = { x, y, z };
     vertex.texture_image = active_draw.texture_image;
     vertex.draw_state = active_draw.draw_state;
+    vertex.view_state = active_draw.view_state;
     vertex.tev_state = active_draw.tev_state;
     vertex.texture_set = active_draw.texture_set;
     if (active_draw.texture_image != MELEE_HOST_GX_NO_TEXTURE) {
@@ -1661,6 +1721,7 @@ extern "C" void melee_host_gx_reset_command_log(void)
     rejected_index_count = 0;
     captured_textures.clear();
     captured_draw_states.clear();
+    captured_view_states.clear();
     captured_tev_states.clear();
     captured_vertex_matrix_rows.clear();
     captured_raw_vertices.clear();
@@ -1789,6 +1850,26 @@ extern "C" bool melee_host_gx_captured_draw_state_at(
         return false;
     }
     *output = captured_draw_states[index];
+    return true;
+}
+
+extern "C" size_t melee_host_gx_captured_view_state_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return captured_view_states.size();
+}
+
+extern "C" bool melee_host_gx_captured_view_state_at(
+    size_t index, MeleeHostGxViewState* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_view_states.size()) {
+        return false;
+    }
+    *output = captured_view_states[index];
     return true;
 }
 

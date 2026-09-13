@@ -105,6 +105,9 @@ typedef struct MeleeHostGxCapturedVertex {
     mh_u32 draw_state;
     /* Index into the captured TEV-state table. */
     mh_u32 tev_state;
+    /* Index into the captured view-state table: the projection, viewport and
+     * scissor the draw ran under. */
+    mh_u32 view_state;
 } MeleeHostGxCapturedVertex;
 
 typedef struct MeleeHostGxTriangle {
@@ -180,6 +183,31 @@ bool melee_host_gx_resolve_alpha_test(const MeleeHostGxDrawState* state,
 size_t melee_host_gx_captured_draw_state_count(void);
 bool melee_host_gx_captured_draw_state_at(size_t index,
                                           MeleeHostGxDrawState* output);
+
+/* What a draw ran under that places it on screen but is not in its vertices:
+ * the projection in GX's six-number form, the viewport with its depth range,
+ * and the scissor box, the last two in framebuffer pixels. */
+typedef struct MeleeHostGxViewState {
+    mh_u32 projection_type;
+    mh_f32 projection[6];
+    mh_f32 viewport_left;
+    mh_f32 viewport_top;
+    mh_f32 viewport_width;
+    mh_f32 viewport_height;
+    mh_f32 viewport_near;
+    mh_f32 viewport_far;
+    mh_u32 scissor_left;
+    mh_u32 scissor_top;
+    mh_u32 scissor_width;
+    mh_u32 scissor_height;
+} MeleeHostGxViewState;
+
+/* Distinct view states the captured draws ran under, in first-use order.  A
+ * scene draws through several cameras in one frame, so a consumer applies
+ * each draw's own view rather than one for the whole capture. */
+size_t melee_host_gx_captured_view_state_count(void);
+bool melee_host_gx_captured_view_state_at(size_t index,
+                                          MeleeHostGxViewState* output);
 
 size_t melee_host_gx_display_list_error_count(void);
 /* Indexed vertex reads the host refused because they fell outside a bounded

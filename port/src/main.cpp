@@ -1,5 +1,6 @@
 #include "assets/hsd_archive.hpp"
 #include "gx/tev.hpp"
+#include "gx/view.hpp"
 #include "assets/gx_texture.hpp"
 #include "assets/hsd_runtime_archive.hpp"
 #include "assets/schemas/db_common.hpp"
@@ -108,6 +109,7 @@ void print_usage(const char* executable)
 #if defined(MELEE_HOST_SDL_RENDERER)
               << "  " << executable
               << " --view-animation FILE SYMBOL ANIMFILE ANIMSYM\n"
+              << " --view-title-scene DIR [BMP FRAME]\n"
 #endif
               << ""
 #if defined(MELEE_HOST_SDL_RENDERER)
@@ -714,51 +716,373 @@ int read_resource(const std::filesystem::path& root, std::string path)
 /* Decodes the textures a capture bound, in the order the vertices index them:
  * an image that cannot be decoded still has to occupy its slot or every id
  * after it would point at the wrong picture. */
+melee::render::TextureImage decode_captured_texture(mh_u32 id,
+                                                    bool* decoded_out)
+{
+    MeleeHostGxTextureDesc desc{};
+    melee::render::TextureImage image{ 1, 1, 0, 0, { 255, 255, 255, 255 },
+                                       false };
+    *decoded_out = false;
+    if (!melee_host_gx_captured_texture_at(id, &desc) ||
+        desc.image == nullptr)
+    {
+        return image;
+    }
+    try {
+        /* The size throws for a format the decoder does not know, so it
+         * belongs inside the try like the decode itself. */
+        const std::size_t byte_count = melee::assets::gx_texture_data_size(
+            desc.width, desc.height, desc.format);
+        const std::span<const std::byte> data{
+            static_cast<const std::byte*>(desc.image), byte_count
+        };
+        melee::assets::DecodedTexture decoded{};
+        MeleeHostGxTlutDesc tlut{};
+        if (desc.color_indexed &&
+            melee_host_gx_loaded_tlut(desc.tlut_name, &tlut) && tlut.loaded &&
+            tlut.entries != nullptr)
+        {
+            decoded = melee::assets::decode_gx_texture_with_tlut(
+                data, desc.width, desc.height, desc.format,
+                { static_cast<const std::byte*>(tlut.entries),
+                  static_cast<std::size_t>(tlut.entry_count) * 2 },
+                tlut.format);
+        } else if (!desc.color_indexed) {
+            decoded = melee::assets::decode_gx_texture(
+                data, desc.width, desc.height, desc.format);
+        }
+        if (!decoded.rgba.empty()) {
+            image = { decoded.width, decoded.height, desc.wrap_s,
+                      desc.wrap_t,   std::move(decoded.rgba),
+                      desc.mag_filter != 0 };
+            *decoded_out = true;
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "texture " << id << " (format 0x" << std::hex
+                  << desc.format << std::dec
+                  << ") not decoded: " << error.what() << '\n';
+    }
+    return image;
+}
+
 void decode_captured_textures(mh_u32 count,
                               std::vector<melee::render::TextureImage>* images,
                               std::size_t* decoded_count)
 {
     for (mh_u32 id = 0; id < count; ++id) {
+        bool decoded = false;
+        images->push_back(decode_captured_texture(id, &decoded));
+        if (decoded) {
+            *decoded_count += 1;
+        }
+    }
+}
+
+/* The images for the textures each title frame captured.  The captured texture
+ * table is rebuilt every frame, and its order changes as the scene animates,
+ * but it names the same image data, so each texture is decoded once, by its
+ * data and format, and keeps the address the presenter keys its GL texture
+ * on. */
+class TitleTextureCache {
+public:
+    std::vector<const melee::render::TextureImage*> images_for_frame()
+    {
+        const auto count =
+            static_cast<mh_u32>(melee_host_gx_captured_texture_count());
+        std::vector<const melee::render::TextureImage*> images;
+        images.reserve(count);
+        for (mh_u32 id = 0; id < count; ++id) {
+            const TextureKey key = key_of(id);
+            auto found = images_.find(key);
+            if (found == images_.end()) {
+                bool decoded = false;
+                found =
+                    images_.emplace(key, decode_captured_texture(id, &decoded))
+                        .first;
+            }
+            images.push_back(&found->second);
+        }
+        return images;
+    }
+
+private:
+    /* The image and palette data, then size, formats, wrap and filter. */
+    using TextureKey = std::array<mh_u64, 6>;
+
+    static TextureKey key_of(mh_u32 id)
+    {
         MeleeHostGxTextureDesc desc{};
-        melee::render::TextureImage image{ 1, 1, 0, 0,
-                                           { 255, 255, 255, 255 }, false };
-        if (melee_host_gx_captured_texture_at(id, &desc) &&
-            desc.image != nullptr)
+        MeleeHostGxTlutDesc tlut{};
+        if (!melee_host_gx_captured_texture_at(id, &desc)) {
+            return {};
+        }
+        if (desc.color_indexed) {
+            static_cast<void>(
+                melee_host_gx_loaded_tlut(desc.tlut_name, &tlut));
+        }
+        return {
+            static_cast<mh_u64>(reinterpret_cast<uintptr_t>(desc.image)),
+            static_cast<mh_u64>(reinterpret_cast<uintptr_t>(tlut.entries)),
+            (static_cast<mh_u64>(desc.width) << 16U) | desc.height,
+            (static_cast<mh_u64>(desc.format) << 32U) | tlut.format,
+            (static_cast<mh_u64>(desc.wrap_s) << 32U) | desc.wrap_t,
+            desc.mag_filter,
+        };
+    }
+
+    std::map<TextureKey, melee::render::TextureImage> images_;
+};
+
+struct TitleView {
+    melee::render::FramePresenter presenter;
+    TitleTextureCache textures;
+    MeleeHostContext* context = nullptr;
+    /* With a screenshot path the presenter is hidden, the loop is not paced,
+     * and the scene is asked to leave once that frame is written. */
+    const char* screenshot_path = nullptr;
+    mh_u32 screenshot_frame = 0;
+    mh_u32 frames = 0;
+    bool screenshot_written = false;
+    bool screenshot_failed = false;
+    std::string error;
+};
+
+/* What one frame's capture holds: its textures, and each view with the
+ * triangles drawn through it. */
+void report_title_capture()
+{
+    const std::size_t triangle_count = melee_host_gx_triangle_count();
+    const std::size_t view_count = melee_host_gx_captured_view_state_count();
+    std::vector<std::size_t> triangles_per_view(view_count, 0);
+    for (std::size_t index = 0; index < triangle_count; ++index) {
+        MeleeHostGxCapturedTriangle triangle{};
+        if (melee_host_gx_captured_triangle_at(index, &triangle) &&
+            triangle.vertices[0].view_state < view_count)
         {
-            const std::size_t byte_count = melee::assets::gx_texture_data_size(
-                desc.width, desc.height, desc.format);
-            const std::span<const std::byte> data{
-                static_cast<const std::byte*>(desc.image), byte_count
-            };
-            try {
-                melee::assets::DecodedTexture decoded{};
-                MeleeHostGxTlutDesc tlut{};
-                if (desc.color_indexed &&
-                    melee_host_gx_loaded_tlut(desc.tlut_name, &tlut) &&
-                    tlut.loaded && tlut.entries != nullptr)
-                {
-                    decoded = melee::assets::decode_gx_texture_with_tlut(
-                        data, desc.width, desc.height, desc.format,
-                        { static_cast<const std::byte*>(tlut.entries),
-                          static_cast<std::size_t>(tlut.entry_count) * 2 },
-                        tlut.format);
-                } else if (!desc.color_indexed) {
-                    decoded = melee::assets::decode_gx_texture(
-                        data, desc.width, desc.height, desc.format);
-                }
-                if (!decoded.rgba.empty()) {
-                    image = { decoded.width, decoded.height, desc.wrap_s,
-                              desc.wrap_t, std::move(decoded.rgba),
-                              desc.mag_filter != 0 };
-                    *decoded_count += 1;
-                }
-            } catch (const std::exception& error) {
-                std::cerr << "texture " << id << " not decoded: "
-                          << error.what() << '\n';
+            triangles_per_view[triangle.vertices[0].view_state] += 1;
+        }
+    }
+    std::cout << "  capture: " << triangle_count << " triangles, "
+              << view_count << " views, "
+              << melee_host_gx_captured_texture_count() << " textures\n";
+    for (std::size_t id = 0; id < melee_host_gx_captured_texture_count();
+         ++id)
+    {
+        MeleeHostGxTextureDesc desc{};
+        if (!melee_host_gx_captured_texture_at(id, &desc)) {
+            continue;
+        }
+        std::cout << "    texture " << id << ": format 0x" << std::hex
+                  << desc.format << std::dec << ", " << desc.width << 'x'
+                  << desc.height << (desc.color_indexed ? ", indexed" : "")
+                  << '\n';
+    }
+    for (std::size_t index = 0; index < view_count; ++index) {
+        MeleeHostGxViewState state{};
+        if (!melee_host_gx_captured_view_state_at(index, &state)) {
+            continue;
+        }
+        std::cout << "    view " << index << ": "
+                  << (state.projection_type == 0 ? "perspective"
+                                                 : "orthographic")
+                  << " [";
+        for (std::size_t value = 0; value < 6; ++value) {
+            std::cout << (value == 0 ? "" : " ") << state.projection[value];
+        }
+        std::cout << "], viewport " << state.viewport_left << ','
+                  << state.viewport_top << ' ' << state.viewport_width << 'x'
+                  << state.viewport_height << " z " << state.viewport_near
+                  << ".." << state.viewport_far << ", scissor "
+                  << state.scissor_left << ',' << state.scissor_top << ' '
+                  << state.scissor_width << 'x' << state.scissor_height
+                  << ", " << triangles_per_view[index] << " triangles\n";
+    }
+
+    /* Runs as the presenter draws them: consecutive triangles sharing pixel
+     * state, TEV program, texture set and view, with the box they cover on
+     * screen. */
+    struct RunSummary {
+        MeleeHostGxCapturedVertex lead{};
+        std::size_t triangles = 0;
+        float left = 1.0e9F;
+        float top = 1.0e9F;
+        float right = -1.0e9F;
+        float bottom = -1.0e9F;
+    };
+    std::vector<MeleeHostGxViewState> views(view_count);
+    for (std::size_t index = 0; index < view_count; ++index) {
+        static_cast<void>(
+            melee_host_gx_captured_view_state_at(index, &views[index]));
+    }
+    std::vector<RunSummary> runs;
+    for (std::size_t index = 0; index < triangle_count; ++index) {
+        MeleeHostGxCapturedTriangle triangle{};
+        if (!melee_host_gx_captured_triangle_at(index, &triangle)) {
+            continue;
+        }
+        const MeleeHostGxCapturedVertex& lead = triangle.vertices[0];
+        if (runs.empty() || runs.back().lead.draw_state != lead.draw_state ||
+            runs.back().lead.tev_state != lead.tev_state ||
+            runs.back().lead.texture_set != lead.texture_set ||
+            runs.back().lead.view_state != lead.view_state)
+        {
+            RunSummary summary;
+            summary.lead = lead;
+            runs.push_back(summary);
+        }
+        RunSummary& run = runs.back();
+        run.triangles += 1;
+        if (lead.view_state >= views.size()) {
+            continue;
+        }
+        const MeleeHostGxViewState& state = views[lead.view_state];
+        const melee::gx::ClipMatrix clip = melee::gx::clip_matrix(state);
+        for (const MeleeHostGxCapturedVertex& vertex : triangle.vertices) {
+            const MeleeHostGxPosition3f32& p = vertex.position;
+            const float w =
+                clip[3] * p.x + clip[7] * p.y + clip[11] * p.z + clip[15];
+            if (w <= 0.0F) {
+                continue;
+            }
+            const float ndc_x =
+                (clip[0] * p.x + clip[4] * p.y + clip[8] * p.z + clip[12]) / w;
+            const float ndc_y =
+                (clip[1] * p.x + clip[5] * p.y + clip[9] * p.z + clip[13]) / w;
+            const float screen_x = state.viewport_left +
+                                   (ndc_x + 1.0F) * 0.5F * state.viewport_width;
+            const float screen_y = state.viewport_top + (1.0F - ndc_y) * 0.5F *
+                                                            state.viewport_height;
+            run.left = std::min(run.left, screen_x);
+            run.right = std::max(run.right, screen_x);
+            run.top = std::min(run.top, screen_y);
+            run.bottom = std::max(run.bottom, screen_y);
+        }
+    }
+    for (std::size_t index = 0; index < runs.size(); ++index) {
+        const RunSummary& run = runs[index];
+        MeleeHostGxDrawState draw{};
+        MeleeHostGxTevState tev{};
+        std::array<mh_u32, MELEE_HOST_GX_MAX_TEXMAP> set{};
+        set.fill(MELEE_HOST_GX_NO_TEXTURE);
+        static_cast<void>(
+            melee_host_gx_captured_draw_state_at(run.lead.draw_state, &draw));
+        static_cast<void>(
+            melee_host_gx_captured_tev_state_at(run.lead.tev_state, &tev));
+        static_cast<void>(melee_host_gx_captured_texture_set_at(
+            run.lead.texture_set, set.data()));
+        std::cout << "    run " << index << ": " << run.triangles
+                  << " triangles, view " << run.lead.view_state << ", blend "
+                  << draw.blend_mode << ", z "
+                  << (draw.z_compare_enable ? "on" : "off") << ", alpha "
+                  << draw.alpha_compare_0 << '/'
+                  << static_cast<int>(draw.alpha_ref_0) << ' '
+                  << draw.alpha_op << ' ' << draw.alpha_compare_1 << '/'
+                  << static_cast<int>(draw.alpha_ref_1) << ", tev "
+                  << run.lead.tev_state << " ("
+                  << static_cast<int>(tev.stage_count)
+                  << " stages), textures";
+        for (const mh_u32 id : set) {
+            if (id != MELEE_HOST_GX_NO_TEXTURE) {
+                std::cout << ' ' << id;
             }
         }
-        images->push_back(std::move(image));
+        std::cout << ", screen " << run.left << ',' << run.top << ".."
+                  << run.right << ',' << run.bottom << '\n';
     }
+}
+
+/* The GX frame sink: shows the frame the title just drew, hands the input to
+ * the host for the next pad sample, and holds the loop to 60 frames a second
+ * of wall clock.  The OS clock stays frozen, so the game still advances one
+ * alarm per frame however long presenting takes. */
+void present_title_frame(void* user_data)
+{
+    auto* const view = static_cast<TitleView*>(user_data);
+    view->frames += 1;
+    view->presenter.present(view->textures.images_for_frame());
+    if (view->screenshot_path != nullptr) {
+        if (view->frames == view->screenshot_frame) {
+            report_title_capture();
+            view->screenshot_written =
+                view->presenter.save_bmp(view->screenshot_path, &view->error);
+            view->screenshot_failed = !view->screenshot_written;
+            melee_host_title_scene_request_exit();
+        }
+        return;
+    }
+    MeleeHostPadState pad{};
+    if (!view->presenter.poll(&pad)) {
+        melee_host_title_scene_request_exit();
+        return;
+    }
+    /* lb_800195D0 steps the host before the next alarm samples the pad, which
+     * latches this state for PADRead. */
+    static_cast<void>(melee_host_submit_pad_state(view->context, 0, &pad));
+    view->presenter.pace(1'000'000'000ULL / 60ULL);
+}
+
+/* The title screen through its own frame loop, presented in a window, or into
+ * a BMP file at one frame. */
+int view_title_scene(const std::string& root, const char* screenshot_path,
+                     mh_u32 screenshot_frame)
+{
+    MeleeHostContext* context = nullptr;
+    const MeleeHostConfig config{ .resource_root = root.c_str(),
+                                  .headless = false };
+    melee_host_os_time_freeze();
+    if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
+        melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
+        melee_host_activate_pad_backend(context) != MELEE_HOST_OK ||
+        melee_host_boot_memory_init(0) != MELEE_HOST_OK ||
+        melee_host_boot_load_dol_data((root + "/sys/main.dol").c_str()) !=
+            MELEE_HOST_OK)
+    {
+        std::cerr << "boot failed\n";
+        melee_host_destroy(context);
+        return 1;
+    }
+    int result = 0;
+    {
+        TitleView view;
+        view.context = context;
+        view.screenshot_path = screenshot_path;
+        view.screenshot_frame = screenshot_frame;
+        std::string error;
+        if (!view.presenter.open(screenshot_path != nullptr, &error)) {
+            std::cerr << "could not open the presenter: " << error << '\n';
+            result = 1;
+        } else {
+            melee_host_title_scene_enter();
+            MeleeHostTitleRunReport run{};
+            if (melee_host_title_scene_run(present_title_frame, &view, &run) !=
+                MELEE_HOST_OK)
+            {
+                std::cerr << "the title scene did not run\n";
+                result = 1;
+            } else {
+                std::cout << "presented " << view.frames
+                          << " frames of the title screen\n"
+                          << "  scene frames: " << run.scene_frames << '\n'
+                          << "  exit buttons: 0x" << std::hex
+                          << run.exit_buttons << std::dec << '\n';
+                if (view.screenshot_failed) {
+                    std::cerr << "screenshot failed: " << view.error << '\n';
+                    result = 1;
+                } else if (screenshot_path != nullptr &&
+                           !view.screenshot_written)
+                {
+                    std::cerr << "the scene left before frame "
+                              << screenshot_frame << '\n';
+                    result = 1;
+                } else if (screenshot_path != nullptr) {
+                    std::cout << "  frame " << screenshot_frame
+                              << " written to " << screenshot_path << '\n';
+                }
+            }
+        }
+    }
+    melee_host_destroy(context);
+    return result;
 }
 
 int view_scene(const char* path, const char* symbol, bool scene_model,
@@ -1718,7 +2042,8 @@ int main(int argc, char** argv)
             }
             melee_host_title_scene_enter();
             MeleeHostTitleRunReport run{};
-            const MeleeHostStatus ran = melee_host_title_scene_run(&run);
+            const MeleeHostStatus ran =
+                melee_host_title_scene_run(nullptr, nullptr, &run);
             melee_host_destroy(context);
             if (ran != MELEE_HOST_OK) {
                 std::cerr << "the title scene did not run\n";
@@ -1766,6 +2091,13 @@ int main(int argc, char** argv)
 #if defined(MELEE_HOST_SDL_RENDERER)
         if (argc == 6 && std::string(argv[1]) == "--view-animation") {
             return view_animation(argv[2], argv[3], argv[4], argv[5]);
+        }
+        if ((argc == 3 || argc == 5) &&
+            std::string(argv[1]) == "--view-title-scene") {
+            const char* const screenshot = argc == 5 ? argv[3] : nullptr;
+            const auto frame =
+                argc == 5 ? static_cast<mh_u32>(std::stoul(argv[4])) : 0U;
+            return view_title_scene(argv[2], screenshot, frame);
         }
 #endif
         if (argc == 3 && std::string(argv[1]) == "--list-animations") {

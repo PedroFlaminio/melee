@@ -26,6 +26,9 @@ static struct {
     mh_u32 scene_frames;
     mh_u32 drawn_frames;
     mh_u32 last_frame_triangles;
+    /* The host's own sink, handed each frame before the capture clears. */
+    MeleeHostGxFrameSink frame_sink;
+    void* frame_sink_user_data;
 } title_run;
 
 void melee_host_title_scene_enter(void)
@@ -90,9 +93,14 @@ static void title_frame_drawn(void* user_data)
     (void) user_data;
     title_run.drawn_frames += 1;
     title_run.last_frame_triangles = (mh_u32) melee_host_gx_triangle_count();
+    if (title_run.frame_sink != NULL) {
+        title_run.frame_sink(title_run.frame_sink_user_data);
+    }
 }
 
-MeleeHostStatus melee_host_title_scene_run(MeleeHostTitleRunReport* out_report)
+MeleeHostStatus melee_host_title_scene_run(MeleeHostGxFrameSink frame_sink,
+                                           void* user_data,
+                                           MeleeHostTitleRunReport* out_report)
 {
     GameModeState* const state = &gm_Mode_Title_States[0];
     u32 first_retrace;
@@ -106,6 +114,8 @@ MeleeHostStatus melee_host_title_scene_run(MeleeHostTitleRunReport* out_report)
     }
     memset(out_report, 0, sizeof(*out_report));
     memset(&title_run, 0, sizeof(title_run));
+    title_run.frame_sink = frame_sink;
+    title_run.frame_sink_user_data = user_data;
 
     first_retrace = VIGetRetraceCount();
     start = OSGetTime();
@@ -122,4 +132,9 @@ MeleeHostStatus melee_host_title_scene_run(MeleeHostTitleRunReport* out_report)
     out_report->exit_buttons = (mh_u32) *(int*) state->info.exit_data;
     out_report->elapsed_ticks = (mh_u64) (OSGetTime() - start);
     return MELEE_HOST_OK;
+}
+
+void melee_host_title_scene_request_exit(void)
+{
+    gm_801A4B60();
 }
