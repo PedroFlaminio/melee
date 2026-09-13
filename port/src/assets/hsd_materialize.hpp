@@ -59,6 +59,33 @@ struct MaterializedRumbleEntry {
     u8 unk5;
 };
 
+/* The host-layout form of MnSelectChrDataTable.  The game keeps its matching
+ * declaration private to mncharsel.c; its fields are intentionally identical
+ * so the C code can keep using its original type. */
+struct MaterializedStaticModel {
+    HSD_Joint* joint;
+    HSD_AnimJoint* animjoint;
+    HSD_MatAnimJoint* matanim_joint;
+    HSD_ShapeAnimJoint* shapeanim_joint;
+};
+
+struct MaterializedCharacterSelectData {
+    HSD_CObjDesc* cam;
+    HSD_LightDesc* light0;
+    HSD_LightDesc* light1;
+    HSD_FogDesc* fog;
+    MaterializedStaticModel models[9];
+};
+
+struct MaterializedStageSelectData {
+    HSD_CObjDesc* cam;
+    HSD_LightDesc* light0;
+    HSD_LightDesc* light1;
+    HSD_FogDesc* fog;
+    MaterializedStaticModel models[11];
+    MaterializedStaticModel random_stage;
+};
+
 /*
  * Rebuilds HSD descriptors in host layout so the original object loaders can
  * walk them unchanged.
@@ -144,6 +171,11 @@ public:
 
     [[nodiscard]] HSD_FogDesc* fog(std::string_view public_symbol);
 
+    [[nodiscard]] MaterializedCharacterSelectData*
+    character_select_data(std::string_view public_symbol);
+    [[nodiscard]] MaterializedStageSelectData*
+    stage_select_data(std::string_view public_symbol);
+
     /* An image and optional palette drawn as a screen sprite. */
     [[nodiscard]] HSD_SObjDesc* sobj_desc(std::string_view public_symbol);
 
@@ -198,6 +230,7 @@ private:
     HSD_TObjDesc* tobj_chain(HsdRuntimeNode node);
     HSD_RObjDesc* robj_chain(HsdRuntimeNode node);
     HSD_CObjDesc* camera_desc(HsdRuntimeNode node);
+    HSD_FogDesc* fog_desc(HsdRuntimeNode node);
     HSD_LightDesc* light_desc_chain(HsdRuntimeNode node);
     HSD_LightAnim* light_anim_chain(HsdRuntimeNode node);
     HSD_WObjAnim* world_anim(HsdRuntimeNode node);

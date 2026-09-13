@@ -25,6 +25,7 @@
 #include <melee/lb/lblanguage.h>
 #include <melee/lb/lbspdisplay.h>
 #include <melee/lb/types.h>
+#include <dolphin/os.h>
 #include <sysdolphin/baselib/aobj.h>
 #include <sysdolphin/baselib/cobj.h>
 #include <sysdolphin/baselib/controller.h>
@@ -5306,7 +5307,9 @@ void mnCharSel_Scene_OnEnter(void* arg0)
     PAD_STACK(8);
 
     lbCardNew_AllocWorkArea();
+#ifndef MELEE_HOST
     lbCardGame_LoadArchive(0);
+#endif
     mnCharSel_804D6CB0 = (CSSData*) arg0;
 
     mnCharSel_804D6CF0 = mnCharSel_804D6CB0->unk_0x0 - 1;
@@ -5340,6 +5343,12 @@ void mnCharSel_Scene_OnEnter(void* arg0)
     }
     css_data_table = HSD_ArchiveGetPublicAddress(mnCharSel_804D6CD0,
                                                  "MnSelectChrDataTable");
+#ifdef MELEE_HOST
+    if (css_data_table == NULL) {
+        OSPanic(__FILE__, __LINE__,
+                "MnSelectChrDataTable is not translated for the host");
+    }
+#endif
     css_models = &css_data_table->models;
     if (lbLang_IsSavedLanguageJP() != 0) {
         HSD_SisLib_803A62A0(0, "SdSlChr.dat", "SIS_SelCharData");

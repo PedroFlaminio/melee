@@ -77,7 +77,9 @@ void onEnter(GameModeState* scene)
 
     data = scene->info.enter_data;
     lbCardNew_AllocWorkArea();
+#ifndef MELEE_HOST
     lbCardGame_LoadArchive(0);
+#endif
     lbSnap_8001E218(HSD_MemAlloc(lbSnap_8001E204()),
                     HSD_MemAlloc(lbSnap_8001E210()));
     {

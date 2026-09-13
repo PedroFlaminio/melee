@@ -25,6 +25,38 @@
 /* 1B16A8 */ static void onEnterResults(GameModeState*);
 /* 1B16C8 */ static void onExitResults(GameModeState*);
 
+#ifdef MELEE_HOST
+/* The first host VS slice deliberately ends at the match.  Results, sudden
+ * death, challenger approach and prize routing bring in their own unported
+ * scene graphs and are not prerequisites for entering a local match. */
+GameModeState gm_Mode_Vs_States[] = {
+    {
+        gmVsMode_State_Css,
+        lbDvdPreload_3,
+        0,
+        onEnterCss,
+        onExitCss,
+        { GS_CSS, &gmVsMelee_CssData, &gmVsMelee_CssData },
+    },
+    {
+        gmVsMode_State_Sss,
+        lbDvdPreload_3,
+        0,
+        onEnterSss,
+        onExitSss,
+        { GS_SSS, &gmVsMelee_SssData, &gmVsMelee_SssData },
+    },
+    {
+        gmVsMode_State_Vs,
+        lbDvdPreload_3,
+        0,
+        onEnterVs,
+        NULL,
+        { GS_VS, &gmVsMelee_StartData, &gmVsMelee_VsExitInfo },
+    },
+    { GM_GAMEMODESTATE_TERMINATE },
+};
+#else
 GameModeState gm_Mode_Vs_States[] = {
     {
         gmVsMode_State_Css,
@@ -124,6 +156,7 @@ GameModeState gm_Mode_Vs_States[] = {
     },
     { GM_GAMEMODESTATE_TERMINATE },
 };
+#endif
 
 enum {
     state_debug_vs = 1,

@@ -207,23 +207,11 @@ void mnVibration_Init(int arg0)
     MELEE_HOST_UNPORTED("mnVibration_Init");
 }
 
-UNK_RET mn_80231714(UNK_PARAMS)
-{
-    MELEE_HOST_UNPORTED("mn_80231714");
-}
-
 void mnEvent_8024E838(int arg0, int arg1)
 {
     (void) arg0;
     (void) arg1;
     MELEE_HOST_UNPORTED("mnEvent_8024E838");
-}
-
-int mn_80231634(struct mn_80231634_t* arg0)
-{
-    (void) arg0;
-    MELEE_HOST_UNPORTED("mn_80231634");
-    return 0;
 }
 
 void gm_80190FE4(int arg0)
@@ -232,8 +220,19 @@ void gm_80190FE4(int arg0)
     MELEE_HOST_UNPORTED("gm_80190FE4");
 }
 
-s32 mnCharSel_802640A0(void)
+/* Rule, item-switch and tournament submenus are reachable from the CSS menu
+ * but are outside the first local-VS path. */
+void mnItemSw_802358C0(void)
 {
-    MELEE_HOST_UNPORTED("mnCharSel_802640A0");
-    return 0;
+    MELEE_HOST_UNPORTED("mnItemSw_802358C0");
+}
+
+void mn_802339FC(void)
+{
+    MELEE_HOST_UNPORTED("mn_802339FC");
+}
+
+void gm_80190EA4(void)
+{
+    MELEE_HOST_UNPORTED("gm_80190EA4");
 }

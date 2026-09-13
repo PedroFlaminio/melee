@@ -132,6 +132,12 @@ void refuse(std::string_view symbol, std::string_view reason)
 void* translate_game_data(HsdMaterializedArchive& descriptors,
                           std::string_view symbol)
 {
+    if (symbol == "MnSelectChrDataTable") {
+        return descriptors.character_select_data(symbol);
+    }
+    if (symbol == "MnSelectStageDataTable") {
+        return descriptors.stage_select_data(symbol);
+    }
     const auto& translators = registry().translators;
     const auto found = translators.find(std::string(symbol));
     if (found == translators.end()) {
@@ -194,6 +200,9 @@ extern "C" MeleeHostHsdSymbolKind melee_host_hsd_symbol_kind(const char* symbol)
     }
     const std::string_view name(symbol);
     if (registry().translators.contains(std::string(name))) {
+        return MELEE_HOST_HSD_SYMBOL_GAME_DATA;
+    }
+    if (name == "MnSelectChrDataTable" || name == "MnSelectStageDataTable") {
         return MELEE_HOST_HSD_SYMBOL_GAME_DATA;
     }
     /* Symbols the game names without a kind suffix. */

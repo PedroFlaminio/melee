@@ -1540,7 +1540,11 @@ HSD_FogAdjDesc* HsdMaterializedArchive::fog_adj_desc(HsdRuntimeNode node)
 
 HSD_FogDesc* HsdMaterializedArchive::fog(std::string_view public_symbol)
 {
-    const HsdRuntimeNode node = archive_.public_root(public_symbol);
+    return fog_desc(archive_.public_root(public_symbol));
+}
+
+HSD_FogDesc* HsdMaterializedArchive::fog_desc(HsdRuntimeNode node)
+{
     HSD_FogDesc* const host = allocate<HSD_FogDesc>();
     stats_.fog_descs += 1;
 
@@ -1551,6 +1555,67 @@ HSD_FogDesc* HsdMaterializedArchive::fog(std::string_view public_symbol)
     if (const auto adj = reference(node, fog_field::kAdjDesc)) {
         host->fogadjdesc = fog_adj_desc(*adj);
     }
+    return host;
+}
+
+MaterializedCharacterSelectData*
+HsdMaterializedArchive::character_select_data(std::string_view public_symbol)
+{
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    auto* const host = allocate<MaterializedCharacterSelectData>();
+    if (const auto node = reference(table, 0x00)) {
+        host->cam = camera_desc(*node);
+    }
+    if (const auto node = reference(table, 0x04)) {
+        host->light0 = light_desc_chain(*node);
+    }
+    if (const auto node = reference(table, 0x08)) {
+        host->light1 = light_desc_chain(*node);
+    }
+    if (const auto node = reference(table, 0x0C)) {
+        host->fog = fog_desc(*node);
+    }
+    for (std::size_t index = 0; index < std::size(host->models); ++index) {
+        const HsdRuntimeNode model{ table.data_offset +
+                                    static_cast<std::uint32_t>(0x10 + index * 0x10) };
+        if (const auto node = reference(model, 0x00)) {
+            host->models[index].joint = joint_chain(*node);
+        }
+        if (const auto node = reference(model, 0x04)) {
+            host->models[index].animjoint = anim_joint_chain(*node);
+        }
+        if (const auto node = reference(model, 0x08)) {
+            host->models[index].matanim_joint = mat_anim_joint_chain(*node);
+        }
+        if (const auto node = reference(model, 0x0C)) {
+            host->models[index].shapeanim_joint = shape_anim_joint_chain(*node);
+        }
+    }
+    return host;
+}
+
+MaterializedStageSelectData*
+HsdMaterializedArchive::stage_select_data(std::string_view public_symbol)
+{
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    auto* const host = allocate<MaterializedStageSelectData>();
+    if (const auto node = reference(table, 0x00)) host->cam = camera_desc(*node);
+    if (const auto node = reference(table, 0x04)) host->light0 = light_desc_chain(*node);
+    if (const auto node = reference(table, 0x08)) host->light1 = light_desc_chain(*node);
+    if (const auto node = reference(table, 0x0C)) host->fog = fog_desc(*node);
+    auto materialize_model = [&](MaterializedStaticModel* model,
+                                 std::uint32_t offset) {
+        const HsdRuntimeNode disk{ table.data_offset + offset };
+        if (const auto node = reference(disk, 0)) model->joint = joint_chain(*node);
+        if (const auto node = reference(disk, 4)) model->animjoint = anim_joint_chain(*node);
+        if (const auto node = reference(disk, 8)) model->matanim_joint = mat_anim_joint_chain(*node);
+        if (const auto node = reference(disk, 12)) model->shapeanim_joint = shape_anim_joint_chain(*node);
+    };
+    for (std::size_t index = 0; index < std::size(host->models); ++index) {
+        materialize_model(&host->models[index],
+                          static_cast<std::uint32_t>(0x10 + index * 0x10));
+    }
+    materialize_model(&host->random_stage, 0xC0);
     return host;
 }
 

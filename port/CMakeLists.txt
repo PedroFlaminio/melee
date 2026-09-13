@@ -146,7 +146,14 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvs.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvsmelee.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gmvsmode.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1B03.c
     ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmain.c
+    # The VS route begins with character and stage selection.  Keep their
+    # native implementations in the host core while the mode table is being
+    # expanded; they currently share the menu/HSD/input substrate above.
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mncharsel.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnstagesel.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmainrule.c
     ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c
     ${CMAKE_SOURCE_DIR}/src/melee/pl/player.c
     ${CMAKE_SOURCE_DIR}/src/melee/pl/plattack.c
