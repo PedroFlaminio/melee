@@ -383,7 +383,7 @@ void OSReport(const char* format, ...)
     va_end(arguments);
 }
 
-void OSPanic(char* file, int line, char* message, ...)
+void OSPanic(const char* file, int line, const char* message, ...)
 {
     va_list arguments;
 
@@ -402,7 +402,7 @@ void __assert(const char* file, u32 line, const char* condition)
     abort();
 }
 
-void HSD_Panic(char* file, u32 line, char* message)
+void HSD_Panic(const char* file, u32 line, const char* message)
 {
     fprintf(stderr, "HSD panic at %s:%u: %s\n", file, line, message);
     abort();

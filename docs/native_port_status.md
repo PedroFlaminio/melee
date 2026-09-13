@@ -891,6 +891,21 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido ao fim: `host-debug` com 180/180 testes unitarios e ctest 13/13;
   `host-sanitize` com 180/180 e ctest 13/13, e so os dois relatos do UBSan do
   sistema de classes.
+- [x] Sincronizado com `doldecomp/melee` ate `d9f54dbc0` (11 commits) por
+  merge, que preserva os hashes ja publicados em `origin`. Conflitos em `os.h` e
+  `debug.h`, onde a upstream passou `OSPanic`, `__assert` e `HSD_Panic` a
+  `const char*` e as definicoes do host acompanharam, e em `gmevent.c`, onde a
+  upstream separou `struct gm_804D6900_x4_t`, que agora vive em `gmevent.h`.
+  `seed_ptr` virou `HSD_RandSeedPtr`, e o teste do gerador acompanhou.
+- [x] A conferencia contra a upstream achou `OSReport(const char*)` declarado
+  tambem para a build PowerPC desde `4c4ecadef`, enquanto `OSError.c` o define
+  com `char*`. O `const` ficou so sob `MELEE_HOST`. Token a token contra
+  `d9f54dbc0`, com `HSD_DevComArg`, `OSRtcUlong` e `ARQAddress` normalizados
+  para os tipos PowerPC, `gmevent.c`, `lbaudio_ax.c`, `gmscene.c`,
+  `gmmain_lib.c` e `hsd_3A76.c` so diferem pelo que o port ja documenta, e em
+  `synth.c` sobra um bloco de declaracoes antecipadas em outra posicao, que so
+  difere pelo mesmo `HSD_DevComArg`. Medido depois: 180/180 e ctest 13/13 em
+  `host-debug` e em `host-sanitize`, com os dois relatos do UBSan de antes.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento

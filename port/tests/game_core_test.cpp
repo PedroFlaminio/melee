@@ -10,7 +10,7 @@ extern "C" {
 
 TEST_CASE("original HSD random generator runs natively")
 {
-    *seed_ptr = 1;
+    *HSD_RandSeedPtr = 1;
     REQUIRE(HSD_Rand() == 41);
     REQUIRE(HSD_Rand() == 51235);
     REQUIRE(HSD_Rand() == 6334);
@@ -20,7 +20,7 @@ TEST_CASE("original HSD random generator runs natively")
 
 TEST_CASE("original HSD random float stays in its expected range")
 {
-    *seed_ptr = 1;
+    *HSD_RandSeedPtr = 1;
     const float value = HSD_Randf();
     REQUIRE(value == 41.0F / 65536.0F);
     REQUIRE(value >= 0.0F);

@@ -191,8 +191,14 @@ void OSSetSoundMode(u32 mode);
 #endif
 #endif
 
+#if defined(MELEE_HOST)
+/* The host's OSReport takes the const string callers pass; OSError.c, which
+ * the matching build compiles, still defines it with char*. */
 void OSReport(const char*, ...);
-DOLPHIN_ATTRIBUTE_NORETURN void OSPanic(char* file, int line, char* msg, ...);
+#else
+void OSReport(char*, ...);
+#endif
+DOLPHIN_ATTRIBUTE_NORETURN void OSPanic(const char* file, int line, const char* msg, ...);
 
 #if defined(MELEE_HOST)
 /* Addresses pass through these as well as sizes: HSD_AllocateXFB,
