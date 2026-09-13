@@ -103,6 +103,27 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `sfx/sfx_unk.c`. `efAsync_LoadSync(0)` e `(0x1F)` carregam bancos de
   partícula, que param em `psInitDataBankLocate` (relocação de 32 bits no
   lugar), então as partículas entram cedo nesse recorte.
+- Primeira onda de link, medida em 13/09/2026 com `GS_VS` posto na tabela do
+  host: 437 símbolos indefinidos, todos no `melee-pc` (o binário de testes não
+  liga a tabela de cenas). Quem referencia: `fighter.c` (218), `gmvs.c` (58),
+  `ftkirby.c` (47), `gm_1601.c` (30), `dbinit.c` (21), `ground.c` (19),
+  `plbonus.c` (16) e o resto em arquivos de lutador. Onde estão definidos,
+  em cerca de 75 arquivos: o núcleo de lutador (`ftcommon.c`, `ftcoll.c`,
+  `ftparts.c`, `ftdynamics.c`, `ftanim.c`, `ftlib.c`, `ft_08*.c`, `ftCo_*`),
+  `plbonuslib.c` (42), `camera.c` (16), itens, HUD, colisão (`mplib.c`,
+  `mpcoll.c`), `particle.c` (`psInitDataBank`, `psInitDataBankLoad`) e
+  `it_804D6D38`, que não tem definição em C. Casos que pedem decisão antes de
+  compilar: os 19 handlers do menu de depuração (`db*.c`), que `dbinit.c` só
+  alcança em níveis de depuração; `grpstadium.c`, que `ground.c` referencia
+  direto; e `gm_16A2.c`, `gm_17C0.c`, `gm_17EB.c` e `gmregclear.c`, que `gmvs.c`
+  referencia para outros modos.
+- Como abrir as ondas sem quebrar o que já roda: meça com a entrada `GS_VS` só
+  localmente e commite ondas que compilam sem ela. Atenção ao `host-sanitize`:
+  a instrumentação mantém vivas as referências de todo módulo compilado, então
+  um módulo que entra no core sem seu fecho quebra o link sanitizado mesmo sem
+  ser chamado (foi o que aconteceu com `gmvsmelee.c` e `gm_80177724`). Cada
+  onda precisa fechar o link nos dois presets, com paradas com nome para o que
+  não está no caminho.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

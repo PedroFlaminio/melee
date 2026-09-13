@@ -1019,8 +1019,11 @@ Atualizado em 13 de setembro de 2026.
    lutadores (Fox), estagio (Hyrule Temple, `grshrine.c`), mapa de colisao, HUD
    e camera. O teste `melee-host-vs-selection-asset` ja entrega a selecao que
    ela consome. So as chamadas diretas da entrada da cena caem em 15 modulos
-   fora do build (lista em `docs/fight_flow_port.md`), e os bancos de
-   particula que ela carrega ainda param em `psInitDataBankLocate`.
+   fora do build, e os bancos de particula que ela carrega ainda param em
+   `psInitDataBankLocate`. Com `GS_VS` na tabela, a primeira onda de link tem
+   437 simbolos indefinidos em cerca de 75 arquivos, a maior parte do nucleo de
+   lutador; inventario e cuidados com o `host-sanitize` em
+   `docs/fight_flow_port.md`.
 2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
 3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
