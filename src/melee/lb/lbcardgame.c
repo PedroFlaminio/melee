@@ -68,7 +68,11 @@ static const char* lb_8001C658(void)
     return _p(_1C);
 }
 
+#ifdef MELEE_HOST
+static intptr_t lb_8001C820(void)
+#else
 static int lb_8001C820(void)
+#endif
 {
     int var_r0;
 
@@ -161,7 +165,14 @@ int lb_8001CC4C(void)
 
 static int dont_inline_helper(void)
 {
+#ifdef MELEE_HOST
+    /* lb_8001BE30 and the card command queue behind it still carry the banner
+     * and the icon as 32-bit ints.  Only the write tasks read them, and those
+     * run only with a card in the slot, which the host never reports. */
+    intptr_t temp_r24;
+#else
     int temp_r24;
+#endif
 
     if (lb_8001CAF4() != 0) {
         return 0xD;
@@ -274,8 +285,10 @@ void lb_8001CF18(void)
 void lbCardGame_LoadArchive(int arg0)
 {
     if (_p(x5C) == 0) {
-        lbArchive_80016DBC("LbMcGame.", &_p(x5C), "MemCardIconData", 0);
-        lbArchive_80016DBC("NtMemAc", &_p(x64), "ScNtcCommon_scene_data", 0);
+        lbArchive_80016DBC("LbMcGame.", &_p(x5C), "MemCardIconData",
+                           VA_END_PTR);
+        lbArchive_80016DBC("NtMemAc", &_p(x64), "ScNtcCommon_scene_data",
+                           VA_END_PTR);
         _p(x60) = arg0;
         _p(enable) = 1;
     }

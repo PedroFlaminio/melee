@@ -38,6 +38,13 @@ MELEE_HOST_HSD_END
 #include <unordered_map>
 #include <vector>
 
+/* What a translator's reader holds: the archive's descriptors and the first
+ * failure, which C code cannot receive as an exception. */
+struct MeleeHostHsdReader {
+    melee::assets::HsdMaterializedArchive* descriptors;
+    std::string failure;
+};
+
 namespace {
 
 using melee::assets::HsdMaterializedArchive;
@@ -68,6 +75,7 @@ struct Registry {
     mh_u32 refused = 0;
     mh_u32 nulled = 0;
     mh_u32 externs_refused = 0;
+    std::unordered_map<std::string, MeleeHostHsdTranslator> translators;
 };
 
 Registry& registry()
@@ -121,6 +129,27 @@ void refuse(std::string_view symbol, std::string_view reason)
              state.last_error.c_str());
 }
 
+void* translate_game_data(HsdMaterializedArchive& descriptors,
+                          std::string_view symbol)
+{
+    const auto& translators = registry().translators;
+    const auto found = translators.find(std::string(symbol));
+    if (found == translators.end()) {
+        throw melee::assets::HsdArchiveError("no translator is registered");
+    }
+    MeleeHostHsdReader reader{ &descriptors, {} };
+    const std::uint32_t root =
+        descriptors.runtime().public_root(symbol).data_offset;
+    void* const result = found->second(&reader, root);
+    if (!reader.failure.empty()) {
+        throw melee::assets::HsdArchiveError(reader.failure);
+    }
+    if (result == nullptr) {
+        throw melee::assets::HsdArchiveError("the translator built nothing");
+    }
+    return result;
+}
+
 void* translate(HsdMaterializedArchive& descriptors,
                 MeleeHostHsdSymbolKind kind, std::string_view symbol)
 {
@@ -145,6 +174,10 @@ void* translate(HsdMaterializedArchive& descriptors,
         return descriptors.figa_tree(symbol);
     case MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE:
         return descriptors.rumble_table(symbol);
+    case MELEE_HOST_HSD_SYMBOL_SIS_TABLE:
+        return descriptors.sis_table(symbol);
+    case MELEE_HOST_HSD_SYMBOL_GAME_DATA:
+        return translate_game_data(descriptors, symbol);
     case MELEE_HOST_HSD_SYMBOL_UNSUPPORTED:
     case MELEE_HOST_HSD_SYMBOL_KIND_COUNT:
         break;
@@ -160,9 +193,17 @@ extern "C" MeleeHostHsdSymbolKind melee_host_hsd_symbol_kind(const char* symbol)
         return MELEE_HOST_HSD_SYMBOL_UNSUPPORTED;
     }
     const std::string_view name(symbol);
+    if (registry().translators.contains(std::string(name))) {
+        return MELEE_HOST_HSD_SYMBOL_GAME_DATA;
+    }
     /* Symbols the game names without a kind suffix. */
     if (name == "lbRumbleData") {
         return MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE;
+    }
+    /* sislib.c's text archives: SIS_MenuData, SIS_ToyData_E and the rest. */
+    constexpr std::string_view kSisPrefix = "SIS_";
+    if (name.size() > kSisPrefix.size() && name.starts_with(kSisPrefix)) {
+        return MELEE_HOST_HSD_SYMBOL_SIS_TABLE;
     }
     for (const SuffixKind& entry : kSuffixes) {
         if (name.size() > entry.suffix.size() && name.ends_with(entry.suffix)) {
@@ -196,6 +237,10 @@ melee_host_hsd_symbol_kind_name(MeleeHostHsdSymbolKind kind)
         return "figatree";
     case MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE:
         return "rumble_table";
+    case MELEE_HOST_HSD_SYMBOL_SIS_TABLE:
+        return "sis_table";
+    case MELEE_HOST_HSD_SYMBOL_GAME_DATA:
+        return "game_data";
     case MELEE_HOST_HSD_SYMBOL_UNSUPPORTED:
     case MELEE_HOST_HSD_SYMBOL_KIND_COUNT:
         break;
@@ -408,4 +453,143 @@ extern "C" void melee_host_hsd_archive_release_all(void)
 extern "C" const char* melee_host_hsd_archive_last_error(void)
 {
     return registry().last_error.c_str();
+}
+
+extern "C" MeleeHostStatus
+melee_host_hsd_register_translator(const char* symbol,
+                                   MeleeHostHsdTranslator translator)
+{
+    if (symbol == nullptr || *symbol == '\0') {
+        return MELEE_HOST_INVALID_ARGUMENT;
+    }
+    auto& translators = registry().translators;
+    if (translator == nullptr) {
+        translators.erase(symbol);
+    } else {
+        translators[symbol] = translator;
+    }
+    return MELEE_HOST_OK;
+}
+
+namespace {
+
+void fail_reader(MeleeHostHsdReader* reader, std::string_view reason)
+{
+    if (reader != nullptr && reader->failure.empty()) {
+        reader->failure = std::string(reason);
+    }
+}
+
+/* Runs one read for a C translator.  What the archive throws becomes the
+ * reader's failure, and a reader that has failed reads nothing more. */
+template <typename T, typename Step>
+T reader_step(MeleeHostHsdReader* reader, T fallback, Step step)
+{
+    if (reader == nullptr || reader->descriptors == nullptr ||
+        !reader->failure.empty())
+    {
+        return fallback;
+    }
+    try {
+        return step(*reader->descriptors);
+    } catch (const std::exception& error) {
+        fail_reader(reader, error.what());
+        return fallback;
+    }
+}
+
+} // namespace
+
+extern "C" mh_u32 melee_host_hsd_reader_data_size(MeleeHostHsdReader* reader)
+{
+    return reader_step<mh_u32>(reader, 0, [](HsdMaterializedArchive& d) {
+        return static_cast<mh_u32>(d.runtime().disk_view().data().size());
+    });
+}
+
+extern "C" mh_u8 melee_host_hsd_reader_u8(MeleeHostHsdReader* reader,
+                                          mh_u32 offset)
+{
+    return reader_step<mh_u8>(reader, 0, [offset](HsdMaterializedArchive& d) {
+        return std::to_integer<mh_u8>(d.runtime().bytes_at({ offset }, 1)[0]);
+    });
+}
+
+extern "C" mh_u16 melee_host_hsd_reader_u16(MeleeHostHsdReader* reader,
+                                            mh_u32 offset)
+{
+    return reader_step<mh_u16>(reader, 0, [offset](HsdMaterializedArchive& d) {
+        return d.runtime().read_u16({ offset }, 0);
+    });
+}
+
+extern "C" mh_u32 melee_host_hsd_reader_u32(MeleeHostHsdReader* reader,
+                                            mh_u32 offset)
+{
+    return reader_step<mh_u32>(reader, 0, [offset](HsdMaterializedArchive& d) {
+        return d.runtime().read_u32({ offset }, 0);
+    });
+}
+
+extern "C" mh_f32 melee_host_hsd_reader_f32(MeleeHostHsdReader* reader,
+                                            mh_u32 offset)
+{
+    return reader_step<mh_f32>(reader, 0.0F,
+                               [offset](HsdMaterializedArchive& d) {
+                                   return d.runtime().read_f32({ offset }, 0);
+                               });
+}
+
+extern "C" bool melee_host_hsd_reader_has_pointer(MeleeHostHsdReader* reader,
+                                                  mh_u32 field)
+{
+    return reader_step<bool>(reader, false, [field](HsdMaterializedArchive& d) {
+        return d.runtime().has_reference_at({ field }, 0);
+    });
+}
+
+extern "C" bool melee_host_hsd_reader_pointer(MeleeHostHsdReader* reader,
+                                              mh_u32 field, mh_u32* out_target)
+{
+    return reader_step<bool>(
+        reader, false, [field, out_target](HsdMaterializedArchive& d) {
+            const auto target = d.translator_pointer(field);
+            if (!target.has_value()) {
+                return false;
+            }
+            if (out_target != nullptr) {
+                *out_target = target->data_offset;
+            }
+            return true;
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_payload(MeleeHostHsdReader* reader,
+                                               mh_u32 offset, size_t length)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset, length](HsdMaterializedArchive& d) {
+            return d.translator_payload(offset, length);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader,
+                                                size_t size, size_t alignment)
+{
+    return reader_step<void*>(
+        reader, nullptr, [size, alignment](HsdMaterializedArchive& d) {
+            return d.translator_allocate(size, alignment);
+        });
+}
+
+extern "C" void melee_host_hsd_reader_fail(MeleeHostHsdReader* reader,
+                                           const char* reason)
+{
+    fail_reader(reader, reason != nullptr ? reason : "the translator failed");
+}
+
+extern "C" bool
+melee_host_hsd_reader_failed(const MeleeHostHsdReader* reader)
+{
+    return reader != nullptr && !reader->failure.empty();
 }

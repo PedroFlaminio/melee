@@ -69,9 +69,24 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   jogo (`melee-pc --view-title-scene`): cada frame do laço original desenhado
   com a projeção, o viewport e o scissor de cada draw, a 60 Hz, com teclado ou
   gamepad como PAD.
-- Próximo bloqueio: o `gm_801A4014` inteiro (preload e `on_enter` do estado
-  antes, `on_exit` e roteamento depois), que é o que leva do título à próxima
-  cena quando START é apertado.
+- Executado: o modo de título inteiro por `runGameMode`
+  (`melee-pc --run-modes`), pela tabela de modos e cenas do host: o
+  preload do estado, que mantém todos os heaps de preload, a demo do título
+  carregando lutadores, estágio e efeitos em segundo plano (inclusive para a
+  ARAM), o laço de frame e o `onExit` original. Sem botões o modo seguinte é o
+  filme de abertura; START leva ao menu (`GM_MENU`).
+- Executado: o menu principal (`GM_MENU`), do título ao VS Melee pelo roteamento
+  do gerenciador de cenas, com botões apertados por frame: o menu entra, carrega
+  seus modelos, textos SIS, a tabela de eventos e os dados de áudio, desenha o
+  texto pelo interpretador original e sai para `GM_VS` com DOWN, A e A. A música
+  não começa, porque o host ainda não entrega vozes.
+- Próximo bloqueio: o modo `GM_VS`. A tabela do host precisa da entrada do modo
+  (`gmVsMelee_Mode_OnLoad`, `gm_Mode_Vs_OnUnload` e `gmVsMelee_Mode_OnInit`,
+  sem preload de modo) e das cenas dos seus estados, que já compilam em
+  `gmvsmode.c`: primeiro a seleção de personagens (`GS_CSS`,
+  `mnCharSel_Scene_*` em `mncharsel.c`), depois a de estágio (`GS_SSS`,
+  `mnStageSel_Scene_*` em `mnstagesel.c`) e então a luta (`GS_VS`). Os dois
+  arquivos de seleção ainda não entram no build.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

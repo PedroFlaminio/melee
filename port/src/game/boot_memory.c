@@ -118,6 +118,7 @@ MeleeHostStatus melee_host_boot_memory_init(size_t arena_bytes)
     if (boot_memory_ready) {
         return MELEE_HOST_OK;
     }
+    melee_host_game_register_data_translators();
 
     /* OSInit's share: the arena, with nothing carved from it yet. */
     status = melee_host_os_arena_init(arena_bytes);

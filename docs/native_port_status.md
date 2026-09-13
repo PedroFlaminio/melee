@@ -762,6 +762,135 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido depois dessas mudancas: 176/176 testes unitarios e ctest 11/11 em
   `host-debug` e em `host-sanitize`; os relatos do UBSan continuam os dois do
   sistema de classes do HSD.
+- [x] Modo de titulo inteiro pelo codigo do jogo. `melee-pc --run-modes`
+  (antes `--run-title-mode`) roda `runGameMode` com o modo de titulo de uma
+  tabela de modos e cenas do
+  host (`port/src/game/game_tables.c`), no lugar de `gmscdata.c`, que ligaria o
+  jogo inteiro: preload do estado, `on_enter`, cena, laco de frame, `onExit` e
+  a espera do cartao que fecha todo estado. Medido: sem botoes, 621 frames e o modo seguinte e o filme
+  de abertura (`0x18`); com START a partir do frame desenhado 120, 122 frames e
+  o modo seguinte e o menu (`0x01`), pelo `onExit` original, com
+  `gm_80173EEC`, `gm_80172898` e `gm_80173754` de `gm_1736.c`. Leva 2,0 s e
+  0,4 s em `host-debug`, 10,0 s e 2,2 s em `host-sanitize`. Virou o teste
+  `melee-host-title-mode-asset`; o caso com START passou ao teste do menu.
+- [x] Cartao de memoria ausente. O boot roda `lb_8001C5BC`, `lb_8001D21C` e
+  `lbSnap_8001E290`, e as chamadas CARD respondem `CARD_RESULT_NOCARD`
+  (`port/src/os/absent_devices.c`). `lbcardnew.c`, `hsd_3A94.c`, `hsd_3B27.c`,
+  `hsd_3B2B.c`, `hsd_3B2E.c`, `hsd_4D11.c`, `gm_1736.c` e `tydisplay.c`
+  entraram no build. `hsd_3A94.c` le de `0x804D1138` a `0x804D2648` como um
+  `CardContext` so, atravessando tres objetos de `.bss`; sob `MELEE_HOST` eles
+  sao um bloco unico com as partes nos deslocamentos do DOL (`hsd_4D11.c`),
+  como em `toy.c`. `DVDCheckDisk` responde disco presente enquanto ha backend
+  e `OSResetSystem` para com nome.
+- [x] Preload da demo do titulo. O estado de titulo mantem todos os heaps de
+  preload (`lbDvdPreload_3`), e `gm_PreloadTitleDemo` registra os arquivos dos
+  lutadores, do estagio e dos efeitos sorteados, que carregam em segundo plano
+  pelo devcom enquanto o titulo roda; os dos heaps 4 e 5 vao para a ARAM. Isso
+  trouxe `ftdata.c`, `efasync.c` e 34 arquivos de personagem: os 33 que definem
+  nome de arquivo, strings e lista de figurino de cada lutador (so Mario e
+  Kirby tem arquivo so de dados; nos outros e o arquivo principal, e o
+  `--gc-sections` descarta o codigo) e `ftkirby.c`, com a lista de figurinos e
+  o preload das habilidades de copia. Referencia `weak` nao serve aqui:
+  `ftData_800855C8` desreferencia a tabela de figurinos do lutador. Os 36
+  arquivos compilam sem erro no host, e as paradas de `ftData_800855C8`,
+  `ftData_8008578C` e `efAsync_OnLoad` sairam de `unported.c`.
+- [x] ARQ do host com transferencia de verdade e entrega adiada. A ARAM passou
+  a ter conteudo: um buffer de 16 MB indexado pelo offset, que continua sem ser
+  ponteiro de processo. `ARQPostRequest` nao completa mais dentro da chamada:
+  a copia e o callback acontecem no passo seguinte do escalonador do backend
+  (`melee_host_dvd_schedule_backend_task`), na ordem de postagem. O devcom
+  depende disso: posta a ultima transferencia de um pedido para ARAM e so
+  depois o desliga, e o callback da transferencia devolve o pedido a lista
+  livre. Completando dentro da chamada, a fila passava a apontar para a lista
+  livre, um pedido ja liberado voltava a rodar e o jogo parava em
+  `devcom.c:36`. Dois testes novos: transferencia nos dois sentidos na ordem
+  postada, e devcom tipo `0x23` com um segundo pedido na mesma fila.
+- [x] `tydisplay.c` dimensionava o vetor de arquivos de trofeu como
+  `0xB0 / sizeof(HSD_Archive*)`: 44 entradas no console e 22 no host, enquanto
+  `tyDisplay_8031C8B8`, que o preload de todo estado chama, limpa 43. As 21
+  escritas a mais caiam no objeto seguinte do `.bss` do host, que era o estado
+  do laco de modos do host (`game_tables.c`), e o START do teste nunca chegava
+  ao jogo. Sob
+  `MELEE_HOST` o vetor tem as 44 entradas. E o unico vetor da arvore
+  dimensionado por tamanho de ponteiro.
+- [x] Matching das mudancas na decomp e na SDK de `cc0c7ef4e` e desta etapa,
+  contra `d3de55f46`, com `-DMUST_MATCH` e sem `MELEE_HOST`: `gm_1A3F.c`,
+  `hsd_4D11.c` e `tydisplay.c` pre-processam identicos; em `hsd_3A94.c`,
+  `lbcardnew.c` e `lbcardgame.c` as unicas 14 linhas diferentes sao as
+  declaracoes CARD com `s32` no lugar de `long`, que na build PowerPC e o mesmo
+  `signed long`. A conferencia achou que `cc0c7ef4e` tinha trocado o retorno de
+  `lb_8001B8C8` e `lb_8001BA44` de `bool` para `int` fora de `MELEE_HOST`, o
+  que muda o que `gm_1AED.c`, `soundtest.c` e `lbcardgame.c` veem; a troca
+  voltou a valer so no host.
+- [x] Medido ao fim: `host-debug` com 178/178 testes unitarios e ctest 13/13;
+  `host-sanitize` com 178/178 e ctest 13/13, com os mesmos dois relatos do
+  UBSan do sistema de classes e nenhum relato novo.
+- [x] Menu principal pelo codigo do jogo. `melee-pc --run-modes` comeca o
+  roteamento em um modo e roda um modo por vez como o laco de `gm_801A4510`
+  (`gm_HostBeginGameModes` e `gm_HostRunCurrentGameMode`, sob `MELEE_HOST`, com
+  `runGameMode` de volta a `static`), apertando botoes por frame. A tabela do
+  host ganhou `GM_MENU` (`gmmenumode.c`) e a cena `GS_MENU`
+  (`mnMain_Scene_OnEnter` e `mnMain_Scene_OnFrame`). Medido: titulo, START no
+  frame 120, menu, DOWN, A e A escolhem VS Melee; rota `0x00` (122 frames),
+  `0x01` (120 frames), `0x02`. Leva 1,1 s em `host-debug` e 6,0 s em
+  `host-sanitize`. Virou o teste `melee-host-main-menu-asset`.
+- [x] Modulos que o menu alcanca: `gmmenumode.c`, `mngallery.c`, `mnsnap.c`,
+  `gmevent.c`, `gmhowto.c`, `gmhomerun.c`, `ft_0C31.c` (a copia fora de linha de
+  `HSD_JObjSetMtxDirty`) e `hsd_3B5C.c`, todos sem instrumentacao no
+  `host-sanitize`. As telas que o menu abre alem de VS Melee (multi-man, contagem,
+  diagrama, informacoes, teste de som, apagar dados, deflicker, idioma, som,
+  vibracao, regras, eventos, nomes e selecao de personagem pelo nome) e o
+  decodificador THP param com nome em `unported.c`.
+- [x] Semantica GNU89 para `inline` nas fontes C do jogo. O MWCC emite fora de
+  linha uma definicao `inline` sem `static`, e o C99 nao, o que deixava
+  `gmMainLib_AdjustNameTag` e `GetAutoNameCharacter` sem definicao a -O0.
+  Nenhum header tem definicao `inline` sem `static`, entao nada sai duplicado.
+- [x] SDK: `GXGetTexObjFmt`, `GXGetTexObjWidth` e `GXGetTexObjHeight` leem o
+  objeto empacotado; `GXSetTevSwapModeTable` aceita as tabelas do `GXInit`, que
+  sao as que o TEV avalia, e para com nome em qualquer outra (a unica chamada, da
+  biblioteca de sprites, instala a SWAP0 do `GXInit`); `DCFlushRange` e
+  `AXSetVoiceCurrentAddr` como as irmas.
+- [x] Tabelas de texto SIS (`SIS_*`) traduzidas: um ponteiro por string, tantos
+  quantos campos relocados seguidos. Nos 28 arquivos `Sd*` a tabela fica no
+  inicio dos dados e todas as relocacoes do arquivo sao entradas dela; as
+  strings ficam verbatim. Quatro arquivos apontam a primeira entrada para o fim
+  dos dados, onde o console leria a tabela de relocacao, cujo primeiro campo e
+  zero, e o host da a ela quatro bytes zero.
+- [x] Interpretador de texto SIS portado sob `MELEE_HOST` (`hsd_3A76.c`): leitura
+  big-endian de glifos, escala, espacamento, posicao e atrasos, que o original
+  lia como palavras nativas; o kerning soma o par direto, em vez de passar o
+  endereco por `s32`; ponteiro comparado sem truncar; float para `u8` pelo
+  `s32`, que o UBSan acusava. Os opcodes 8 e 9, que guardam um endereco de 32
+  bits no stream, param com nome, e nenhum arquivo do disco os usa.
+  `HSD_SisLib_803A6754` aloca o bloco com `sizeof`, e nao com 16 bytes.
+- [x] Tradutores em C para dados que so headers C descrevem
+  (`melee_host_hsd_register_translator` e o leitor `melee_host_hsd_reader_*`):
+  `sqEventInitDataLevelTbl` (51 niveis de evento, com `evinit`, bonus, estagios
+  e jogadores em layout host, e os bit-fields do `evinit` desempacotados do MSB),
+  `lbAudioLoadData` (4 tabelas de 30 listas de bancos de som ate `0x83D60`,
+  convertidas para a ordem do host) e `MemCardIconData` e `MemSnapIconData`
+  (enderecos das imagens do cartao, verbatim). Os seis tipos de evento sairam de
+  `gmevent.c` para `gmevent.h`, sem mudar o codigo gerado.
+- [x] `VA_END_PTR` nas oito listas variadicas de ponteiros que este caminho roda:
+  `mnmain.c`, `gmevent.c` tres vezes, `lbaudio_ax.c`, `lbcardgame.c` duas vezes e
+  `lbsnap.c`. A do menu passava no build de debug e escrevia em
+  `0x55ae00000000` sob ASan.
+- [x] Musica: o inicio do stream (`HSD_Synth_8038B5AC`) usava a voz de
+  `AXAcquireVoice` sem conferir, e o host nao entrega voz. Sob `MELEE_HOST`, sem
+  voz o stream nao comeca: a flag de ocupado e limpa e volta -1, como quando a
+  cadeia do stream nao acha no.
+- [x] Os enderecos das imagens do cartao ocupam `intptr_t` onde o jogo os guarda
+  em `int` antes de chegar ao cartao: `x5C` em `lbcardgame.static.h`, o
+  resultado de `lb_8001C820` e a union de `lbsnap.c`.
+- [x] Matching das mudancas desta etapa, contra `d3de55f46`, com `-DMUST_MATCH`
+  e sem `MELEE_HOST`: `synth.c`, `hsd_3A76.c`, `hsd_3A64.c` e `gm_1A3F.c`
+  pre-processam identicos; `gmevent.c` tem as mesmas linhas, com o bloco de
+  tipos movido; token a token, `lbaudio_ax.c` e identico e `mnmain.c`,
+  `lbcardgame.c` e `lbsnap.c` so diferem pelos tipos de evento que chegam por
+  `gmevent.h` e pelas declaracoes CARD com `s32`.
+- [x] Medido ao fim: `host-debug` com 180/180 testes unitarios e ctest 13/13;
+  `host-sanitize` com 180/180 e ctest 13/13, e so os dois relatos do UBSan do
+  sistema de classes.
 - [x] Presets de debug/sanitizers e workflow multiplataforma.
 
 ## Em andamento
@@ -794,10 +923,10 @@ Atualizado em 13 de setembro de 2026.
 
 ## Proximos gates
 
-1. `gm_801A4014` inteiro para o titulo: o preload e o `on_enter` do estado
-   antes, o `on_exit` (que escolhe o proximo modo) e o roteamento depois. Isso
-   traz `gm_1736.c` e, pelo fim de `gm_801A4014`, o cartao de memoria de
-   `lbcardnew.c`. E o que leva o titulo a cena seguinte.
+1. O modo `GM_VS`, para onde VS Melee leva: a entrada do modo
+   (`gmVsMelee_Mode_OnLoad`, `gm_Mode_Vs_OnUnload`, `gmVsMelee_Mode_OnInit`) e
+   as cenas dos estados de `gmvsmode.c`, a comecar pela selecao de personagens
+   (`mncharsel.c`) e pela de estagio (`mnstagesel.c`), que ainda nao compilam.
 2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
 3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
@@ -821,8 +950,8 @@ Atualizado em 13 de setembro de 2026.
 - O preview segue culling, profundidade, blend, mascara de cor e as duas alpha
   compare, e a cor vem do TEV por fragmento. Ele nao aplica fog, nao le mipmaps
   (a minificacao usa o filtro de magnificacao), nao modela TEV indireto nem
-  `GXSetTevSwapModeTable` (usa as tabelas do `GXInit`, que o codigo compilado
-  nunca troca) e chama as funcoes GL 2.0+ por `GL_GLEXT_PROTOTYPES`, o que so
+  `GXSetTevSwapModeTable` (usa as tabelas do `GXInit`, e o recorder para com
+  nome se o jogo instalar outra) e chama as funcoes GL 2.0+ por `GL_GLEXT_PROTOTYPES`, o que so
   resolve no Linux.
 - A iluminacao continua por vertice, como no GX; o que e por fragmento e o TEV.
   Um modelo solto e iluminado pelas luzes substitutas, nao pelas do estagio,
@@ -909,8 +1038,7 @@ Atualizado em 13 de setembro de 2026.
   estatico do devcom, que nao chama o callback, e o jogo espera para sempre; a
   flag e `static` e o host ainda nao a enxerga.
 - O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue),
-  `lbArq_80014D2C`, `lb_8001C5BC`, `lb_8001D21C`, `lbSnap_8001E290` e
-  `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao e
+  `lbArq_80014D2C` e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao e
   selecionado.
 - No build com sanitizers, `lbarchive.c`, `lbfile.c`, `gm_1601.c`,
   `gmcameramode.c`, `gmmain_lib.c`, `gmopeningmode.c`, `lbaudio_ax.c`,
@@ -927,9 +1055,39 @@ Atualizado em 13 de setembro de 2026.
   quando a fila bruta de pad esta vazia: uma espera por outro alarme com
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
-- O laco de titulo roda sem o preload e o `on_enter` do estado antes e sem o
-  `on_exit` e o roteamento de `gm_801A4014` depois. `gm_80173754` e
-  `gm_80173EEC` param com nome se algo chamar o `onExit`.
+- A tabela de modos e cenas do host so tem o titulo e o menu principal. Pedir
+  outro modo e recusado antes de o jogo seguir o NULL que acharia, e
+  `--run-modes` encerra o roteiro com `stopped:`.
+- Os arquivos da demo do titulo carregam, mas nada os usa ainda. Parsear um
+  arquivo de efeito ou de estagio pre-carregado para em
+  `psInitDataBankLocate` e em `grDatFiles_801C5FC0`, que param com nome: as
+  particulas relocam os bancos no lugar com offsets de 32 bits.
+- `efAsync_OnLoad` e `efAsync_LoadSync` testam nulo com `(u32) a | (u32) b`,
+  o que no host descarta a metade alta dos ponteiros. Nenhum dos dois roda
+  ainda.
+- A ARQ do host nao modela as duas filas de prioridade nem a divisao em
+  pedacos da SDK: tudo completa no passo seguinte, na ordem postada. Postar
+  sem backend ativo para com nome.
+- `x4` de cada nivel de evento fica NULL. E o parametro proprio de cada evento
+  (dois ints, uma contagem de moedas, floats, uma lista de personagens, uma
+  lista de ints e, em um nivel, um int e um ponteiro), lido no lugar pelo codigo
+  do evento, e precisa de traducao por evento antes de o modo de eventos entrar
+  na tabela.
+- O caminho do cartao de memoria guarda enderecos em 32 bits: os parametros de
+  `lb_8001BB48`, `lb_8001BC18`, `lb_8001BE30` e `lb_8001BF04`, os campos
+  `unk_18` e `unk_1C` da tarefa e a fila de comandos de `hsd_3A94.c`, onde
+  `hsd_3B27.c` converte ponteiros para `s32` 14 vezes. Sem cartao a cadeia de
+  tarefas para na sondagem (`CARD_RESULT_NOCARD` vira `0xF`, que a tarefa
+  seguinte nao aceita) e nada disso e lido; um cartao virtual precisa desse
+  caminho em largura de ponteiro.
+- Sem voz no host a musica nao comeca. O parse do cabecalho `.hps`
+  (`HSD_SynthPStreamHeaderCallback`) le campos big-endian como nativos, e nada
+  chama o callback de quadro do AX: quando o host entregar vozes, o stream
+  precisa das duas coisas.
+- `ScNtcCommon_scene_data`, o aviso de acesso ao cartao, nao e traduzido e fica
+  NULL; `lb_8001CF18` confere e nao cria a cena.
+- Os opcodes 8 e 9 do texto SIS param com nome, e com eles o push de cursor em
+  `string_buffer`, que tambem guardaria um endereco em 32 bits.
 - Com um frame sink instalado, a captura do GX so vale ate o `GXCopyDisp`
   seguinte; quem precisa dela depois tem de copiar dentro do sink.
 - `db_TakeScreenshotIfPending` passa o endereco do XFB como `int` para
@@ -960,6 +1118,7 @@ Atualizado em 13 de setembro de 2026.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
-- O jogo tem 59 listas variadicas de ponteiros terminadas por `0`; so as de
-  `gmTitle_801A1AC0` e `lb_80014534` usam `VA_END_PTR`. Cada unidade que
-  entrar no build com uma dessas listas precisa da mesma troca.
+- O jogo tem 59 listas variadicas de ponteiros terminadas por `0`; 10 delas usam
+  `VA_END_PTR` (`gmTitle_801A1AC0`, `lb_80014534` e as oito do caminho do
+  menu). Cada unidade que entrar no build com uma dessas listas precisa da
+  mesma troca.

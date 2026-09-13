@@ -109,26 +109,42 @@ MeleeHostStatus melee_host_title_scene_run(MeleeHostGxFrameSink frame_sink,
  * there. */
 void melee_host_title_scene_request_exit(void);
 
+/* Registers the translators for game data only the game's C headers describe
+ * (port/src/game/game_data_translators.c) with the host's archive API.  The
+ * boot memory setup runs it before anything is loaded. */
+void melee_host_game_register_data_translators(void);
+
 /* Whether the host's mode table (port/src/game/game_tables.c) has this
  * GameModeKind. */
 bool melee_host_game_mode_available(mh_u32 mode);
 
+/* Starts the scene manager's routing at `first_mode`, as gm_801A4510 starts it
+ * at the boot mode: every mode's on_init runs and there is no previous mode.
+ * A mode the table lacks is refused. */
+MeleeHostStatus melee_host_game_begin(mh_u32 first_mode);
+
+/* The GameModeKind the routing runs next. */
+mh_u32 melee_host_game_current_mode(void);
+
 typedef struct MeleeHostGameModeReport {
+    /* The GameModeKind that ran, or was refused. */
+    mh_u32 mode;
     /* Frames drawn while the mode ran. */
     mh_u32 drawn_frames;
-    /* What runGameMode returned: the GameModeKind the mode left pending. */
+    /* What runGameMode returned: the GameModeKind the mode left pending,
+     * which is now the current mode. */
     mh_u32 next_mode;
 } MeleeHostGameModeReport;
 
-/* runGameMode for one mode of the host table: its preload, each state it
- * routes through until one asks for a new mode, and its unload, with each
- * state's preload, entry, frame loop and exit, and the memory card wait that
- * ends every state.  Each drawn frame's GX capture goes to `frame_sink`, when
- * there is one, and is then cleared.  A mode the table lacks is refused. */
-MeleeHostStatus melee_host_game_run_mode(mh_u32 mode,
-                                         MeleeHostGxFrameSink frame_sink,
-                                         void* user_data,
-                                         MeleeHostGameModeReport* out_report);
+/* One pass of gm_801A4510's loop: runGameMode for the current mode, with its
+ * preload, each state it routes through until one asks for a new mode, and its
+ * unload, then the current mode becomes the previous one and the pending mode
+ * the current one.  Each drawn frame's GX capture goes to `frame_sink`, when
+ * there is one, and is then cleared.  UNSUPPORTED, with nothing run, when the
+ * current mode is not in the host's table. */
+MeleeHostStatus melee_host_game_run_current_mode(
+    MeleeHostGxFrameSink frame_sink, void* user_data,
+    MeleeHostGameModeReport* out_report);
 
 #ifdef __cplusplus
 }

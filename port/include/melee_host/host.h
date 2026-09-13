@@ -60,6 +60,13 @@ MeleeHostStatus melee_host_activate_dvd_backend(MeleeHostContext* context);
  * backend is active. */
 MeleeHostStatus melee_host_dvd_step_backend(void);
 
+/* Schedules `callback` for the next step of that same context.  What the
+ * console completes by interrupt, some time after the call that starts it,
+ * completes there, in the order it was scheduled.  UNSUPPORTED when no backend
+ * is active. */
+MeleeHostStatus melee_host_dvd_schedule_backend_task(
+    MeleeHostTaskCallback callback, void* user_data);
+
 #ifdef __cplusplus
 }
 #endif

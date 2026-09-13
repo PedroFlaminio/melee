@@ -496,6 +496,119 @@ TEST_CASE("a symbol the host has no translation for is refused, not guessed")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+TEST_CASE("an SIS text table points each entry at its verbatim string")
+{
+    // Two strings, and a first entry pointing at the end of the data, which
+    // four of the game's text archives have.
+    constexpr std::uint32_t kDataSize = 0x20;
+    ArchiveBuilder builder(kDataSize);
+    builder.pointer(0x00, kDataSize);
+    builder.pointer(0x04, 0x0C);
+    builder.pointer(0x08, 0x14);
+    builder.u16(0x0C, 0x2041);
+    builder.u16(0x14, 0x0C00);
+    builder.public_symbol(0x00, "SIS_TestData");
+    std::vector<std::byte> bytes = builder.build();
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto** const table = static_cast<std::uint8_t**>(
+        HSD_ArchiveGetPublicAddress(&archive, "SIS_TestData"));
+    REQUIRE(table != nullptr);
+    // The strings keep the file's byte order and their distance apart.
+    REQUIRE(table[1][0] == 0x20);
+    REQUIRE(table[1][1] == 0x41);
+    REQUIRE(table[1][2] == 0x00);
+    REQUIRE(table[2][0] == 0x0C);
+    REQUIRE(table[2] - table[1] == 8);
+    REQUIRE(table[0][0] == 0x00);
+    REQUIRE(table[0][3] == 0x00);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
+namespace {
+
+struct TestGameData {
+    std::uint16_t word;
+    float number;
+    std::uint8_t* bytes;
+    TestGameData* next;
+};
+
+void* translate_test_game_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    auto* const data = static_cast<TestGameData*>(melee_host_hsd_reader_allocate(
+        reader, sizeof(TestGameData), alignof(TestGameData)));
+    if (data == nullptr) {
+        return nullptr;
+    }
+    data->word = melee_host_hsd_reader_u16(reader, root);
+    data->number = melee_host_hsd_reader_f32(reader, root + 4);
+    mh_u32 target = 0;
+    if (melee_host_hsd_reader_pointer(reader, root + 8, &target)) {
+        data->bytes = static_cast<std::uint8_t*>(
+            melee_host_hsd_reader_payload(reader, target, 2));
+    }
+    if (melee_host_hsd_reader_pointer(reader, root + 12, &target)) {
+        data->next = data;
+    }
+    return melee_host_hsd_reader_failed(reader) ? nullptr : data;
+}
+
+} // namespace
+
+TEST_CASE("a translator registered by name reads the archive through the C "
+          "reader")
+{
+    // Two records: the second holds a pointer-sized value no relocation
+    // vouches for, which the reader must refuse rather than follow.
+    ArchiveBuilder builder(0x30);
+    builder.u16(0x00, 0x1234);
+    builder.f32(0x04, 2.5F);
+    builder.pointer(0x08, 0x10);
+    builder.u16(0x10, 0xABCD);
+    builder.u16(0x18, 0x0001);
+    builder.pointer(0x20, 0x10);
+    builder.u32(0x24, 0x11111111U);
+    builder.public_symbol(0x00, "test_game_data");
+    builder.public_symbol(0x18, "test_bad_game_data");
+    std::vector<std::byte> bytes = builder.build();
+
+    REQUIRE(melee_host_hsd_register_translator(
+                "test_game_data", translate_test_game_data) == MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_register_translator(
+                "test_bad_game_data", translate_test_game_data) ==
+            MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_symbol_kind("test_game_data") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const data = static_cast<TestGameData*>(
+        HSD_ArchiveGetPublicAddress(&archive, "test_game_data"));
+    REQUIRE(data != nullptr);
+    REQUIRE(data->word == 0x1234);
+    REQUIRE(data->number == 2.5F);
+    REQUIRE(data->bytes != nullptr);
+    REQUIRE(data->bytes[0] == 0xAB);
+    REQUIRE(data->bytes[1] == 0xCD);
+    // A NULL pointer field reads as absent.
+    REQUIRE(data->next == nullptr);
+
+    REQUIRE(HSD_ArchiveGetPublicAddress(&archive, "test_bad_game_data") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("no relocation") != std::string_view::npos);
+
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_register_translator("test_game_data", nullptr) ==
+            MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_register_translator("test_bad_game_data",
+                                               nullptr) == MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_symbol_kind("test_game_data") ==
+            MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
+}
+
 TEST_CASE("parsing a buffer again replaces what was built from it")
 {
     std::vector<std::byte> bytes = make_title_like_archive();
@@ -532,6 +645,11 @@ TEST_CASE("symbol kinds follow the name's suffix, longest first")
                 "PlyMario5K_Share_ACTION_Wait1_figatree") ==
             MELEE_HOST_HSD_SYMBOL_FIGATREE);
     REQUIRE(melee_host_hsd_symbol_kind("ScTitle_scene_data") ==
+            MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
+    // Text tables are named by a prefix instead.
+    REQUIRE(melee_host_hsd_symbol_kind("SIS_MenuData") ==
+            MELEE_HOST_HSD_SYMBOL_SIS_TABLE);
+    REQUIRE(melee_host_hsd_symbol_kind("SIS_") ==
             MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
     // A suffix on its own names nothing.
     REQUIRE(melee_host_hsd_symbol_kind("_joint") ==

@@ -86,7 +86,14 @@ HSD_Text* HSD_SisLib_803A6754(int font_idx, int context_id)
 
     text = HSD_SisLib_803A5ACC(font_idx, context_id, 0.0F, 0.0F, 0.0F, 640.0F,
                                480.0F);
+#ifdef MELEE_HOST
+    /* The block is read both as a SisBlock and as a sisLib_803A7664_t.  Their
+     * four fields share offsets on the host too; only the size is wider than
+     * the console's sixteen bytes. */
+    alloc = HSD_SisLib_Alloc(sizeof(sisLib_803A7664_t));
+#else
     alloc = HSD_SisLib_Alloc(0x10);
+#endif
     text->alloc_data = alloc;
     buffer = HSD_SisLib_Alloc(0x80);
     alloc->data = buffer;

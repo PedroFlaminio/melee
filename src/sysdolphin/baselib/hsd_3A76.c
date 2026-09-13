@@ -15,6 +15,23 @@
 #include <dolphin/types.h>
 #include <melee/lb/lbarchive.h> ///< @todo Circular include
 
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+
+/* Text streams are big-endian: the archives store them that way, and
+ * hsd_3A64.c and HSD_SisLib_803A7684 write them that way.  The console reads
+ * their words in place, which on the host would swap them. */
+static inline u16 HSD_SisLib_ReadU16(const u8* bytes)
+{
+    return (u16) ((bytes[0] << 8) | bytes[1]);
+}
+
+static inline s16 HSD_SisLib_ReadS16(const u8* bytes)
+{
+    return (s16) HSD_SisLib_ReadU16(bytes);
+}
+#endif
+
 static inline f32 HSD_SisLib_GlyphWidth(HSD_Text* text, f32 scale_x)
 {
     return 32.0F * text->x80.x * scale_x;
@@ -48,10 +65,20 @@ void HSD_SisLib_803A7684(HSD_Text* text, const u8* cursor, u8 flags)
         }
         text->string_buffer[text->x6C++] =
             (u8) ((s32) (256.0F * text->x78.x) >> 8);
+#ifdef MELEE_HOST
+        /* A float out of u8's range converts with undefined behaviour, and a
+         * spacing of 1.0 is 256.  The low byte is what the console keeps. */
+        text->string_buffer[text->x6C++] = (u8) (s32) (256.0F * text->x78.x);
+#else
         text->string_buffer[text->x6C++] = (u8) (256.0F * text->x78.x);
+#endif
         text->string_buffer[text->x6C++] =
             (u8) ((s32) (256.0F * text->x78.y) >> 8);
+#ifdef MELEE_HOST
+        text->string_buffer[text->x6C++] = (u8) (s32) (256.0F * text->x78.y);
+#else
         text->string_buffer[text->x6C++] = (u8) (256.0F * text->x78.y);
+#endif
         text->string_buffer[text->x6C++] = flags;
         return;
     }
@@ -109,10 +136,19 @@ void HSD_SisLib_803A7684(HSD_Text* text, const u8* cursor, u8 flags)
         }
         text->string_buffer[text->x6C++] =
             (u8) ((s32) (256.0F * text->x80.x) >> 8);
+#ifdef MELEE_HOST
+        /* As above: a scale of 1.0 is 256. */
+        text->string_buffer[text->x6C++] = (u8) (s32) (256.0F * text->x80.x);
+#else
         text->string_buffer[text->x6C++] = (u8) (256.0F * text->x80.x);
+#endif
         text->string_buffer[text->x6C++] =
             (u8) ((s32) (256.0F * text->x80.y) >> 8);
+#ifdef MELEE_HOST
+        text->string_buffer[text->x6C++] = (u8) (s32) (256.0F * text->x80.y);
+#else
         text->string_buffer[text->x6C++] = (u8) (256.0F * text->x80.y);
+#endif
         text->string_buffer[text->x6C++] = flags;
         return;
     }
@@ -198,10 +234,19 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
         case 1:
             pos -= 4;
             if (target_type == 1) {
+#ifdef MELEE_HOST
+                text->x78.x =
+                    (f32) HSD_SisLib_ReadS16((u8*) text->string_buffer + pos) /
+                    256.0F;
+                text->x78.y = (f32) HSD_SisLib_ReadS16(
+                                  (u8*) text->string_buffer + pos + 2) /
+                              256.0F;
+#else
                 text->x78.x =
                     (f32) * (s16*) (text->string_buffer + pos) / 256.0F;
                 text->x78.y =
                     (f32) * (s16*) (text->string_buffer + pos + 2) / 256.0F;
+#endif
                 if (flag_hi == entry_flags) {
                     remove_size = 5;
                 }
@@ -223,10 +268,19 @@ s32 HSD_SisLib_803A7F0C(HSD_Text* text, s32 flags)
         case 3:
             pos -= 4;
             if (target_type == 3) {
+#ifdef MELEE_HOST
+                text->x80.x =
+                    (f32) HSD_SisLib_ReadU16((u8*) text->string_buffer + pos) /
+                    256.0F;
+                text->x80.y = (f32) HSD_SisLib_ReadU16(
+                                  (u8*) text->string_buffer + pos + 2) /
+                              256.0F;
+#else
                 text->x80.x =
                     (f32) * (u16*) (text->string_buffer + pos) / 256.0F;
                 text->x80.y =
                     (f32) * (u16*) (text->string_buffer + pos + 2) / 256.0F;
+#endif
                 if (flag_hi == entry_flags) {
                     remove_size = 5;
                 }
@@ -317,16 +371,31 @@ loop_3:
     case 3:
     case 7:
         break;
+#ifdef MELEE_HOST
+    case 9:
+    case 8:
+        /* The jump target is an address four bytes wide inside the stream,
+         * which no host pointer fits in.  No archive on the disc uses these
+         * opcodes: every relocation in a text archive is a table entry. */
+        OSPanic(__FILE__, __LINE__,
+                "SIS jump opcodes are not ported to the host");
+#else
     case 9:
         HSD_SisLib_803A7684(text, (u8*) cursor, 0x85U);
         /* fallthrough */
     case 8:
         cursor = (u8*) *(s32*) ((u8*) cursor + 1) - 1;
         goto block_33;
+#endif
     case 14:
         HSD_SisLib_803A7684(text, (u8*) cursor, 0x83U);
+#ifdef MELEE_HOST
+        text->x80.x = (f32) HSD_SisLib_ReadU16((u8*) cursor + 1) / 256.0F;
+        scale_val = HSD_SisLib_ReadU16((u8*) cursor + 3);
+#else
         text->x80.x = (f32) * (u16*) ((u8*) cursor + 1) / 256.0F;
         scale_val = *(u16*) ((u8*) cursor + 3);
+#endif
         cursor = (u8*) cursor + 4;
         text->x80.y = (f32) scale_val / 256.0F;
         goto block_33;
@@ -339,7 +408,11 @@ loop_3:
     case 10:
         if ((text->alloc_data == NULL) || (kern_enabled == 0)) {
             HSD_SisLib_803A7684(text, (u8*) cursor, 0x81U);
+#ifdef MELEE_HOST
+            text->x78.x = (f32) HSD_SisLib_ReadS16((u8*) cursor + 1) / 256.0F;
+#else
             text->x78.x = (f32) * (s16*) ((u8*) cursor + 1) / 256.0F;
+#endif
         }
         cursor = (u8*) cursor + 4;
         goto block_33;
@@ -370,6 +443,24 @@ loop_3:
         if (opcode >= 0x20U) {
             *out_width += text->x80.x * (32.0F + text->x78.x);
             if (kern_enabled != 0) {
+#ifdef MELEE_HOST
+                /* The original carries the kerning pair's address, and then
+                 * its left kern, through s32 and pointer casts, which a host
+                 * address does not survive.  The width is the same sum. */
+                glyph_code = HSD_SisLib_ReadU16((u8*) cursor);
+                {
+                    const TextKerning* pair =
+                        glyph_code < 0x4000U
+                            ? (TextKerning*) (default_kerning +
+                                              (((glyph_code - 0x2000) * 2) &
+                                               0x1FFFE))
+                            : (TextKerning*) &glyph_tex->data
+                                  [((glyph_code - 0x4000) * 2) & 0x1FFFE];
+                    kern_width = pair->left + (pair->right - 2);
+                    *out_width =
+                        -((text->x80.x * (f32) kern_width) - *out_width);
+                }
+#else
                 glyph_code = *(u16*) cursor;
                 if (glyph_code < 0x4000U) {
                     kern_width =
@@ -391,6 +482,7 @@ loop_3:
                     *out_width =
                         -((text->x80.x * (f32) kern_width) - *out_width);
                 }
+#endif
             }
             if (*out_height < (32.0F * text->x80.y)) {
                 *out_height = 32.0F * text->x80.y;
@@ -698,20 +790,33 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                 skip_count -= 1;
                             } else {
                                 text->x98 = (u32) (text->x98 + 1);
+#ifdef MELEE_HOST
+                                text->x94 = HSD_SisLib_ReadU16(sis_cursor + 1);
+#else
                                 text->x94 = *(u16*) (sis_cursor + 1);
+#endif
                                 text->x60 = (void *) (sis_cursor + 3);
                             }
                             sis_cursor += 2;
                             break;
                         case 6:
+#ifdef MELEE_HOST
+                            line_delay = HSD_SisLib_ReadU16(sis_cursor + 1);
+                            char_delay = HSD_SisLib_ReadU16(sis_cursor + 3);
+#else
                             line_delay = *(u16*) (sis_cursor + 1);
                             char_delay = *(u16*) (sis_cursor + 3);
+#endif
                             sis_cursor += 4;
                             break;
                         case 7:
                             line_started = 1U;
                             HSD_SisLib_803A8134((void*) (sis_cursor + 5), text, &line_width_out, &line_height_out);
+#ifdef MELEE_HOST
+                            x_origin = (f32) HSD_SisLib_ReadS16(sis_cursor + 1);
+#else
                             x_origin = (f32) *(s16*) (sis_cursor + 1);
+#endif
                             if (( text->fitting == 1) && (text->box_size_x < line_width_out)) {
                                 text->x88 = (text->box_size_x / line_width_out);
                             } else {
@@ -728,26 +833,50 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                 text->current_width = x_origin;
                                 break;
                             }
+#ifdef MELEE_HOST
+                            y_offset = HSD_SisLib_ReadS16(sis_cursor + 3);
+#else
                             y_offset = *(s16*) (sis_cursor + 3);
+#endif
                             sis_cursor += 4;
                             text->current_height = ((f32) y_offset * text->font_size.y);
                             break;
+#ifdef MELEE_HOST
+                        case 9:
+                        case 8:
+                            /* See HSD_SisLib_803A8134. */
+                            OSPanic(__FILE__, __LINE__,
+                                    "SIS jump opcodes are not ported to the host");
+#else
                         case 9:
                             HSD_SisLib_803A7684(text, sis_cursor, 5U);
                             /* fallthrough */
                         case 8:
                             sis_cursor = (u8*) *(s32*) (sis_cursor + 1) - 1;
                             break;
+#endif
                         case 10:
+#ifdef MELEE_HOST
+                            if ((text->alloc_data == NULL) || (saved_kerning == 0)) {
+                                HSD_SisLib_803A7684(text, sis_cursor, 1U);
+                                text->x78.x = (f32) HSD_SisLib_ReadS16(sis_cursor + 1) / 256.0F;
+                                text->x78.y = (f32) HSD_SisLib_ReadS16(sis_cursor + 3) / 256.0F;
+                            }
+#else
                             if (((u32) text->alloc_data == 0U) || (saved_kerning == 0)) {
                                 HSD_SisLib_803A7684(text, sis_cursor, 1U);
                                 text->x78.x = (f32) *(s16*) (sis_cursor + 1) / 256.0F;
                                 text->x78.y = (f32) *(s16*) (sis_cursor + 3) / 256.0F;
                             }
+#endif
                             sis_cursor += 4;
                             break;
                         case 11:
+#ifdef MELEE_HOST
+                            if ((text->alloc_data == NULL) || (saved_kerning == 0)) {
+#else
                             if (((u32) text->alloc_data == 0U) || (saved_kerning == 0)) {
+#endif
                                 HSD_SisLib_803A7F0C(text, 1);
                             }
                             break;
@@ -763,8 +892,13 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                             break;
                         case 14:
                             HSD_SisLib_803A7684(text, sis_cursor, 3U);
+#ifdef MELEE_HOST
+                            text->x80.x = (f32) HSD_SisLib_ReadU16(sis_cursor + 1) / 256.0F;
+                            text->x80.y = (f32) HSD_SisLib_ReadU16(sis_cursor + 3) / 256.0F;
+#else
                             text->x80.x = (f32) *(u16*) (sis_cursor + 1) / 256.0F;
                             text->x80.y = (f32) *(u16*) (sis_cursor + 3) / 256.0F;
+#endif
                             sis_cursor += 4;
                             break;
                         case 15:
@@ -832,7 +966,11 @@ void HSD_SisLib_803A84BC(HSD_GObj* gobj, int pass)
                                     measured_width = line_width_out;
                                     sisFitLineToBox(text, measured_width);
                                 }
+#ifdef MELEE_HOST
+                                glyph_idx = HSD_SisLib_ReadU16(sis_cursor);
+#else
                                 glyph_idx = *(u16 *)sis_cursor;
+#endif
                                 if (glyph_idx < 0x4000U) {
                                     tex_offset = glyph_idx - 0x2000;
                                 } else {

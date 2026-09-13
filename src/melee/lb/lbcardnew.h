@@ -40,9 +40,18 @@ struct CardEntry {
 /* 01B760 */ int lb_8001B760(int result);
 /* 01B7E0 */ u32 lb_8001B7E0(int chan, char* filename, void* file_entries,
                              void* save_data, int* status_out);
+#ifdef MELEE_HOST
+/* lbcardnew.c defines both as returning int, which a host compiler rejects
+ * against a bool declaration.  The matching build keeps the callers' view. */
 /* 01B8C8 */ int lb_8001B8C8(int chan);
 /* 01B99C */ int lb_8001B99C(int chan, const char* filename, UNK_T status_out);
 /* 01BA44 */ int lb_8001BA44(int chan, const char* filename, UNK_T status_out);
+#else
+/* 01B8C8 */ bool lb_8001B8C8(int chan);
+/* 01B99C */ int lb_8001B99C(int chan, const char* filename, UNK_T status_out);
+/* 01BA44 */ bool lb_8001BA44(int chan, const char* filename,
+                              UNK_T status_out);
+#endif
 /* 01BB48 */ int lb_8001BB48(int chan, char* filename, void* file_entries,
                              void* save_data, const char* write_buf,
                              int write_offset, int write_len,

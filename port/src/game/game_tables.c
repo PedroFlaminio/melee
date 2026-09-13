@@ -12,10 +12,12 @@
 #include <melee_host/boot.h>
 
 #include <melee/gm/gm_1A3F.h>
+#include <melee/gm/gmmenumode.h>
 #include <melee/gm/gmscdata.h>
 #include <melee/gm/gmtitle.h>
 #include <melee/gm/gmtitlemode.h>
 #include <melee/gm/types.h>
+#include <melee/mn/mnmain.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -25,6 +27,13 @@ static GameScene host_scenes[] = {
         GS_TITLE,
         gm_Scene_Title_OnFrame,
         gm_Scene_Title_OnEnter,
+        NULL,
+        NULL,
+    },
+    {
+        GS_MENU,
+        mnMain_Scene_OnFrame,
+        mnMain_Scene_OnEnter,
         NULL,
         NULL,
     },
@@ -45,6 +54,14 @@ static GameMode host_modes[] = {
         NULL,
         NULL,
         gm_Mode_Title_States,
+    },
+    {
+        true,
+        GM_MENU,
+        NULL,
+        NULL,
+        NULL,
+        gm_Mode_Menu_States,
     },
     {
         false,
@@ -78,6 +95,20 @@ bool melee_host_game_mode_available(mh_u32 mode)
     return false;
 }
 
+MeleeHostStatus melee_host_game_begin(mh_u32 first_mode)
+{
+    if (!melee_host_game_mode_available(first_mode)) {
+        return MELEE_HOST_UNSUPPORTED;
+    }
+    gm_HostBeginGameModes((u8) first_mode);
+    return MELEE_HOST_OK;
+}
+
+mh_u32 melee_host_game_current_mode(void)
+{
+    return gm_GetCurrentGameMode();
+}
+
 static struct {
     mh_u32 drawn_frames;
     MeleeHostGxFrameSink frame_sink;
@@ -93,16 +124,16 @@ static void mode_frame_drawn(void* user_data)
     }
 }
 
-MeleeHostStatus melee_host_game_run_mode(mh_u32 mode,
-                                         MeleeHostGxFrameSink frame_sink,
-                                         void* user_data,
-                                         MeleeHostGameModeReport* out_report)
+MeleeHostStatus melee_host_game_run_current_mode(
+    MeleeHostGxFrameSink frame_sink, void* user_data,
+    MeleeHostGameModeReport* out_report)
 {
     if (out_report == NULL) {
         return MELEE_HOST_INVALID_ARGUMENT;
     }
     memset(out_report, 0, sizeof(*out_report));
-    if (!melee_host_game_mode_available(mode)) {
+    out_report->mode = gm_GetCurrentGameMode();
+    if (!melee_host_game_mode_available(out_report->mode)) {
         return MELEE_HOST_UNSUPPORTED;
     }
     memset(&mode_run, 0, sizeof(mode_run));
@@ -110,7 +141,7 @@ MeleeHostStatus melee_host_game_run_mode(mh_u32 mode,
     mode_run.frame_sink_user_data = user_data;
 
     melee_host_gx_set_frame_sink(mode_frame_drawn, NULL);
-    out_report->next_mode = runGameMode((u8) mode);
+    out_report->next_mode = gm_HostRunCurrentGameMode();
     melee_host_gx_set_frame_sink(NULL, NULL);
 
     out_report->drawn_frames = mode_run.drawn_frames;

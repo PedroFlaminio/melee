@@ -1494,6 +1494,18 @@ int HSD_Synth_8038B5AC(int entrynum, u8 vol, u8 vol2, int channel)
     }
     HSD_Synth_804D7764 = entrynum;
     voice = AXAcquireVoice(0x1D, dropcallback, 0);
+#ifdef MELEE_HOST
+    /* The console always has a voice at the stream's priority, so the
+     * original uses it unchecked.  The host has no mixer and hands out no
+     * voice yet (AXAcquireVoice in port/src/os/baselib_support.c), so the
+     * stream is not started, as when the stream chain finds no node: the busy
+     * flag is cleared and no stream id comes back. */
+    if (voice == NULL) {
+        HSD_Synth_804D7778 = 0;
+        OSRestoreInterrupts(enabled);
+        return -1;
+    }
+#endif
     idx = voice->index;
     voice_node = &hsd_SynthSFXNodes[idx];
     HSD_Synth_804D7750 += 0x40;

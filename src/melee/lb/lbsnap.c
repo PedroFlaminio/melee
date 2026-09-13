@@ -44,8 +44,14 @@ struct Unk80433380_0 {
 
 typedef union LbMcSnapMemSnapIconData {
     u8* ptr;
+#ifdef MELEE_HOST
+    /* The same address read as an int, which needs the pointer's width. */
+    intptr_t offset;
+    intptr_t size;
+#else
     int offset;
     int size;
+#endif
 } LbMcSnapMemSnapIconData;
 
 struct Unk80433380 {
@@ -471,7 +477,7 @@ void lbSnap_8001E218(void* snap, struct Unk80433380_48* slot)
     _p(slot)->card_result = 8;
     _p(slot)[1].card_result = 8;
     lbArchive_80016DBC("LbMcSnap.", (void**) &_p(icon_data), "MemSnapIconData",
-                       0);
+                       VA_END_PTR);
 }
 
 void lbSnap_8001E27C(void)

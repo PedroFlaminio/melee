@@ -16,8 +16,9 @@ constexpr mh_u32 kBiasSubHalf = 2;
 constexpr mh_u32 kTexGenBump0 = 2;
 constexpr mh_u32 kTexGenBump7 = 9;
 
-/* The swap tables GXInit installs.  The game never replaces them in the code
- * the host builds, so the recorder does not model GXSetTevSwapModeTable. */
+/* The swap tables GXInit installs.  The only GXSetTevSwapModeTable call in the
+ * code the host builds installs GXInit's own SWAP0, and the recorder stops by
+ * name on any other table, so these are the tables every draw uses. */
 constexpr std::array<std::array<std::size_t, 4>, 4> kSwapTables{ {
     { 0, 1, 2, 3 },
     { 0, 0, 0, 3 },

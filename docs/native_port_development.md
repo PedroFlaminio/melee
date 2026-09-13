@@ -271,6 +271,74 @@ alpha compare, programa TEV, texturas e a caixa que cobre na tela.
   Uma animacao que reescreva uma imagem ou uma paleta no mesmo endereco
   precisa de outra chave.
 
+## Modos de jogo em sequencia
+
+```sh
+./build/host-debug/port/melee-pc --run-modes assets-local 0 1
+./build/host-debug/port/melee-pc --run-modes assets-local 0 2 \
+    120:START 160:DOWN 200:A 240:A
+```
+
+Comeca o roteamento do gerenciador de cenas no modo pedido (`0` e o titulo) e
+roda ate N modos, um por vez, como o laco de `gm_801A4510`: o modo corrente
+passa a anterior e o pendente a corrente (`gm_HostBeginGameModes` e
+`gm_HostRunCurrentGameMode`, sob `MELEE_HOST` em `gm_1A3F.c`). Cada modo vem da
+tabela do host (`port/src/game/game_tables.c`, no lugar de `gmscdata.c`), com o
+preload do estado, o `on_enter`, a cena, o laco de frame, o `onExit` que escolhe
+o proximo modo e a espera do cartao de memoria.
+
+`FRAME:BOTAO[+BOTAO]` segura botoes do pad 1 por tres frames desenhados a partir
+daquele frame, contados atraves dos modos (A, B, X, Y, Z, L, R, START, UP, DOWN,
+LEFT, RIGHT). Cada modo imprime uma linha, e a linha `route:` so sai quando
+todos voltaram; um modo que a tabela nao tem encerra o roteiro com `stopped:`.
+Os testes conferem a linha `route:` inteira, frames incluidos.
+
+- O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
+  preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
+  lutadores, estagio e efeitos. Eles carregam em segundo plano enquanto o
+  titulo roda, pelo devcom, e os heaps 4 e 5 ficam em ARAM. E por isso que o
+  modo alcanca `ftdata.c`, os arquivos de cada personagem e a ARQ, que a cena
+  sozinha nao alcancava.
+- Um callback que o console entrega por interrupcao nao pode rodar dentro da
+  chamada que o dispara. O devcom posta a ultima transferencia de ARAM e so
+  depois desliga o pedido; com a ARQ completando dentro de `ARQPostRequest`, o
+  callback devolvia o pedido a lista livre antes, a fila apontava para ela e
+  um pedido ja liberado voltava a rodar. O sintoma foi o assert de
+  `devcom.c:36` varios frames depois. O que o host completa por conta propria
+  entra por `melee_host_dvd_schedule_backend_task`, no passo seguinte.
+- Um valor do host que some entre ser gravado e ser lido quase sempre e escrita
+  de outro objeto de `.bss`. Um watchpoint de hardware acha quem escreveu:
+  `break` onde o valor ja esta certo e, ali, `watch -l variavel`. Foi assim que
+  apareceu `tydisplay.c` dimensionando um vetor de ponteiros como
+  `0xB0 / sizeof(HSD_Archive*)`: 44 entradas no console, 22 no host, e o laco
+  que o limpa escreve 43.
+- No `host-sanitize`, rode com `ASAN_OPTIONS=detect_leaks=0`, como o ctest
+  faz. O boot e as cenas nao liberam o que alocam, o LeakSanitizer encerra o
+  processo com codigo 1 e, com a saida redirecionada, o relatorio do comando
+  se perde porque o buffer de `std::cout` nao e esvaziado.
+- Um simbolo cujo layout so um header C do jogo descreve e traduzido em C: os
+  `types.h` dos modulos nao compilam como C++ (um membro chamado `u8` muda o
+  sentido do tipo). O tradutor e registrado pelo nome
+  (`melee_host_hsd_register_translator`) em
+  `port/src/game/game_data_translators.c`, le o arquivo pelo leitor C da API de
+  arquivo, que confere offsets, relocacoes e campos nulos, e preenche os tipos
+  do proprio jogo campo a campo, bit-fields incluidos. Levante o layout no disco
+  antes: a tabela de eventos tinha um parametro por evento, cada um com forma
+  propria, e o que nao tem forma unica fica fora com o motivo escrito.
+- Texto SIS e big-endian no disco e nos buffers que o jogo monta, e o
+  interpretador lia palavras no lugar. Uma leitura `*(u16*)` ou `*(s16*)` de
+  stream vira `HSD_SisLib_ReadU16` ou `HSD_SisLib_ReadS16` sob `MELEE_HOST`.
+- Toda lista variadica de ponteiros terminada por `0` precisa de `VA_END_PTR`
+  quando a unidade entra no build. No build de debug o `0` pode passar por
+  sorte; sob ASan a metade alta do slot vem suja e o carregador escreve num
+  endereco com os 32 bits baixos zerados, como `0x55ae00000000`.
+- Endereco guardado em `int` nao da crash onde e truncado, da um valor pela
+  metade mais adiante. Antes de alargar um lado, siga o valor ate onde ele e
+  usado: no cartao de memoria o endereco das imagens passa de `int` em `int` ate
+  a fila de comandos de 32 bits, e so a gravacao, que exige cartao, o le.
+- Converter float fora da faixa para `u8` e comportamento indefinido, e o UBSan
+  acusa. O console fica com o byte baixo, que e o que `(u8) (s32)` da.
+
 ## Carga de cena pela camada de objetos
 
 O comando abaixo materializa os descritores do arquivo em layout host e chama

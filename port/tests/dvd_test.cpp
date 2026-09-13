@@ -3,9 +3,11 @@
 #include <dolphin/dvd.h>
 #include <melee_host/host.h>
 extern "C" {
+#include <dolphin/ar.h>
 #include <sysdolphin/baselib/devcom.h>
 }
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -202,5 +204,109 @@ TEST_CASE("original baselib devcom queue reads through the host DVD scheduler")
     REQUIRE(completion.canceled == false);
     REQUIRE(HSD_DevComIsBusy(request & 3) == false);
     REQUIRE(std::string_view(output.data(), output.size()) == contents);
+    melee_host_destroy(context);
+}
+
+namespace {
+
+std::vector<const ARQRequest*> completed_transfers;
+
+void record_transfer(ARQRequest* request)
+{
+    completed_transfers.push_back(request);
+}
+
+} // namespace
+
+TEST_CASE("ARAM transfers complete on the next backend step, in posting order")
+{
+    const MeleeHostConfig config{ .resource_root = nullptr, .headless = true };
+    MeleeHostContext* context = nullptr;
+    REQUIRE(melee_host_create(&config, &context) == MELEE_HOST_OK);
+    REQUIRE(melee_host_activate_dvd_backend(context) == MELEE_HOST_OK);
+    completed_transfers.clear();
+
+    const std::string_view contents = "0123456789abcdefghijklmnopqrstuv";
+    const u32 block = ARAlloc(32);
+    std::array<char, 32> source{};
+    std::copy(contents.begin(), contents.end(), source.begin());
+    std::array<char, 32> copy{};
+
+    // The read is posted after the write, so it sees what the write stored.
+    ARQRequest write{};
+    ARQRequest read{};
+    ARQPostRequest(&write, 0, ARQ_TYPE_MRAM_TO_ARAM, ARQ_PRIORITY_HIGH,
+                   reinterpret_cast<uintptr_t>(source.data()), block, 32,
+                   record_transfer);
+    ARQPostRequest(&read, 0, ARQ_TYPE_ARAM_TO_MRAM, ARQ_PRIORITY_HIGH, block,
+                   reinterpret_cast<uintptr_t>(copy.data()), 32,
+                   record_transfer);
+    REQUIRE(completed_transfers.empty());
+    REQUIRE(copy[0] == 0);
+
+    REQUIRE(melee_host_step(context) == MELEE_HOST_NOT_READY);
+    REQUIRE(completed_transfers.size() == 2);
+    REQUIRE(completed_transfers[0] == &write);
+    REQUIRE(completed_transfers[1] == &read);
+    REQUIRE(std::string_view(copy.data(), copy.size()) == contents);
+
+    REQUIRE(ARFree(nullptr) == block);
+    melee_host_destroy(context);
+}
+
+TEST_CASE("devcom reads into ARAM through a relay buffer with a request queued behind")
+{
+    TemporaryDirectory temporary;
+    const std::string contents = "0123456789abcdefghijklmnopqrstuv";
+    std::ofstream(temporary.path() / "Pl" / "PlFx.dat", std::ios::binary)
+        << contents;
+    write_index(temporary.path(), 32);
+    const std::string root = temporary.path().string();
+    const MeleeHostConfig config{ .resource_root = root.c_str(), .headless = true };
+    MeleeHostContext* context = nullptr;
+    REQUIRE(melee_host_create(&config, &context) == MELEE_HOST_OK);
+    REQUIRE(melee_host_activate_dvd_backend(context) == MELEE_HOST_OK);
+
+    // A destination below 0x80000000 is ARAM, which type 0x23 reaches through
+    // a relay buffer.  devcom posts the last ARAM transfer before it unlinks
+    // the request, and the transfer's callback returns the request to the free
+    // list; the second request stays queued only if that callback comes later.
+    const u32 first_block = ARAlloc(32);
+    const u32 second_block = ARAlloc(32);
+    DevComResult first{};
+    DevComResult second{};
+    const int first_request = HSD_DevComRequest(
+        7, 0, first_block, 32, 0x23, 0, devcom_complete, &first);
+    const int second_request = HSD_DevComRequest(
+        7, 0, second_block, 32, 0x23, 0, devcom_complete, &second);
+    REQUIRE((first_request & 3) == (second_request & 3));
+
+    for (int step = 0; step < 8 && !(first.called && second.called); ++step) {
+        REQUIRE(melee_host_step(context) == MELEE_HOST_NOT_READY);
+    }
+    REQUIRE(first.called == true);
+    REQUIRE(first.canceled == false);
+    REQUIRE(second.called == true);
+    REQUIRE(second.canceled == false);
+    REQUIRE(HSD_DevComIsBusy(first_request & 3) == false);
+
+    std::array<char, 32> first_copy{};
+    std::array<char, 32> second_copy{};
+    ARQRequest read_first{};
+    ARQRequest read_second{};
+    ARQPostRequest(&read_first, 0, ARQ_TYPE_ARAM_TO_MRAM, ARQ_PRIORITY_HIGH,
+                   first_block, reinterpret_cast<uintptr_t>(first_copy.data()),
+                   32, nullptr);
+    ARQPostRequest(&read_second, 0, ARQ_TYPE_ARAM_TO_MRAM, ARQ_PRIORITY_HIGH,
+                   second_block,
+                   reinterpret_cast<uintptr_t>(second_copy.data()), 32,
+                   nullptr);
+    REQUIRE(melee_host_step(context) == MELEE_HOST_NOT_READY);
+    REQUIRE(std::string_view(first_copy.data(), first_copy.size()) == contents);
+    REQUIRE(std::string_view(second_copy.data(), second_copy.size()) ==
+            contents);
+
+    REQUIRE(ARFree(nullptr) == second_block);
+    REQUIRE(ARFree(nullptr) == first_block);
     melee_host_destroy(context);
 }

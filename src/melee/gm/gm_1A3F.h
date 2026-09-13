@@ -98,7 +98,9 @@
 /* 1A4510 */ void gm_801A4510(void);
 
 #ifdef MELEE_HOST
-/* 1A43A0 */ u8 runGameMode(u8 mode);
+/* The host's way into gm_801A4510's routing; see gm_1A3F.c. */
+void gm_HostBeginGameModes(u8 first_mode);
+u8 gm_HostRunCurrentGameMode(void);
 #endif
 
 #endif

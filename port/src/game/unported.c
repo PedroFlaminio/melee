@@ -6,49 +6,49 @@
  * the path is taken the report says which module has to come next.
  */
 
-#include <melee/ef/efasync.h>
-#include <melee/ft/ftdata.h>
 #include <melee/gm/gm_16F1.h>
+#include <melee/gm/gmtoulib.h>
 #include <melee/gr/grdatfiles.h>
+#include <melee/mn/mncharsel.h>
+#include <melee/mn/mncount.h>
+#include <melee/mn/mndatadel.h>
+#include <melee/mn/mndeflicker.h>
+#include <melee/mn/mndiagram.h>
+#include <melee/mn/mnevent.h>
+#include <melee/mn/mnhyaku.h>
+#include <melee/mn/mninfo.h>
+#include <melee/mn/mninfobonus.h>
+#include <melee/mn/mnlanguage.h>
+#include <melee/mn/mnmainrule.h>
+#include <melee/mn/mnsound.h>
+#include <melee/mn/mnsoundtest.h>
+#include <melee/mn/mnvibration.h>
 #include <sysdolphin/baselib/hsd_3982.h>
 #include <sysdolphin/baselib/leak.h>
+#include <sysdolphin/baselib/particle.h>
 
 #include <dolphin/os.h>
 #include <dolphin/os/OSThread.h>
+#include <dolphin/thp/thp.h>
 
 #define MELEE_HOST_UNPORTED(name)                                             \
     OSPanic(__FILE__, __LINE__, "%s is not ported to the host yet", name)
 
-/* ftdata.c registers a fighter's files with the preload cache.  Its tables
- * name every character's own data, so it comes in with the fighters.
- * lbDvd_80017960 only reaches these when a scene keeps all its heaps, which
- * the title screen does not. */
-void ftData_800855C8(FighterKind kind, u8 color)
+/* efAsync_OnLoad hands a preloaded effect archive's particle banks to this,
+ * which relocates them in place with 32-bit offsets.  Registering the archive
+ * for preload does not reach it; a scene that asks for the archive does. */
+void psInitDataBankLocate(HSD_Archive* cmdBank, HSD_Archive* texBank,
+                          int* formBank)
 {
-    (void) kind;
-    (void) color;
-    MELEE_HOST_UNPORTED("ftData_800855C8");
+    (void) cmdBank;
+    (void) texBank;
+    (void) formBank;
+    MELEE_HOST_UNPORTED("psInitDataBankLocate");
 }
 
-void ftData_8008578C(int arg0, u8 color)
-{
-    (void) arg0;
-    (void) color;
-    MELEE_HOST_UNPORTED("ftData_8008578C");
-}
-
-/* lbDvd_GetPreloadedArchive hands a preloaded effect archive or stage archive
- * to these.  Only a scene that preloads effects or a stage creates such an
- * entry, and the title screen does neither. */
-void efAsync_OnLoad(HSD_Archive* archive, u8* data, u32 length, int index)
-{
-    (void) archive;
-    (void) data;
-    (void) length;
-    (void) index;
-    MELEE_HOST_UNPORTED("efAsync_OnLoad");
-}
-
+/* lbDvd_GetPreloadedArchive hands a preloaded stage archive to this.  The
+ * title state preloads a stage for the demo, but only a scene that asks for
+ * the archive afterwards parses it, and the title does not. */
 void grDatFiles_801C5FC0(HSD_Archive* archive, void* data, size_t length)
 {
     (void) archive;
@@ -89,5 +89,151 @@ HSD_GObj* hsd_80398310(u16 arg0, u8 arg1, u8 arg2, u32 arg3)
 long OSCheckActiveThreads(void)
 {
     MELEE_HOST_UNPORTED("OSCheckActiveThreads");
+    return 0;
+}
+
+/* THP video, which lbmthp.c decodes for the movies the menus can play.  The
+ * host has no THP decoder yet. */
+void THPInit(void)
+{
+    MELEE_HOST_UNPORTED("THPInit");
+}
+
+s32 THPDec_8032FD40(THPDec_8032FD40_Data* arg0, u16 arg1)
+{
+    (void) arg0;
+    (void) arg1;
+    MELEE_HOST_UNPORTED("THPDec_8032FD40");
+    return 0;
+}
+
+void THPDec_80331340(s32 arg0, void* arg1, void* arg2, void* arg3)
+{
+    (void) arg0;
+    (void) arg1;
+    (void) arg2;
+    (void) arg3;
+    MELEE_HOST_UNPORTED("THPDec_80331340");
+}
+
+void THPDec_803313D0(s32 arg0, void* arg1, void* arg2, void* arg3, u32 arg4)
+{
+    (void) arg0;
+    (void) arg1;
+    (void) arg2;
+    (void) arg3;
+    (void) arg4;
+    MELEE_HOST_UNPORTED("THPDec_803313D0");
+}
+
+s32 THPVideoDecode(void* file, void* tileY, void* tileU, void* tileV,
+                   void* work)
+{
+    (void) file;
+    (void) tileY;
+    (void) tileU;
+    (void) tileV;
+    (void) work;
+    MELEE_HOST_UNPORTED("THPVideoDecode");
+    return 0;
+}
+
+/* The screens the menus open other than VS Melee.  mnmain.c's menu table and
+ * the name entry screens name each one's entry, so the link needs them.  The
+ * host runs the main menu and the VS submenu up to Melee, and stops here when
+ * another screen is chosen. */
+void mnHyaku_8024CD64(u8 arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnHyaku_8024CD64");
+}
+
+void mnCount_Create(void)
+{
+    MELEE_HOST_UNPORTED("mnCount_Create");
+}
+
+void mnDiagram_Init(u8 arg0, u8 arg1)
+{
+    (void) arg0;
+    (void) arg1;
+    MELEE_HOST_UNPORTED("mnDiagram_Init");
+}
+
+void mnInfoBonus_80252F8C(void)
+{
+    MELEE_HOST_UNPORTED("mnInfoBonus_80252F8C");
+}
+
+s32 mnInfo_80252758(void)
+{
+    MELEE_HOST_UNPORTED("mnInfo_80252758");
+    return 0;
+}
+
+HSD_GObjProc* mnSoundTest_8024BEE0(s32 arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnSoundTest_8024BEE0");
+    return NULL;
+}
+
+void mnDataDel_80250170(void)
+{
+    MELEE_HOST_UNPORTED("mnDataDel_80250170");
+}
+
+UNK_RET mnDeflicker_8024A6C4(int arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnDeflicker_8024A6C4");
+}
+
+void mnLanguage_8024C5C0(HSD_GObj* arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnLanguage_8024C5C0");
+}
+
+void mnSound_8024A09C(int arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnSound_8024A09C");
+}
+
+void mnVibration_Init(int arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mnVibration_Init");
+}
+
+UNK_RET mn_80231714(UNK_PARAMS)
+{
+    MELEE_HOST_UNPORTED("mn_80231714");
+}
+
+void mnEvent_8024E838(int arg0, int arg1)
+{
+    (void) arg0;
+    (void) arg1;
+    MELEE_HOST_UNPORTED("mnEvent_8024E838");
+}
+
+int mn_80231634(struct mn_80231634_t* arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("mn_80231634");
+    return 0;
+}
+
+void gm_80190FE4(int arg0)
+{
+    (void) arg0;
+    MELEE_HOST_UNPORTED("gm_80190FE4");
+}
+
+s32 mnCharSel_802640A0(void)
+{
+    MELEE_HOST_UNPORTED("mnCharSel_802640A0");
     return 0;
 }

@@ -2066,16 +2066,77 @@ int main(int argc, char** argv)
                                    run.last_frame_triangles > 0;
             return timed_out ? 0 : 1;
         }
-        if ((argc == 3 || argc == 4) &&
-            std::string(argv[1]) == "--run-title-mode") {
-            struct TitleModeInput {
+        if (argc >= 5 && std::string(argv[1]) == "--run-modes") {
+            /* Each press is held for three drawn frames, so a scene sees the
+             * buttons go down and come back up.  Frames count across modes. */
+            struct ScriptedPress {
+                mh_u32 frame;
+                mh_u16 buttons;
+            };
+            struct ModesInput {
                 MeleeHostContext* context = nullptr;
-                mh_u32 start_frame = 0;
+                std::vector<ScriptedPress> presses;
                 mh_u32 frames = 0;
             };
-            TitleModeInput input;
-            if (argc == 4) {
-                input.start_frame = static_cast<mh_u32>(std::stoul(argv[3]));
+            struct NamedButton {
+                const char* name;
+                mh_u16 bit;
+            };
+            static constexpr NamedButton kButtons[] = {
+                { "A", PAD_BUTTON_A },       { "B", PAD_BUTTON_B },
+                { "X", PAD_BUTTON_X },       { "Y", PAD_BUTTON_Y },
+                { "Z", PAD_TRIGGER_Z },      { "L", PAD_TRIGGER_L },
+                { "R", PAD_TRIGGER_R },      { "START", PAD_BUTTON_START },
+                { "UP", PAD_BUTTON_UP },     { "DOWN", PAD_BUTTON_DOWN },
+                { "LEFT", PAD_BUTTON_LEFT }, { "RIGHT", PAD_BUTTON_RIGHT },
+            };
+            const auto hex_mode = [](mh_u32 mode) {
+                constexpr const char* kDigits = "0123456789abcdef";
+                std::string text = "0x";
+                text += kDigits[(mode >> 4) & 0xF];
+                text += kDigits[mode & 0xF];
+                return text;
+            };
+
+            ModesInput input;
+            const auto first_mode =
+                static_cast<mh_u32>(std::stoul(argv[3], nullptr, 0));
+            const auto max_modes =
+                static_cast<mh_u32>(std::stoul(argv[4], nullptr, 0));
+            for (int i = 5; i < argc; ++i) {
+                const std::string entry = argv[i];
+                const auto colon = entry.find(':');
+                if (colon == std::string::npos) {
+                    std::cerr << "expected FRAME:BUTTON[+BUTTON], got "
+                              << entry << '\n';
+                    return 2;
+                }
+                ScriptedPress press{
+                    static_cast<mh_u32>(std::stoul(entry.substr(0, colon))), 0
+                };
+                std::size_t start = colon + 1;
+                while (true) {
+                    const auto plus = entry.find('+', start);
+                    const std::string name = entry.substr(
+                        start, plus == std::string::npos ? std::string::npos
+                                                         : plus - start);
+                    const auto* const found = std::find_if(
+                        std::begin(kButtons), std::end(kButtons),
+                        [&](const NamedButton& button) {
+                            return name == button.name;
+                        });
+                    if (found == std::end(kButtons)) {
+                        std::cerr << "unknown button " << name << '\n';
+                        return 2;
+                    }
+                    press.buttons =
+                        static_cast<mh_u16>(press.buttons | found->bit);
+                    if (plus == std::string::npos) {
+                        break;
+                    }
+                    start = plus + 1;
+                }
+                input.presses.push_back(press);
             }
             MeleeHostContext* context = nullptr;
             const std::string root = argv[2];
@@ -2093,45 +2154,61 @@ int main(int argc, char** argv)
                 return 1;
             }
             input.context = context;
-            /* A connected pad that holds START for three frames from
-             * start_frame, so the title sees a press and then a release.  The
-             * state reaches PADRead at the host step before the next pad
-             * sample. */
-            const MeleeHostGxFrameSink press_start = [](void* user_data) {
-                auto* const state = static_cast<TitleModeInput*>(user_data);
+            /* A connected pad on port 1 holding whatever the script presses on
+             * this frame.  The state reaches PADRead at the host step before
+             * the next pad sample. */
+            const MeleeHostGxFrameSink scripted_pad = [](void* user_data) {
+                auto* const state = static_cast<ModesInput*>(user_data);
                 state->frames += 1;
                 MeleeHostPadState pad{};
                 pad.connected = true;
-                if (state->start_frame != 0 &&
-                    state->frames >= state->start_frame &&
-                    state->frames < state->start_frame + 3)
-                {
-                    pad.buttons = static_cast<mh_u16>(PAD_BUTTON_START);
+                for (const ScriptedPress& press : state->presses) {
+                    if (state->frames >= press.frame &&
+                        state->frames < press.frame + 3)
+                    {
+                        pad.buttons =
+                            static_cast<mh_u16>(pad.buttons | press.buttons);
+                    }
                 }
                 static_cast<void>(
                     melee_host_submit_pad_state(state->context, 0, &pad));
             };
-            /* GameModeKind values from melee/gm/forward.h. */
-            constexpr mh_u32 kModeTitle = 0x00;
-            constexpr mh_u32 kModeMenu = 0x01;
-            constexpr mh_u32 kModeOpeningMovie = 0x18;
-            MeleeHostGameModeReport report{};
-            const MeleeHostStatus ran = melee_host_game_run_mode(
-                kModeTitle, press_start, &input, &report);
-            melee_host_destroy(context);
-            if (ran != MELEE_HOST_OK) {
-                std::cerr << "the title mode did not run: "
-                          << melee_host_status_string(ran) << '\n';
+            if (melee_host_game_begin(first_mode) != MELEE_HOST_OK) {
+                std::cerr << "mode " << hex_mode(first_mode)
+                          << " is not in the host's mode table\n";
+                melee_host_destroy(context);
                 return 1;
             }
-            const mh_u32 expected =
-                input.start_frame != 0 ? kModeMenu : kModeOpeningMovie;
-            std::cout << "ran the title mode through runGameMode\n"
-                      << "  drawn frames: " << report.drawn_frames << '\n'
-                      << "  next mode: 0x" << std::hex << report.next_mode
-                      << " (expected 0x" << expected << ")" << std::dec
-                      << '\n';
-            return report.next_mode == expected ? 0 : 1;
+            std::string route = hex_mode(first_mode);
+            bool failed = false;
+            for (mh_u32 i = 0; i < max_modes; ++i) {
+                MeleeHostGameModeReport report{};
+                const MeleeHostStatus ran = melee_host_game_run_current_mode(
+                    scripted_pad, &input, &report);
+                if (ran == MELEE_HOST_UNSUPPORTED) {
+                    std::cout << "stopped: mode " << hex_mode(report.mode)
+                              << " is not in the host's mode table\n";
+                    break;
+                }
+                if (ran != MELEE_HOST_OK) {
+                    std::cerr << "mode " << hex_mode(report.mode)
+                              << " did not run: "
+                              << melee_host_status_string(ran) << '\n';
+                    failed = true;
+                    break;
+                }
+                std::cout << "mode " << hex_mode(report.mode) << " -> "
+                          << hex_mode(report.next_mode) << " after "
+                          << report.drawn_frames << " frames\n";
+                route += " (" + std::to_string(report.drawn_frames) +
+                         " frames) " + hex_mode(report.next_mode);
+            }
+            melee_host_destroy(context);
+            if (failed) {
+                return 1;
+            }
+            std::cout << "route: " << route << '\n' << std::flush;
+            return 0;
         }
         if ((argc == 4 || argc == 5) &&
             std::string(argv[1]) == "--load-scene") {

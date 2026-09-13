@@ -35,6 +35,11 @@ typedef enum MeleeHostHsdSymbolKind {
     MELEE_HOST_HSD_SYMBOL_FIGATREE,
     /* A symbol whose name carries no kind, recognised by its whole name. */
     MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE,
+    /* A text table, recognised by the SIS_ its name starts with. */
+    MELEE_HOST_HSD_SYMBOL_SIS_TABLE,
+    /* Game data a translator is registered for by name; see
+     * melee_host_hsd_register_translator. */
+    MELEE_HOST_HSD_SYMBOL_GAME_DATA,
     MELEE_HOST_HSD_SYMBOL_KIND_COUNT
 } MeleeHostHsdSymbolKind;
 
@@ -69,6 +74,46 @@ void melee_host_hsd_archive_release_all(void);
 
 /* Why the last parse or lookup failed, including a refused symbol. */
 const char* melee_host_hsd_archive_last_error(void);
+
+/* Game data whose layout only the game's C headers describe is translated by a
+ * function registered under the symbol's name.  The translator reads the file
+ * through the reader, which checks every offset against the data section and
+ * every pointer field against the relocation table, and builds its result in
+ * zeroed memory that lives as long as the archive's other descriptors.  A
+ * translator that meets something it cannot translate calls
+ * melee_host_hsd_reader_fail and returns NULL, and the lookup is refused with
+ * that reason; a failed read or allocation does the same on its own. */
+typedef struct MeleeHostHsdReader MeleeHostHsdReader;
+typedef void* (*MeleeHostHsdTranslator)(MeleeHostHsdReader* reader,
+                                        mh_u32 root_offset);
+
+/* Registers `translator` for public symbols named `symbol`, replacing an
+ * earlier one; NULL removes the registration. */
+MeleeHostStatus melee_host_hsd_register_translator(
+    const char* symbol, MeleeHostHsdTranslator translator);
+
+mh_u32 melee_host_hsd_reader_data_size(MeleeHostHsdReader* reader);
+/* Big-endian scalars at a data offset; zero once the reader has failed. */
+mh_u8 melee_host_hsd_reader_u8(MeleeHostHsdReader* reader, mh_u32 offset);
+mh_u16 melee_host_hsd_reader_u16(MeleeHostHsdReader* reader, mh_u32 offset);
+mh_u32 melee_host_hsd_reader_u32(MeleeHostHsdReader* reader, mh_u32 offset);
+mh_f32 melee_host_hsd_reader_f32(MeleeHostHsdReader* reader, mh_u32 offset);
+/* Whether the field at `field` is relocated, without judging it. */
+bool melee_host_hsd_reader_has_pointer(MeleeHostHsdReader* reader,
+                                       mh_u32 field);
+/* The pointer field at `field`: true with the target's data offset when it is
+ * relocated, false when it is NULL.  A non-zero field without a relocation
+ * fails the reader. */
+bool melee_host_hsd_reader_pointer(MeleeHostHsdReader* reader, mh_u32 field,
+                                   mh_u32* out_target);
+/* `length` bytes of the host's verbatim copy of the data at `offset`. */
+void* melee_host_hsd_reader_payload(MeleeHostHsdReader* reader, mh_u32 offset,
+                                    size_t length);
+void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader, size_t size,
+                                     size_t alignment);
+void melee_host_hsd_reader_fail(MeleeHostHsdReader* reader,
+                                const char* reason);
+bool melee_host_hsd_reader_failed(const MeleeHostHsdReader* reader);
 
 #ifdef __cplusplus
 }

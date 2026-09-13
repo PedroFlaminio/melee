@@ -65,8 +65,15 @@ static size_t const _tyDisplay_804D6F10_len = 300;
 /* 31C1D0 */ static void _tyDisplay_8031C1D0(void);
 /* 4A2D98 */ static char _tyDisplay_devtext_buf[9 * (3 * 2)];
 /* 4A2DD0 */ static TyDspArchiveHolder _tyDisplay_804A2DD0;
+#ifdef MELEE_HOST
+/* The DOL object is 0xB0 bytes of 4-byte pointers, 44 entries, and
+ * tyDisplay_8031C8B8 clears 43 of them.  Dividing by a host pointer's size
+ * would leave 22, so the host keeps the count instead of the byte size. */
+/* 4A2DE8 */ static HSD_Archive* _tyDisplay_804A2DE8[0xB0 / 4];
+#else
 /* 4A2DE8 */ static HSD_Archive*
     _tyDisplay_804A2DE8[0xB0 / sizeof(HSD_Archive*)];
+#endif
 /* 4D6F10 */ static HSD_JObj** _tyDisplay_804D6F10;
 /* 4D6F14 */ static TyDspGrid* _tyDisplay_804D6F14;
 /* 4D6F18 */ static TyDspConfig* _tyDisplay_804D6F18;

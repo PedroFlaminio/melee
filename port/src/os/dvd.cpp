@@ -103,6 +103,19 @@ extern "C" MeleeHostStatus melee_host_dvd_step_backend(void)
     return melee_host_step(context);
 }
 
+extern "C" MeleeHostStatus
+melee_host_dvd_schedule_backend_task(MeleeHostTaskCallback callback,
+                                     void* user_data)
+{
+    const std::lock_guard<std::mutex> lock(dvd_mutex);
+    if (active_context == nullptr) {
+        return MELEE_HOST_UNSUPPORTED;
+    }
+    return melee_host_schedule_task(active_context,
+                                    melee_host_tick_count(active_context) + 1,
+                                    callback, user_data);
+}
+
 /* The disc is whatever the active backend reads, so it is present exactly
  * while a backend is active. */
 extern "C" BOOL DVDCheckDisk(void)

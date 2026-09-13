@@ -36,6 +36,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 
 namespace {
@@ -96,6 +97,14 @@ struct PackedLightObj {
 };
 static_assert(sizeof(PackedLightObj) == sizeof(GXLightObj),
               "packed light payload must fit the SDK object exactly");
+
+/* The swap tables GXInit installs, which tev.cpp evaluates with. */
+constexpr std::array<std::array<mh_u32, 4>, 4> kInitSwapTables{ {
+    { GX_CH_RED, GX_CH_GREEN, GX_CH_BLUE, GX_CH_ALPHA },
+    { GX_CH_RED, GX_CH_RED, GX_CH_RED, GX_CH_ALPHA },
+    { GX_CH_GREEN, GX_CH_GREEN, GX_CH_GREEN, GX_CH_ALPHA },
+    { GX_CH_BLUE, GX_CH_BLUE, GX_CH_BLUE, GX_CH_ALPHA },
+} };
 
 MeleeHostGxPixelState pixel_state{};
 MeleeHostGxTransformState transform_state{};
@@ -799,6 +808,21 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
     store_pack(obj, packed);
 }
 
+GXTexFmt GXGetTexObjFmt(const GXTexObj* obj)
+{
+    return static_cast<GXTexFmt>(load_pack<PackedTexObj>(obj).format);
+}
+
+u16 GXGetTexObjWidth(const GXTexObj* obj)
+{
+    return load_pack<PackedTexObj>(obj).width;
+}
+
+u16 GXGetTexObjHeight(const GXTexObj* obj)
+{
+    return load_pack<PackedTexObj>(obj).height;
+}
+
 void GXLoadTexObj(GXTexObj* obj, GXTexMapID id)
 {
     const std::lock_guard<std::mutex> guard(state_mutex);
@@ -1211,6 +1235,30 @@ void GXSetTevSwapMode(GXTevStageID stage_id, GXTevSwapSel ras_sel,
     }
     tev_state.stages[stage].raster_swap = static_cast<mh_u32>(ras_sel);
     tev_state.stages[stage].texture_swap = static_cast<mh_u32>(tex_sel);
+}
+
+/* The TEV evaluator and the shaders it generates use GXInit's tables, so a
+ * different table would draw wrong without a sign.  The only call in the code
+ * the host builds, the sprite library's, installs GXInit's own SWAP0; anything
+ * else stops here by name. */
+void GXSetTevSwapModeTable(GXTevSwapSel table, GXTevColorChan red,
+                           GXTevColorChan green, GXTevColorChan blue,
+                           GXTevColorChan alpha)
+{
+    const auto index = static_cast<std::size_t>(table);
+    const std::array<mh_u32, 4> requested{
+        static_cast<mh_u32>(red), static_cast<mh_u32>(green),
+        static_cast<mh_u32>(blue), static_cast<mh_u32>(alpha)
+    };
+    if (index < kInitSwapTables.size() && requested == kInitSwapTables[index]) {
+        return;
+    }
+    std::fprintf(stderr,
+                 "GXSetTevSwapModeTable: table %zu as %u %u %u %u is not "
+                 "modelled by the host's TEV\n",
+                 index, requested[0], requested[1], requested[2],
+                 requested[3]);
+    std::abort();
 }
 
 /* The eight-bit form of a TEV register write widens into the same signed

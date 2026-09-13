@@ -203,6 +203,17 @@ TEST_CASE("TEV stage and texgen configuration is recorded per slot")
     REQUIRE(tev.texcoord_gens[0].source == GX_TG_TEX0);
     REQUIRE(tev.texcoord_gens[0].matrix == GX_TEXMTX0);
     REQUIRE(tev.texcoord_gens[0].normalize);
+
+    // GXInit's swap tables are what the TEV evaluator models, so installing
+    // them again is accepted; the sprite library does it for SWAP0.
+    GXSetTevSwapModeTable(GX_TEV_SWAP0, GX_CH_RED, GX_CH_GREEN, GX_CH_BLUE,
+                          GX_CH_ALPHA);
+    GXSetTevSwapModeTable(GX_TEV_SWAP1, GX_CH_RED, GX_CH_RED, GX_CH_RED,
+                          GX_CH_ALPHA);
+    GXSetTevSwapModeTable(GX_TEV_SWAP2, GX_CH_GREEN, GX_CH_GREEN, GX_CH_GREEN,
+                          GX_CH_ALPHA);
+    GXSetTevSwapModeTable(GX_TEV_SWAP3, GX_CH_BLUE, GX_CH_BLUE, GX_CH_BLUE,
+                          GX_CH_ALPHA);
 }
 
 TEST_CASE("texture objects survive as 64-bit pointers inside the SDK blob")
@@ -234,6 +245,10 @@ TEST_CASE("texture objects survive as 64-bit pointers inside the SDK blob")
     REQUIRE(desc.max_anisotropy == GX_ANISO_4);
     REQUIRE(desc.bias_clamp);
     REQUIRE(!desc.edge_lod);
+    // The SDK's getters read the same blob back.
+    REQUIRE(GXGetTexObjWidth(&texture) == 32);
+    REQUIRE(GXGetTexObjHeight(&texture) == 16);
+    REQUIRE(GXGetTexObjFmt(&texture) == GX_TF_RGB5A3);
     // The heap pointer must come back whole, not truncated to 32 bits.
     REQUIRE(desc.image == image.data());
 

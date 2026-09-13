@@ -152,6 +152,12 @@ public:
     [[nodiscard]] MaterializedRumbleEntry*
     rumble_table(std::string_view public_symbol);
 
+    /* A `SIS_*` text table: one pointer per string, as long as the fields are
+     * relocated.  The text archives keep the table at the start of the data
+     * and relocate nothing else.  The strings stay verbatim, byte order
+     * included, which is how the text interpreter reads them. */
+    [[nodiscard]] u8** sis_table(std::string_view public_symbol);
+
     /* Declares a pointer field that HSD_ArchiveLocateExtern resolved to NULL.
      * The file threads the extern's chain through those fields, so until it
      * is declared a field holds the next link: a non-zero value with no
@@ -159,6 +165,17 @@ public:
     void declare_null_field(std::uint32_t data_offset);
 
     [[nodiscard]] const HsdMaterializeStats& stats() const noexcept;
+
+    /* What a translator written in C reaches through the reader in
+     * hsd_host_archive.cpp: the file, the descriptor arena, pointer fields
+     * with the same NULL and relocation rules as the schemas here, and the
+     * verbatim payload. */
+    [[nodiscard]] const HsdRuntimeArchive& runtime() const noexcept;
+    void* translator_allocate(std::size_t size, std::size_t alignment);
+    [[nodiscard]] std::optional<HsdRuntimeNode>
+    translator_pointer(std::uint32_t field_offset) const;
+    [[nodiscard]] void* translator_payload(std::uint32_t data_offset,
+                                           std::size_t length) const;
 
 private:
     template <typename T> T* allocate();

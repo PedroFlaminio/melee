@@ -472,6 +472,33 @@ void HsdMaterializedArchive::declare_null_field(std::uint32_t data_offset)
     null_fields_.insert(data_offset);
 }
 
+const HsdRuntimeArchive& HsdMaterializedArchive::runtime() const noexcept
+{
+    return archive_;
+}
+
+void* HsdMaterializedArchive::translator_allocate(std::size_t size,
+                                                  std::size_t alignment)
+{
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+        throw HsdArchiveError(
+            "a translator asked for an alignment that is not a power of two");
+    }
+    return allocate_bytes(size, alignment);
+}
+
+std::optional<HsdRuntimeNode>
+HsdMaterializedArchive::translator_pointer(std::uint32_t field_offset) const
+{
+    return reference({ 0 }, field_offset);
+}
+
+void* HsdMaterializedArchive::translator_payload(std::uint32_t data_offset,
+                                                 std::size_t length) const
+{
+    return payload({ data_offset }, length);
+}
+
 void* HsdMaterializedArchive::allocate_bytes(std::size_t size,
                                              std::size_t alignment)
 {
@@ -1561,6 +1588,47 @@ HsdMaterializedArchive::rumble_table(std::string_view public_symbol)
         const auto bytes = archive_.bytes_at({ entry.data_offset + 4 }, 2);
         entries[index].priority = std::to_integer<u8>(bytes[0]);
         entries[index].unk5 = std::to_integer<u8>(bytes[1]);
+    }
+    return entries;
+}
+
+u8** HsdMaterializedArchive::sis_table(std::string_view public_symbol)
+{
+    constexpr std::uint32_t kEntrySize = 4;
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    const std::size_t data_size = archive_.disk_view().data().size();
+
+    /* The table has no count; sislib.c indexes it with the number of the
+     * string it wants.  Every relocation in a text archive is one of its
+     * entries, so the run of relocated fields is the whole table. */
+    std::size_t count = 0;
+    while (table.data_offset + (count + 1) * kEntrySize <= data_size &&
+           archive_.has_reference_at(
+               table, static_cast<std::uint32_t>(count * kEntrySize)))
+    {
+        ++count;
+    }
+    if (count == 0) {
+        throw HsdArchiveError("text table has no entries");
+    }
+
+    auto** const entries = static_cast<u8**>(
+        allocate_bytes(sizeof(u8*) * count, alignof(u8*)));
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode target = *reference(
+            table, static_cast<std::uint32_t>(index * kEntrySize));
+        if (target.data_offset == data_size) {
+            /* Four text archives point their first entry at the end of the
+             * data.  The console reads the relocation table there, whose first
+             * field is this table's own offset, zero, so the host gives the
+             * entry zero bytes of its own. */
+            auto* const zeros =
+                static_cast<u8*>(allocate_bytes(kEntrySize, 1));
+            std::memset(zeros, 0, kEntrySize);
+            entries[index] = zeros;
+            continue;
+        }
+        entries[index] = static_cast<u8*>(payload(target, 1));
     }
     return entries;
 }

@@ -89,6 +89,47 @@ melee_host_enable_sanitizers(melee_host)
 
 # The first native-compiled slice of the original game. Sources are added here
 # only after they compile without changing their PowerPC matching behavior.
+# Each fighter's file names, costume strings and costume list, which ftdata.c's
+# tables point at.  Most of them live in the character's main file, so the
+# character's code is compiled too, and --gc-sections keeps only what is
+# reached.  ftkirby.c also holds the copy ability preload.
+set(MELEE_HOST_FIGHTER_DATA_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftCaptain/ftcaptain.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftCLink/ftclink.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftCrazyHand/ftcrazyhand.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftDonkey/ftdonkey.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftDrMario/ftdrmario.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftEmblem/ftemblem.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftFalco/ftfalco.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftFox/ftfox.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftGameWatch/ftgamewatch.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftGanon/ftganon.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftGigaKoopa/ftgkoopa.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftKirby/ftkirby.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftKirby/ftkirbydata.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftKoopa/ftkoopa.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftLink/ftlink.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftLuigi/ftluigi.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftMario/ftmariostrings.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftMars/ftmars.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftMasterHand/ftmasterhand.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftMewtwo/ftmewtwo.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftNana/ftnana.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftNess/ftness.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftPeach/ftpeach.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftPichu/ftpichu.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftPikachu/ftpikachu.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftPopo/ftpopo.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftPurin/ftpurin.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftSamus/ftsamus.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftSandbag/ftsandbag.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftSeak/ftseak.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftYoshi/ftyoshi.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftZakoBoy/ftboy.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftZakoGirl/ftgirl.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/kinds/ftZelda/ftzelda.c
+)
+
 add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbtime.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbvector.c
@@ -216,7 +257,27 @@ add_library(melee_game_core STATIC
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_4D11.c
     ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1736.c
     ${CMAKE_SOURCE_DIR}/src/melee/ty/tydisplay.c
+    # The title state keeps every preload heap, so the title demo's preload
+    # registers the demo fighters' files through ftdata.c.
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/ftdata.c
+    ${MELEE_HOST_FIGHTER_DATA_SOURCES}
+    # A fighter's preload also registers its effect archive.
+    ${CMAKE_SOURCE_DIR}/src/melee/ef/efasync.c
+    # The main menu's mode.  Its state allocates the snapshot buffers and the
+    # gallery's rate table before the menu scene loads.
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmenumode.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mngallery.c
+    ${CMAKE_SOURCE_DIR}/src/melee/mn/mnsnap.c
+    # What the menu scene and the screens its table names call directly: the
+    # event table loader, the how-to movie check, home run's name tags, the
+    # out-of-line matrix dirty flag and the snapshot loader.
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmevent.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhowto.c
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhomerun.c
+    ${CMAKE_SOURCE_DIR}/src/melee/ft/ft_0C31.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B5C.c
     src/game/game_tables.c
+    src/game/game_data_translators.c
     src/game/unported.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/random.c
     src/os/os_heap.c
@@ -240,6 +301,15 @@ target_include_directories(melee_game_core
         src
 )
 melee_host_set_legacy_warnings(melee_game_core)
+# The decompiled C gives a few functions a plain `inline` definition, which
+# MWCC emits out of line when a call is not inlined.  C99 makes that definition
+# inline-only, which leaves an undefined reference at -O0; GNU89 semantics emit
+# it, as MWCC does.  No header has a plain inline definition, so nothing is
+# emitted twice.
+if(NOT MSVC)
+    target_compile_options(melee_game_core PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-fgnu89-inline>)
+endif()
 # Port code keeps the strict warning set even where it shares a target with
 # decompiled translation units, which need the legacy relaxations.
 set_source_files_properties(
@@ -273,6 +343,20 @@ if(MELEE_HOST_ENABLE_SANITIZERS)
         ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmain.c
         ${CMAKE_SOURCE_DIR}/src/melee/mn/mnname.c
         ${CMAKE_SOURCE_DIR}/src/melee/mn/mnnamenew.c
+        # Their tables name every fighter's callbacks and every effect.
+        ${CMAKE_SOURCE_DIR}/src/melee/ft/ftdata.c
+        ${MELEE_HOST_FIGHTER_DATA_SOURCES}
+        ${CMAKE_SOURCE_DIR}/src/melee/ef/efasync.c
+        # The main menu's mode and what it calls directly name event mode,
+        # home run, snapshots and the fighters' common code.
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmenumode.c
+        ${CMAKE_SOURCE_DIR}/src/melee/mn/mngallery.c
+        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnsnap.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmevent.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhowto.c
+        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhomerun.c
+        ${CMAKE_SOURCE_DIR}/src/melee/ft/ft_0C31.c
+        ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B5C.c
         PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address,undefined"
     )
 endif()
@@ -463,6 +547,35 @@ if(MELEE_HOST_BUILD_TESTS)
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_tests_properties(melee-host-title-frames-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+        # Whole game modes through the scene manager's routing, each with its
+        # state's preload, its frame loop and the exit that picks the next
+        # mode.  Left alone the title times out to the opening movie.  START
+        # leads to the main menu, where DOWN, A and A pick VS Melee.  The route
+        # line is printed only when every mode returned.
+        add_test(
+            NAME melee-host-title-mode-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 1
+        )
+        add_test(
+            NAME melee-host-main-menu-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 2
+                    120:START 160:DOWN 200:A 240:A
+        )
+        set_tests_properties(melee-host-title-mode-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION "route: 0x00 \\(621 frames\\) 0x18\n"
+        )
+        set_tests_properties(melee-host-main-menu-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "route: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02\n"
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_property(TEST melee-host-title-mode-asset
+                melee-host-main-menu-asset APPEND PROPERTY
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()

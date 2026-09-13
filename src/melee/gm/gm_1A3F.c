@@ -75,13 +75,7 @@ ASSERT_SIZE(struct stateMachine, 0x14);
  *
  * @returns The next pending #GameModeKind (#GameRouting::pending_mode).
  */
-#ifdef MELEE_HOST
-/* The host runs a game mode from outside the scene manager's loop, so it
- * needs this linkage; gm_1A3F.h declares it there. */
-/* 1A43A0 */ u8 runGameMode(u8 mode);
-#else
 /* 1A43A0 */ static u8 runGameMode(u8 mode);
-#endif
 
 /* 479D30 */ static struct stateMachine state_machine;
 
@@ -398,3 +392,37 @@ void gm_801A4510(void)
         gamestate->routing.curr_mode = next_mode;
     }
 }
+
+#ifdef MELEE_HOST
+/* gm_801A4510 starts at the boot mode and runs modes forever.  The host starts
+ * the same routing at a mode of its choosing and runs one mode per call, with
+ * the loop's bookkeeping, so it can stop before a mode it does not have. */
+void gm_HostBeginGameModes(u8 first_mode)
+{
+    GameMode* modes;
+    int i;
+
+    memzero(&state_machine, sizeof(struct stateMachine));
+    modes = gm_GetAllGameModes();
+    for (i = 0; modes[i].kind != GM_COUNT; i++) {
+        if (modes[i].on_init != NULL) {
+            modes[i].on_init();
+        }
+    }
+    state_machine.routing.curr_mode = first_mode;
+    state_machine.routing.prev_mode = GM_COUNT;
+}
+
+u8 gm_HostRunCurrentGameMode(void)
+{
+    struct stateMachine* gamestate = &state_machine;
+    u8 next_mode = runGameMode(state_machine.routing.curr_mode);
+
+    if (gmMainLib_8046B0F0.resetting) {
+        gmMainLib_8046B0F0.resetting = false;
+    }
+    gamestate->routing.prev_mode = gamestate->routing.curr_mode;
+    gamestate->routing.curr_mode = next_mode;
+    return next_mode;
+}
+#endif

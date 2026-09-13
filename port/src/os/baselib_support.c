@@ -1,3 +1,4 @@
+#include <melee_host/host.h>
 #include <melee_host/memory.h>
 
 #if defined(__clang__)
@@ -13,14 +14,17 @@
 #endif
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /*
- * The host does not emulate ARAM or the DSP.  These offsets are deliberately
- * not process pointers: code which stores an ARAM address must not be able to
- * accidentally dereference it on a 64-bit host.  Allocations are nevertheless
- * deterministic and keep the console's 32-byte DMA alignment contract.
+ * The host does not emulate the DSP.  ARAM addresses are offsets into a host
+ * buffer, deliberately not process pointers: code which stores an ARAM
+ * address must not be able to accidentally dereference it on a 64-bit host,
+ * and only ARQ transfers move bytes in or out.  Allocations are deterministic
+ * and keep the console's 32-byte DMA alignment contract.
  */
 #define MELEE_HOST_ARAM_SIZE (16U * 1024U * 1024U)
 
@@ -83,9 +87,43 @@ u32 ARInit(u32* stack_index_addr, u32 num_entries)
     return melee_host_aram_next;
 }
 
-/* ARAM transfers complete inside ARQPostRequest, so the queue needs no
- * setup. */
+/* The host's ARQ queue is the backend scheduler, so there is nothing to set
+ * up. */
 void ARQInit(void) {}
+
+static u8 melee_host_aram_store[MELEE_HOST_ARAM_SIZE];
+
+static bool melee_host_aram_range_valid(ARQAddress offset, u32 length)
+{
+    return offset <= MELEE_HOST_ARAM_SIZE &&
+           length <= MELEE_HOST_ARAM_SIZE - offset;
+}
+
+/* The DMA transfer and the callback of one posted request. */
+static void melee_host_arq_complete(void* user_data)
+{
+    ARQRequest* const request = (ARQRequest*) user_data;
+
+    if (request->type == ARQ_TYPE_MRAM_TO_ARAM) {
+        if (!melee_host_aram_range_valid(request->dest, request->length)) {
+            OSPanic(__FILE__, __LINE__, "ARQ write past the end of ARAM");
+        }
+        memcpy(melee_host_aram_store + request->dest,
+               (const void*) request->source, request->length);
+    } else if (request->type == ARQ_TYPE_ARAM_TO_MRAM) {
+        if (!melee_host_aram_range_valid(request->source, request->length)) {
+            OSPanic(__FILE__, __LINE__, "ARQ read past the end of ARAM");
+        }
+        memcpy((void*) request->dest, melee_host_aram_store + request->source,
+               request->length);
+    } else {
+        OSPanic(__FILE__, __LINE__, "ARQ request of unknown type %u",
+                request->type);
+    }
+    if (request->callback != NULL) {
+        request->callback(request);
+    }
+}
 
 /* No audio interface to start: nothing drains the DSP's output yet. */
 void AIInit(u8* stack)
@@ -147,6 +185,12 @@ void AXSetVoiceSrc(AXVPB* voice, AXPBSRC* src)
 }
 
 void AXSetVoiceAddr(AXVPB* voice, AXPBADDR* addr)
+{
+    (void) voice;
+    (void) addr;
+}
+
+void AXSetVoiceCurrentAddr(AXVPB* voice, u32 addr)
 {
     (void) voice;
     (void) addr;
@@ -275,6 +319,13 @@ void DCStoreRangeNoSync(void* address, u32 length)
     (void) length;
 }
 
+/* The host has no CPU cache to write back, like DCStoreRange. */
+void DCFlushRange(void* address, u32 length)
+{
+    (void) address;
+    (void) length;
+}
+
 BOOL OSGetResetSwitchState(void)
 {
     return FALSE;
@@ -310,8 +361,17 @@ void ARQPostRequest(ARQRequest* request, u32 owner, u32 type, u32 priority,
     request->dest = dest;
     request->length = length;
     request->callback = callback;
-    if (callback != NULL) {
-        callback(request);
+    /* The SDK completes a request by DMA interrupt, after ARQPostRequest has
+     * returned, and devcom depends on that: it posts the last piece of a
+     * transfer and only then unlinks the request that the callback puts back
+     * on the free list.  So the host transfers at the next scheduler step, in
+     * the order requests were posted.  The SDK's two priority queues and its
+     * chunking are not modelled. */
+    if (melee_host_dvd_schedule_backend_task(melee_host_arq_complete,
+                                             request) != MELEE_HOST_OK)
+    {
+        OSPanic(__FILE__, __LINE__,
+                "an ARAM transfer was posted and no backend is active");
     }
 }
 

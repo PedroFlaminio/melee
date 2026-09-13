@@ -15,7 +15,13 @@ struct lb_80433318_t {
     /* +14 */ int x14;
     /* +18 */ bool enable;
     /* +1C */ char _1C[0x40];
+#ifdef MELEE_HOST
+    /* MemCardIconData: the banners' and the icon's addresses, which the game
+     * keeps as ints.  A host address needs the pointer's width. */
+    /* +5C */ intptr_t* x5C;
+#else
     /* +5C */ int* x5C;
+#endif
     /* +60 */ int x60;
     /* +64 */ SceneDesc* x64;
 };
