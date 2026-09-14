@@ -10,6 +10,13 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
+
+/* Particle banks as psInitDataBankLoad reads them on the host, defined in
+ * sysdolphin/baselib/psstructs.h.  They are the game's C types, so they are
+ * declared outside the namespace. */
+struct MeleeHostParticleCmdBank;
+struct MeleeHostParticleTexBank;
 
 namespace melee::assets {
 
@@ -84,6 +91,20 @@ struct MaterializedStageSelectData {
     HSD_FogDesc* fog;
     MaterializedStaticModel models[11];
     MaterializedStaticModel random_stage;
+};
+
+/* An effect archive's `eff*DataTable` in host layout.  It is laid out like
+ * EF_DAT_Entry, whose `data` is the address of the first effect, and each
+ * effect like EF_EffectDesc. */
+struct MaterializedEffectDesc {
+    f32 lifetime;
+    MaterializedStaticModel model;
+};
+
+struct MaterializedEffectTable {
+    MeleeHostParticleCmdBank* command_bank;
+    MeleeHostParticleTexBank* texture_bank;
+    MaterializedEffectDesc effects[1];
 };
 
 /*
@@ -176,6 +197,17 @@ public:
     [[nodiscard]] MaterializedStageSelectData*
     stage_select_data(std::string_view public_symbol);
 
+    /* An effect archive's table: its two particle banks, both NULL when the
+     * archive has no particles, then the effects efLib_Create indexes. */
+    [[nodiscard]] MaterializedEffectTable*
+    effect_data_table(std::string_view public_symbol);
+    /* A stage's `map_ptcl` and `map_texg`: the same banks, named on their
+     * own. */
+    [[nodiscard]] MeleeHostParticleCmdBank*
+    particle_command_bank(std::string_view public_symbol);
+    [[nodiscard]] MeleeHostParticleTexBank*
+    particle_texture_bank(std::string_view public_symbol);
+
     /* An image and optional palette drawn as a screen sprite. */
     [[nodiscard]] HSD_SObjDesc* sobj_desc(std::string_view public_symbol);
 
@@ -212,6 +244,10 @@ public:
 private:
     template <typename T> T* allocate();
     void* allocate_bytes(std::size_t size, std::size_t alignment);
+    /* A block owned by this archive but outside the descriptor arena, for
+     * data that is large and holds no joint, so that joints keep sharing the
+     * arena's upper 32 bits.  Zeroed, aligned to at most 32 bytes. */
+    void* allocate_outside_arena(std::size_t size, std::size_t alignment);
 
     [[nodiscard]] std::optional<HsdRuntimeNode>
     reference(HsdRuntimeNode node, std::uint32_t relative_offset) const;
@@ -231,6 +267,9 @@ private:
     HSD_RObjDesc* robj_chain(HsdRuntimeNode node);
     HSD_CObjDesc* camera_desc(HsdRuntimeNode node);
     HSD_FogDesc* fog_desc(HsdRuntimeNode node);
+    HSD_Spline* spline_desc(HsdRuntimeNode node);
+    MeleeHostParticleCmdBank* command_bank_at(HsdRuntimeNode bank);
+    MeleeHostParticleTexBank* texture_bank_at(HsdRuntimeNode bank);
     HSD_LightDesc* light_desc_chain(HsdRuntimeNode node);
     HSD_LightAnim* light_anim_chain(HsdRuntimeNode node);
     HSD_WObjAnim* world_anim(HsdRuntimeNode node);
@@ -271,6 +310,7 @@ private:
     std::byte* descriptors_ = nullptr;
     std::size_t descriptor_capacity_ = 0;
     std::size_t descriptor_used_ = 0;
+    std::vector<std::byte*> outside_arena_;
     std::size_t depth_ = 0;
 
     std::unordered_map<std::uint32_t, HSD_Joint*> joints_;

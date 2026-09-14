@@ -16,15 +16,15 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | não integrada; a rota para na cena `GS_VS` | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração e efeitos e para nos dados de jogador | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 14/14 testes aprovados; 180/180 testes
+- `ctest --preset host-debug`: 14/14 testes aprovados; 182/182 testes
   unitários.
-- `ctest --preset host-sanitize -V`: 14/14 e 180/180, sem erro do ASan; a rota
-  VS leva 20,4 s. O UBSan só relata chamadas por ponteiro de função de outro
+- `ctest --preset host-sanitize -V`: 14/14 e 182/182, sem erro do ASan; a rota
+  VS leva 19,8 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -61,3 +61,4 @@ Battlefield ficam travados na SSS sem dados salvos.
 | 2026-09-13 | 42% | Toda a decomp de `src/melee` compila no host e está no core (808 arquivos, mais o sistema de partículas do baselib). As rotas existentes não mudaram; a luta pode ser ligada sem acrescentar fontes. `atan2f`, `acosf` e `asinf` passaram a ser as do jogo, no lugar das da glibc. |
 | 2026-09-13 | 45% | A cena de luta (`GS_VS`) liga sem símbolo indefinido (partículas, textura indireta e offsets de textura no GX do host). Com a cena na tabela, a rota entra na luta e para no primeiro dado sem tradutor, `lbRefData`. |
 | 2026-09-13 | 45% | `lbRefData` traduzido, com teste unitário. A entrada da luta passa pela refração e para nos efeitos: `effCommonDataTable` e os bancos de partícula, que relocam ponteiros de 32 bits no lugar e pedem um loader próprio do host. |
+| 2026-09-14 | 46% | Loader de partículas do host: `eff*DataTable` e `map_ptcl`/`map_texg` viram bancos já localizados em largura de ponteiro, com bytes de comando, texels e paletas verbatim; os 76 símbolos de partícula do disco traduzem. Joints de spline traduzidos. A entrada da luta passa pelos efeitos e para em `plLoadCommonData` (`PdPm.dat`). |

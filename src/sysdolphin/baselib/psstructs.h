@@ -80,8 +80,40 @@ typedef struct _HSD_PSCmdList {
     float param2; /* 0x34 */
     float param3; /* 0x38 */
 
+#ifdef MELEE_HOST
+    /* The host converts the header above and points here at the command
+     * bytes, which stay as they are in the archive. */
+    u8* cmdList;
+#else
     u8 cmdList[1]; /* 0x3C */
+#endif
 } HSD_PSCmdList;
+
+#ifdef MELEE_HOST
+/* A particle bank as the host builds it from an archive
+ * (port/src/assets/hsd_materialize.cpp).  On the console a bank is an array of
+ * 32-bit offsets that psInitDataBankLocate rewrites in place into addresses;
+ * the host translates it once into one of these, already located, with the
+ * command bytes, texels and palettes left verbatim. */
+#define MELEE_HOST_PARTICLE_CMD_BANK_MAGIC 0x50434D44U /* "PCMD" */
+#define MELEE_HOST_PARTICLE_TEX_BANK_MAGIC 0x50544558U /* "PTEX" */
+
+typedef struct MeleeHostParticleCmdBank {
+    u32 magic;
+    /* What psCmdListArray holds for the bank: one past its last list ID. */
+    s32 list_end;
+    /* Indexed by list ID.  IDs below the bank's first one are NULL, which is
+     * where the console's table, shifted by the first ID, points before its
+     * start. */
+    HSD_PSCmdList** lists;
+} MeleeHostParticleCmdBank;
+
+typedef struct MeleeHostParticleTexBank {
+    u32 magic;
+    s32 group_count;
+    HSD_PSTexGroup** groups;
+} MeleeHostParticleTexBank;
+#endif
 
 enum PS_AppStatus {
     PS_APPSTATUS_ONCE = 1,

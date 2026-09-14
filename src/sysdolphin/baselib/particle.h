@@ -23,8 +23,16 @@ psGenerateParticle0(HSD_Particle** head, int linkNo, int bank, u32 kind,
                     u16 texGroup, u8* list, int life, int palflag, f32 x,
                     f32 y, f32 z, f32 vx, f32 vy, f32 vz, f32 size, f32 grav,
                     f32 fric, HSD_Generator* gp, int flgInterpret);
-/* 398F0C */ void hsd_80398F0C(s32, s32, s32, u16, s32, s32, s32, s32, f32,
-                               f32, f32, f32, f32, f32, f32, f32, f32);
+#ifdef MELEE_HOST
+/* hsd_80398F0C takes the command list and the generator as ints, which on the
+ * host would cut the addresses in half. */
+#define PS_POINTER_ARG intptr_t
+#else
+#define PS_POINTER_ARG s32
+#endif
+/* 398F0C */ void hsd_80398F0C(s32, s32, s32, u16, PS_POINTER_ARG, s32, s32,
+                               PS_POINTER_ARG, f32, f32, f32, f32, f32, f32,
+                               f32, f32, f32);
 /* 398F8C */ void hsd_80398F8C(HSD_Particle*, f32);
 /* 3991D8 */ s32 hsd_803991D8(HSD_Generator*, HSD_JObj*, f32, f32);
 /* 39930C */ void* hsd_8039930C(HSD_Particle*, HSD_Particle*);

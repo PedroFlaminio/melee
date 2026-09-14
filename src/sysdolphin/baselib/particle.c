@@ -120,10 +120,33 @@ void psInitDataBankLoad(int bank, const int* cmdBank, const int* texBank,
     u16 version;
 
 #ifdef MELEE_HOST
-    /* It stores the relocated banks' addresses in 32-bit tables; see
-     * psInitDataBankLocate. */
-    OSPanic(__FILE__, __LINE__,
-            "psInitDataBankLoad is not ported to the host yet");
+    /* The host hands in banks it built already located (psstructs.h), and
+     * takes the tables from them.  The count of texture groups the console
+     * keeps in psFormGroupArray is never read, so it is not kept. */
+    {
+        const MeleeHostParticleCmdBank* const commands =
+            (const MeleeHostParticleCmdBank*) cmdBank;
+        const MeleeHostParticleTexBank* const textures =
+            (const MeleeHostParticleTexBank*) texBank;
+
+        if (commands->magic != MELEE_HOST_PARTICLE_CMD_BANK_MAGIC ||
+            textures->magic != MELEE_HOST_PARTICLE_TEX_BANK_MAGIC)
+        {
+            OSPanic(__FILE__, __LINE__,
+                    "psInitDataBankLoad: the banks are not host banks");
+        }
+        if (ref != NULL || formBank != NULL) {
+            OSPanic(__FILE__, __LINE__,
+                    "psInitDataBankLoad: form banks and reference tables "
+                    "are not ported to the host yet");
+        }
+        hsd_804D0948[bank] = NULL;
+        psTexGroupArray[bank] = textures->groups;
+        psNumCmdList[bank] = NULL;
+        psCmdListArray[bank] = commands->list_end;
+        ptclref_804D0E5C[bank] = commands->lists;
+        return;
+    }
 #endif
     (void) hsd_804D0908;
 
@@ -177,11 +200,24 @@ void psInitDataBankLocate(HSD_Archive* cmdBank, HSD_Archive* texBank,
     s32 version;
 
 #ifdef MELEE_HOST
-    /* The banks hold 32-bit offsets that this rewrites in place into 32-bit
-     * addresses, and a host address does not fit.  An effect archive needs a
-     * host loader before any scene hands its banks here. */
-    OSPanic(__FILE__, __LINE__,
-            "psInitDataBankLocate is not ported to the host yet");
+    /* On disc the banks hold 32-bit offsets that this rewrites in place into
+     * 32-bit addresses, which a host address does not fit.  The host's archive
+     * API builds them already located instead, including the kind bits the
+     * second phase below sets, so there is nothing left to do but check. */
+    if (((MeleeHostParticleCmdBank*) cmdBank)->magic !=
+            MELEE_HOST_PARTICLE_CMD_BANK_MAGIC ||
+        ((MeleeHostParticleTexBank*) texBank)->magic !=
+            MELEE_HOST_PARTICLE_TEX_BANK_MAGIC)
+    {
+        OSPanic(__FILE__, __LINE__,
+                "psInitDataBankLocate: the banks are not host banks");
+    }
+    if (formBank != NULL) {
+        OSPanic(__FILE__, __LINE__,
+                "psInitDataBankLocate: form banks are not ported to the host "
+                "yet");
+    }
+    return;
 #endif
     version = *(u16*) cmdBank;
     if (version < 0x40) {
@@ -515,8 +551,9 @@ HSD_Particle* psGenerateParticle0(HSD_Particle** head, int linkNo, int bank,
 #pragma push
 #pragma dont_inline on
 #endif
-void hsd_80398F0C(s32 linkNo, s32 bank, s32 kind, u16 texGroup, s32 cmdList,
-                  s32 life, s32 zero, s32 gen, f32 pos_x, f32 pos_y, f32 pos_z,
+void hsd_80398F0C(s32 linkNo, s32 bank, s32 kind, u16 texGroup,
+                  PS_POINTER_ARG cmdList, s32 life, s32 zero,
+                  PS_POINTER_ARG gen, f32 pos_x, f32 pos_y, f32 pos_z,
                   f32 vel_x, f32 vel_y, f32 vel_z, f32 fric, f32 rate,
                   f32 angle3)
 {
@@ -644,10 +681,19 @@ s32 hsd_803991D8(HSD_Generator* gen, HSD_JObj* jobj, f32 force, f32 range)
 static inline void psReadFloat(u8** stream)
 {
     u8* p = *stream;
+#ifdef MELEE_HOST
+    /* The stream is big-endian and fval reads these four bytes as a native
+     * float, so the little-endian host stores them in reverse. */
+    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[3] = *p++;
+    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[2] = *p++;
+    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[1] = *p++;
+    ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[0] = *p++;
+#else
     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[0] = *p++;
     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[1] = *p++;
     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[2] = *p++;
     ((ParticleFloatBytes*) &hsd_804D78D0)->bytes[3] = *p++;
+#endif
     *stream = p;
 }
 

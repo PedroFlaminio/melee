@@ -136,7 +136,14 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `GXEnableTexOffsets` no host, a cena de luta liga sem símbolo indefinido.
 - Em andamento o passo (3). Com `GS_VS` na tabela (só local), a rota entra na
   luta. `lbRefData`, o primeiro dado que ela pede, já tem tradutor.
-- Próximo bloqueio: os efeitos. `efAsync_LoadSync(0)` carrega `EfCoData.dat`
+- Executado o loader de partículas (detalhes em `docs/native_port_status.md`).
+  A API de arquivo do host traduz `eff*DataTable` e `map_ptcl`/`map_texg` em
+  bancos já localizados, em largura de ponteiro, e `psInitDataBankLocate` e
+  `psInitDataBankLoad` tomam as tabelas deles. Os 36 arquivos de efeito e os
+  20 pares de banco de estágio do disco traduzem. Com `GS_VS` na tabela (só
+  local), a entrada da luta passa por `efAsync_LoadSync(0)` e `(0x1F)` e para
+  em `Player_80036DD8`, que pede `plLoadCommonData` a `PdPm.dat`.
+- Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console
   `psInitDataBankLocate` reloca os bancos no lugar com endereços de 32 bits e

@@ -5,6 +5,16 @@
 #include <melee_host/baselib.h>
 #include <melee_host/boot.h>
 #include <melee_host/hsd_archive.h>
+#include "hsd_include.hpp"
+MELEE_HOST_TEST_HSD_BEGIN
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wunused-function"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+#include <sysdolphin/baselib/particle.h>
+#include <sysdolphin/baselib/psstructs.h>
+MELEE_HOST_TEST_HSD_END
 
 MELEE_HOST_HSD_BEGIN
 #include <sysdolphin/baselib/archive.h>
@@ -658,6 +668,119 @@ TEST_CASE("the refraction table translates to a count and host floats")
             MELEE_HOST_OK);
 
     REQUIRE(melee_host_hsd_register_translator("lbRefData", nullptr) ==
+            MELEE_HOST_OK);
+}
+
+TEST_CASE("an effect table's particle banks load through the particle system")
+{
+    // The table points at a command bank and a texture bank and is followed
+    // by two effect records before the first bank.  Inside the banks every
+    // offset is bank-relative, not an archive relocation.
+    ArchiveBuilder builder(0x100);
+    builder.pointer(0x00, 0x40);
+    builder.pointer(0x04, 0xC0);
+    builder.f32(0x08, 7.5F);
+    // Command bank: version 0x42, list IDs from 100, one list at +0x10.
+    builder.u32(0x40, 0x00420000U);
+    builder.u32(0x44, 100);
+    builder.u32(0x48, 1);
+    builder.u32(0x4C, 0x10);
+    builder.u16(0x50, 1);
+    builder.u16(0x52, 0);
+    builder.u16(0x54, 2);
+    builder.u16(0x56, 3);
+    builder.u32(0x58, 0x06000001U);
+    builder.f32(0x5C, 0.5F);
+    builder.f32(0x88, 9.0F);
+    builder.u8(0x8C, 0xAB);
+    // Texture bank: one I8 group at +0x08 with its image at +0x30.
+    builder.u32(0xC0, 1);
+    builder.u32(0xC4, 0x08);
+    builder.u32(0xC8, 1);
+    builder.u32(0xCC, 1);
+    builder.u32(0xD4, 4);
+    builder.u32(0xD8, 4);
+    builder.u32(0xE0, 0x30);
+    builder.u8(0xF0, 0x5A);
+    builder.public_symbol(0x00, "effTestDataTable");
+    std::vector<std::byte> bytes = builder.build();
+
+    struct HostEffectDesc {
+        float lifetime;
+        void* model[4];
+    };
+    struct HostEffectTable {
+        MeleeHostParticleCmdBank* commands;
+        MeleeHostParticleTexBank* textures;
+        HostEffectDesc effects[2];
+    };
+
+    REQUIRE(melee_host_hsd_symbol_kind("effTestDataTable") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const table = static_cast<HostEffectTable*>(
+        HSD_ArchiveGetPublicAddress(&archive, "effTestDataTable"));
+    REQUIRE(table != nullptr);
+
+    MeleeHostParticleCmdBank* const commands = table->commands;
+    REQUIRE(commands != nullptr);
+    REQUIRE(commands->magic == MELEE_HOST_PARTICLE_CMD_BANK_MAGIC);
+    REQUIRE(commands->list_end == 101);
+    REQUIRE(commands->lists[99] == nullptr);
+    HSD_PSCmdList* const list = commands->lists[100];
+    REQUIRE(list != nullptr);
+    REQUIRE(list->type == 1);
+    REQUIRE(list->genLife == 2);
+    REQUIRE(list->life == 3);
+    // psInitDataBankLocate clears bits 0x0E000000 and sets 0x08000000.
+    REQUIRE(list->kind == 0x08000001U);
+    REQUIRE(list->grav == 0.5F);
+    REQUIRE(list->param3 == 9.0F);
+    REQUIRE(list->cmdList[0] == 0xAB);
+
+    MeleeHostParticleTexBank* const textures = table->textures;
+    REQUIRE(textures != nullptr);
+    REQUIRE(textures->magic == MELEE_HOST_PARTICLE_TEX_BANK_MAGIC);
+    REQUIRE(textures->group_count == 1);
+    HSD_PSTexGroup* const group = textures->groups[0];
+    REQUIRE(group != nullptr);
+    REQUIRE(group->num == 1);
+    REQUIRE(group->fmt == 1);
+    REQUIRE(group->width == 4);
+    REQUIRE(group->texTable[0] != nullptr);
+    REQUIRE(group->texTable[0][0] == 0x5A);
+
+    REQUIRE(table->effects[0].lifetime == 7.5F);
+    REQUIRE(table->effects[1].lifetime == 0.0F);
+    REQUIRE(table->effects[0].model[0] == nullptr);
+
+    // The particle system takes the tables from the host banks.
+    psInitDataBank(7, static_cast<int*>(static_cast<void*>(commands)),
+                   static_cast<int*>(static_cast<void*>(textures)), nullptr,
+                   nullptr);
+    REQUIRE(psCmdListArray[7] == 101);
+    REQUIRE(ptclref_804D0E5C[7][100] == list);
+    REQUIRE(psTexGroupArray[7][0] == group);
+    psCmdListArray[7] = 0;
+    ptclref_804D0E5C[7] = nullptr;
+    psTexGroupArray[7] = nullptr;
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A table with one bank and not the other is refused.
+    ArchiveBuilder lopsided(0x100);
+    lopsided.pointer(0x00, 0x40);
+    lopsided.u32(0x40, 0x00420000U);
+    lopsided.public_symbol(0x00, "effTestDataTable");
+    std::vector<std::byte> lopsided_bytes = lopsided.build();
+    HSD_Archive lopsided_archive{};
+    REQUIRE(HSD_ArchiveParse(&lopsided_archive, bytes_of(lopsided_bytes),
+                             lopsided_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&lopsided_archive,
+                                        "effTestDataTable") == nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("one particle bank") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(lopsided_bytes.data()) ==
             MELEE_HOST_OK);
 }
 

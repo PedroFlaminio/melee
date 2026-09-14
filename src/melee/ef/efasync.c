@@ -1287,7 +1287,13 @@ void efAsync_OnLoad(HSD_Archive* archive, u8* data, u32 length, int index)
     lbArchive_InitializeDAT(archive, data, length);
     result = HSD_ArchiveGetPublicAddress(
         archive, efAsync_DatEntries[index].effDataTable_name);
+#ifdef MELEE_HOST
+    /* The console tests the low halves of the two bank pointers; the host
+     * tests the pointers. */
+    if (result->ef_DAT_file != NULL || result->effDataTable_name != NULL) {
+#else
     if ((u32) result->ef_DAT_file | (u32) result->effDataTable_name) {
+#endif
         psInitDataBankLocate((HSD_Archive*) result->ef_DAT_file,
                              (HSD_Archive*) result->effDataTable_name, NULL);
     }
@@ -1318,7 +1324,11 @@ void efAsync_LoadSync(int idx)
     {
         bool chk = lbArchive_80017040(NULL, lookup->ef_DAT_file, &spC,
                                       lookup->effDataTable_name, 0);
+#ifdef MELEE_HOST
+        if (spC->ef_DAT_file != NULL || spC->effDataTable_name != NULL) {
+#else
         if ((u32) spC->ef_DAT_file | (u32) spC->effDataTable_name) {
+#endif
             if (chk) {
                 psInitDataBankLoad(idx, (void*) spC->ef_DAT_file,
                                    (void*) spC->effDataTable_name, NULL, NULL);

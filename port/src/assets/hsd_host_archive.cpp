@@ -129,6 +129,15 @@ void refuse(std::string_view symbol, std::string_view reason)
              state.last_error.c_str());
 }
 
+/* efAsync_DatEntries names each effect archive's table `eff<Name>DataTable`. */
+bool is_effect_data_table(std::string_view name)
+{
+    constexpr std::string_view kPrefix = "eff";
+    constexpr std::string_view kSuffix = "DataTable";
+    return name.size() > kPrefix.size() + kSuffix.size() &&
+           name.starts_with(kPrefix) && name.ends_with(kSuffix);
+}
+
 void* translate_game_data(HsdMaterializedArchive& descriptors,
                           std::string_view symbol)
 {
@@ -137,6 +146,17 @@ void* translate_game_data(HsdMaterializedArchive& descriptors,
     }
     if (symbol == "MnSelectStageDataTable") {
         return descriptors.stage_select_data(symbol);
+    }
+    if (is_effect_data_table(symbol)) {
+        return descriptors.effect_data_table(symbol);
+    }
+    /* A stage's own particle banks, which grDatFiles hands to the particle
+     * system as they are. */
+    if (symbol == "map_ptcl") {
+        return descriptors.particle_command_bank(symbol);
+    }
+    if (symbol == "map_texg") {
+        return descriptors.particle_texture_bank(symbol);
     }
     const auto& translators = registry().translators;
     const auto found = translators.find(std::string(symbol));
@@ -202,7 +222,10 @@ extern "C" MeleeHostHsdSymbolKind melee_host_hsd_symbol_kind(const char* symbol)
     if (registry().translators.contains(std::string(name))) {
         return MELEE_HOST_HSD_SYMBOL_GAME_DATA;
     }
-    if (name == "MnSelectChrDataTable" || name == "MnSelectStageDataTable") {
+    if (name == "MnSelectChrDataTable" || name == "MnSelectStageDataTable" ||
+        is_effect_data_table(name) || name == "map_ptcl" ||
+        name == "map_texg")
+    {
         return MELEE_HOST_HSD_SYMBOL_GAME_DATA;
     }
     /* Symbols the game names without a kind suffix. */

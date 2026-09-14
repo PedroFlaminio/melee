@@ -3,6 +3,18 @@
 #include <melee_host/gx.h>
 #include <melee_host/memory.h>
 
+/* psstructs.h also declares static inline helpers that only particle.c
+ * defines. */
+MELEE_HOST_HSD_BEGIN
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wunused-function"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+#include <sysdolphin/baselib/psstructs.h>
+#include <sysdolphin/baselib/spline.h>
+MELEE_HOST_HSD_END
+
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -458,6 +470,9 @@ HsdMaterializedArchive::HsdMaterializedArchive(
 HsdMaterializedArchive::~HsdMaterializedArchive()
 {
     melee_host_gx_unregister_array_region(payload_);
+    for (std::byte* const block : outside_arena_) {
+        melee_host_aligned_free(block, kDisplayListBlock);
+    }
     melee_host_aligned_free(descriptors_, kDisplayListBlock);
     melee_host_aligned_free(payload_, kDisplayListBlock);
 }
@@ -515,6 +530,24 @@ void* HsdMaterializedArchive::allocate_bytes(std::size_t size,
     descriptor_used_ += size;
     stats_.descriptor_bytes = descriptor_used_;
     return result;
+}
+
+void* HsdMaterializedArchive::allocate_outside_arena(std::size_t size,
+                                                     std::size_t alignment)
+{
+    if (alignment > kDisplayListBlock || size == 0) {
+        throw HsdArchiveError("HSD block outside the arena has a bad shape");
+    }
+    outside_arena_.reserve(outside_arena_.size() + 1);
+    auto* const block = static_cast<std::byte*>(
+        melee_host_aligned_alloc(size, kDisplayListBlock));
+    if (block == nullptr) {
+        throw HsdArchiveError("HSD block outside the arena could not be "
+                              "allocated");
+    }
+    std::memset(block, 0, size);
+    outside_arena_.push_back(block);
+    return block;
 }
 
 template <typename T> T* HsdMaterializedArchive::allocate()
@@ -1463,6 +1496,22 @@ HSD_LightAnim* HsdMaterializedArchive::light_anim_chain(HsdRuntimeNode node)
                 reference(*current, light_anim_field::kInterestAnim)) {
             host->interest_anim = world_anim(*interest);
         }
+        /* An animation that follows a joint names it by its ID-table key.
+         * The console loads a joint that is not in the table yet from the
+         * address the key is; the host cannot, and a light is loaded apart
+         * from the joint tree it would follow (TyLight.dat's trophy lights
+         * follow a spline joint this way). */
+        const auto follows_joint = [](const HSD_AObjDesc* aobj) {
+            return aobj != nullptr && aobj->obj_id != 0;
+        };
+        if (follows_joint(host->aobjdesc) ||
+            (host->position_anim != nullptr &&
+             follows_joint(host->position_anim->aobjdesc)) ||
+            (host->interest_anim != nullptr &&
+             follows_joint(host->interest_anim->aobjdesc)))
+        {
+            unsupported("a light animation that follows a joint");
+        }
         if (tail != nullptr) {
             tail->next = host;
         } else {
@@ -1616,6 +1665,323 @@ HsdMaterializedArchive::stage_select_data(std::string_view public_symbol)
                           static_cast<std::uint32_t>(0x10 + index * 0x10));
     }
     materialize_model(&host->random_stage, 0xC0);
+    return host;
+}
+
+/* A spline a joint follows (JOBJ_SPLINE): its type, control point count and
+ * tension, the control points, the arc length of each segment and, for the
+ * curved types, a quartic per segment whose square root splArcLength*
+ * integrates.  spline.c reads `numcv` control points for a polyline, one
+ * start point plus three per segment for a Bezier, and two more than `numcv`
+ * for the B-spline and cardinal forms, whose segments read four points
+ * starting at their index. */
+HSD_Spline* HsdMaterializedArchive::spline_desc(HsdRuntimeNode node)
+{
+    constexpr std::int32_t kMaxControlPoints = 0x4000;
+    auto* const host = allocate<HSD_Spline>();
+    const std::uint32_t type = archive_.read_u32(node, 0x00) >> 24U;
+    const auto count =
+        static_cast<std::int16_t>(archive_.read_u16(node, 0x02));
+    if (type > 3) {
+        throw HsdArchiveError("HSD spline at data+0x" +
+                              hex_string(node.data_offset) + " has type " +
+                              std::to_string(type));
+    }
+    if (count < 1 || count > kMaxControlPoints) {
+        throw HsdArchiveError("HSD spline at data+0x" +
+                              hex_string(node.data_offset) + " has " +
+                              std::to_string(count) + " control points");
+    }
+    host->type = static_cast<u8>(type);
+    host->numcv = count;
+    host->tension = archive_.read_f32(node, 0x04);
+    host->totalLength = archive_.read_f32(node, 0x0C);
+
+    const auto segments = static_cast<std::uint32_t>(count - 1);
+    const std::uint32_t control_points =
+        type == 0 ? static_cast<std::uint32_t>(count)
+        : type == 1 ? segments * 3 + 1
+                    : static_cast<std::uint32_t>(count) + 2;
+    if (const auto points = reference(node, 0x08)) {
+        auto* const cv = static_cast<Vec3*>(
+            allocate_bytes(sizeof(Vec3) * control_points, alignof(Vec3)));
+        for (std::uint32_t index = 0; index < control_points; ++index) {
+            read_vec3(*points, index * 12, &cv[index]);
+        }
+        host->cv = cv;
+    }
+    if (const auto lengths = reference(node, 0x10)) {
+        auto* const segment_length = static_cast<f32*>(allocate_bytes(
+            sizeof(f32) * static_cast<std::size_t>(count), alignof(f32)));
+        for (std::int32_t index = 0; index < count; ++index) {
+            segment_length[index] = archive_.read_f32(
+                *lengths, static_cast<std::uint32_t>(index) * 4);
+        }
+        host->segLength = segment_length;
+    }
+    if (const auto polynomials = reference(node, 0x14)) {
+        const std::size_t rows = std::max<std::uint32_t>(segments, 1);
+        auto* const poly = static_cast<f32 (*)[5]>(
+            allocate_bytes(sizeof(f32[5]) * rows, alignof(f32)));
+        for (std::uint32_t row = 0; row < segments; ++row) {
+            for (std::uint32_t column = 0; column < 5; ++column) {
+                poly[row][column] =
+                    archive_.read_f32(*polynomials, (row * 5 + column) * 4);
+            }
+        }
+        host->segPoly = poly;
+    }
+    return host;
+}
+
+namespace {
+
+/* Bank-relative offsets are not archive relocations: psInitDataBankLocate
+ * adds the bank's address to them.  The node they name is checked against the
+ * data section when it is read. */
+HsdRuntimeNode bank_relative(HsdRuntimeNode bank, std::uint32_t offset)
+{
+    if (offset > std::numeric_limits<std::uint32_t>::max() - bank.data_offset) {
+        throw HsdArchiveError("particle bank offset 0x" + hex_string(offset) +
+                              " runs past the address space");
+    }
+    return { bank.data_offset + offset };
+}
+
+/* List IDs are the effect numbers the game spawns by (Fox's start at 3000,
+ * Roy's through Kirby's copies near 49000); the host sizes its table by the
+ * largest, and refuses anything far beyond what the disc holds. */
+constexpr std::int32_t kMaxParticleListEnd = 0x10000;
+constexpr std::int32_t kMaxParticleTextureGroups = 0x1000;
+
+} // namespace
+
+/* A command bank: a version word, the first list ID, the list count and one
+ * bank-relative offset per list.  Every bank on disc is version 0x42.  Each
+ * list's header is converted, its kind gets the bits psInitDataBankLocate
+ * sets, and its command bytes stay verbatim: the interpreter reads them byte
+ * by byte, big-endian. */
+MeleeHostParticleCmdBank*
+HsdMaterializedArchive::command_bank_at(HsdRuntimeNode bank)
+{
+    const std::uint16_t version = archive_.read_u16(bank, 0);
+    if (version < 0x40 || version > 0x43) {
+        throw HsdArchiveError("particle command bank version 0x" +
+                              hex_string(version) + " is not ported");
+    }
+    const auto first = static_cast<std::int32_t>(archive_.read_u32(bank, 4));
+    const auto count = static_cast<std::int32_t>(archive_.read_u32(bank, 8));
+    if (first < 0 || count < 0 || count > kMaxParticleListEnd ||
+        first > kMaxParticleListEnd - count)
+    {
+        throw HsdArchiveError("particle command bank lists " +
+                              std::to_string(first) + " to " +
+                              std::to_string(first + count) +
+                              " are out of range");
+    }
+
+    auto* const host = allocate<MeleeHostParticleCmdBank>();
+    host->magic = MELEE_HOST_PARTICLE_CMD_BANK_MAGIC;
+    host->list_end = first + count;
+    /* Indexed by list ID, so a bank that starts at 49000 needs 49000 empty
+     * slots first: far more than the arena budgets for a small archive. */
+    const auto slots = static_cast<std::size_t>(std::max(host->list_end, 1));
+    host->lists = static_cast<HSD_PSCmdList**>(allocate_outside_arena(
+        sizeof(HSD_PSCmdList*) * slots, alignof(HSD_PSCmdList*)));
+    for (std::int32_t index = 0; index < count; ++index) {
+        const std::uint32_t offset = archive_.read_u32(
+            bank, 12 + static_cast<std::uint32_t>(index) * 4);
+        if (offset == 0) {
+            continue;
+        }
+        const HsdRuntimeNode node = bank_relative(bank, offset);
+        auto* const list = allocate<HSD_PSCmdList>();
+        list->type = archive_.read_u16(node, 0x00);
+        list->texGroup = archive_.read_u16(node, 0x02);
+        list->genLife = archive_.read_u16(node, 0x04);
+        list->life = archive_.read_u16(node, 0x06);
+        list->kind = (archive_.read_u32(node, 0x08) & 0xF1FFFFFFU) | 0x08000000U;
+        list->grav = archive_.read_f32(node, 0x0C);
+        list->fric = archive_.read_f32(node, 0x10);
+        list->vx = archive_.read_f32(node, 0x14);
+        list->vy = archive_.read_f32(node, 0x18);
+        list->vz = archive_.read_f32(node, 0x1C);
+        list->radius = archive_.read_f32(node, 0x20);
+        list->angle = archive_.read_f32(node, 0x24);
+        list->random = archive_.read_f32(node, 0x28);
+        list->size = archive_.read_f32(node, 0x2C);
+        list->param1 = archive_.read_f32(node, 0x30);
+        list->param2 = archive_.read_f32(node, 0x34);
+        list->param3 = archive_.read_f32(node, 0x38);
+        list->cmdList =
+            static_cast<u8*>(payload(bank_relative(node, 0x3C), 1));
+        host->lists[first + index] = list;
+    }
+    return host;
+}
+
+/* A texture bank: a group count and one bank-relative offset per group.  A
+ * group's scalars are converted and its table, which lists the group's images
+ * and then its palettes, becomes addresses into the verbatim payload, where
+ * the GX decoders read texels and palettes big-endian.  Only the palette
+ * formats carry palettes: one when bit 0 of palflag is set, else `palnum`, or
+ * one per image when that is zero, as psInitDataBankLocate counts them. */
+MeleeHostParticleTexBank*
+HsdMaterializedArchive::texture_bank_at(HsdRuntimeNode bank)
+{
+    const auto count = static_cast<std::int32_t>(archive_.read_u32(bank, 0));
+    if (count < 0 || count > kMaxParticleTextureGroups) {
+        throw HsdArchiveError("particle texture bank has " +
+                              std::to_string(count) + " groups");
+    }
+    auto* const host = allocate<MeleeHostParticleTexBank>();
+    host->magic = MELEE_HOST_PARTICLE_TEX_BANK_MAGIC;
+    host->group_count = count;
+    const auto groups = static_cast<std::size_t>(std::max(count, 1));
+    host->groups = static_cast<HSD_PSTexGroup**>(allocate_bytes(
+        sizeof(HSD_PSTexGroup*) * groups, alignof(HSD_PSTexGroup*)));
+    for (std::size_t group = 0; group < groups; ++group) {
+        host->groups[group] = nullptr;
+    }
+    for (std::int32_t index = 0; index < count; ++index) {
+        const std::uint32_t offset = archive_.read_u32(
+            bank, 4 + static_cast<std::uint32_t>(index) * 4);
+        if (offset == 0) {
+            continue;
+        }
+        const HsdRuntimeNode node = bank_relative(bank, offset);
+        const std::uint32_t images = archive_.read_u32(node, 0x00);
+        const std::uint32_t format = archive_.read_u32(node, 0x04);
+        const std::uint16_t palette_count = archive_.read_u16(node, 0x14);
+        const std::uint16_t palette_flag = archive_.read_u16(node, 0x16);
+        std::uint32_t palettes = 0;
+        if (format == GX_TF_C4 || format == GX_TF_C8 || format == GX_TF_C14X2) {
+            palettes = (palette_flag & 1U) != 0U ? 1U
+                       : palette_count != 0U     ? palette_count
+                                                 : images;
+        }
+        if (images > 0x10000 || palettes > 0x10000) {
+            throw HsdArchiveError("particle texture group at data+0x" +
+                                  hex_string(node.data_offset) +
+                                  " lists too many images");
+        }
+        const std::size_t entries =
+            std::max<std::size_t>(images + palettes, 1);
+        auto* const group = static_cast<HSD_PSTexGroup*>(allocate_bytes(
+            offsetof(HSD_PSTexGroup, texTable) + sizeof(u8*) * entries,
+            alignof(HSD_PSTexGroup)));
+        group->num = images;
+        group->fmt = format;
+        group->tlutfmt = archive_.read_u32(node, 0x08);
+        group->width = archive_.read_u32(node, 0x0C);
+        group->height = archive_.read_u32(node, 0x10);
+        group->palnum = palette_count;
+        group->palflag = palette_flag;
+        /* An entry the bank does not cover stays NULL.  EfKbSs.dat's first
+         * group is C8 with no palette count and no palette flag, so its
+         * palette would be the word after its image offset, but that word
+         * holds 0x80A8812A, which psInitDataBankLocate would turn into an
+         * address nowhere near the bank. */
+        u8** const table = group->texTable;
+        for (std::size_t entry = 0; entry < entries; ++entry) {
+            const std::uint32_t texel_offset = entry < images + palettes
+                ? archive_.read_u32(node, 0x18 + static_cast<std::uint32_t>(entry) * 4)
+                : 0;
+            const bool inside =
+                texel_offset != 0 &&
+                texel_offset <= std::numeric_limits<std::uint32_t>::max() -
+                                    bank.data_offset &&
+                std::size_t{ bank.data_offset } + texel_offset < payload_size_;
+            table[entry] = inside
+                ? static_cast<u8*>(payload(bank_relative(bank, texel_offset), 1))
+                : nullptr;
+        }
+        host->groups[index] = group;
+    }
+    return host;
+}
+
+MeleeHostParticleCmdBank*
+HsdMaterializedArchive::particle_command_bank(std::string_view public_symbol)
+{
+    return command_bank_at(archive_.public_root(public_symbol));
+}
+
+MeleeHostParticleTexBank*
+HsdMaterializedArchive::particle_texture_bank(std::string_view public_symbol)
+{
+    return texture_bank_at(archive_.public_root(public_symbol));
+}
+
+/* The table keeps no count of its effects.  They run from +0x8 in 0x14-byte
+ * records until the first address the table, its banks or an earlier record
+ * point at, which follows the table in every archive on disc, or until a
+ * record holds a model field that is neither relocated nor NULL. */
+MaterializedEffectTable*
+HsdMaterializedArchive::effect_data_table(std::string_view public_symbol)
+{
+    constexpr std::uint32_t kFirstEffect = 0x08;
+    constexpr std::uint32_t kEffectSize = 0x14;
+    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    const auto commands = reference(table, 0x00);
+    const auto textures = reference(table, 0x04);
+    if (commands.has_value() != textures.has_value()) {
+        throw HsdArchiveError("the effect table has only one particle bank");
+    }
+
+    std::uint64_t end = payload_size_;
+    if (commands.has_value()) {
+        end = std::min<std::uint64_t>(
+            end, std::min(commands->data_offset, textures->data_offset));
+    }
+    std::size_t count = 0;
+    for (std::uint64_t at = std::uint64_t{ table.data_offset } + kFirstEffect;
+         at + kEffectSize <= end; at += kEffectSize)
+    {
+        const HsdRuntimeNode record{ static_cast<std::uint32_t>(at) };
+        bool models = true;
+        for (std::uint32_t field = 0x04; field < kEffectSize; field += 4) {
+            if (archive_.has_reference_at(record, field)) {
+                end = std::min<std::uint64_t>(
+                    end, archive_.reference_at(record, field).data_offset);
+            } else if (archive_.read_u32(record, field) != 0) {
+                models = false;
+                break;
+            }
+        }
+        if (!models || at + kEffectSize > end) {
+            break;
+        }
+        ++count;
+    }
+
+    auto* const host = static_cast<MaterializedEffectTable*>(allocate_bytes(
+        offsetof(MaterializedEffectTable, effects) +
+            sizeof(MaterializedEffectDesc) * std::max<std::size_t>(count, 1),
+        alignof(MaterializedEffectTable)));
+    host->command_bank = commands.has_value() ? command_bank_at(*commands) : nullptr;
+    host->texture_bank = textures.has_value() ? texture_bank_at(*textures) : nullptr;
+    const MaterializedEffectDesc* const effects = host->effects;
+    for (std::size_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode record{ table.data_offset + kFirstEffect +
+                                     static_cast<std::uint32_t>(index) *
+                                         kEffectSize };
+        auto* const effect = const_cast<MaterializedEffectDesc*>(effects + index);
+        effect->lifetime = archive_.read_f32(record, 0x00);
+        effect->model = MaterializedStaticModel{};
+        if (const auto node = reference(record, 0x04)) {
+            effect->model.joint = joint_chain(*node);
+        }
+        if (const auto node = reference(record, 0x08)) {
+            effect->model.animjoint = anim_joint_chain(*node);
+        }
+        if (const auto node = reference(record, 0x0C)) {
+            effect->model.matanim_joint = mat_anim_joint_chain(*node);
+        }
+        if (const auto node = reference(record, 0x10)) {
+            effect->model.shapeanim_joint = shape_anim_joint_chain(*node);
+        }
+    }
     return host;
 }
 
@@ -2231,8 +2597,8 @@ HSD_Joint* HsdMaterializedArchive::joint_chain(HsdRuntimeNode node)
         }
 
         if ((flags & JOBJ_SPLINE) != 0) {
-            if (reference(*current, joint_field::kUnion).has_value()) {
-                unsupported("a spline joint");
+            if (const auto spline = reference(*current, joint_field::kUnion)) {
+                host->u.spline = spline_desc(*spline);
             }
         } else if ((flags & JOBJ_PTCL) != 0) {
             if (reference(*current, joint_field::kUnion).has_value()) {

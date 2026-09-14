@@ -712,7 +712,7 @@ f32 hsd_8039DAD4(HSD_Generator* gen)
             /* Spawn particle */
             cur_angle = cos_az;
             hsd_80398F0C(gen->linkNo, gen->bank, gen->kind, gen->texGroup,
-                         (s32) gen->cmdList, gen->life, 0, (s32) gen,
+                         (PS_POINTER_ARG) gen->cmdList, gen->life, 0, (PS_POINTER_ARG) gen,
                          emit_pos.x, emit_pos.y, emit_pos.z, vec.x, vec.y,
                          vec.z, gen->size, gen->grav, gen->fric);
             break;
@@ -733,7 +733,7 @@ f32 hsd_8039DAD4(HSD_Generator* gen)
             PSMTXMultVec(rot_mtx, &vel_copy, &vec);
 
             hsd_80398F0C(gen->linkNo, gen->bank, gen->kind, gen->texGroup,
-                         (s32) gen->cmdList, gen->life, 0, (s32) gen,
+                         (PS_POINTER_ARG) gen->cmdList, gen->life, 0, (PS_POINTER_ARG) gen,
                          emit_pos.x, emit_pos.y, emit_pos.z, vec.x, vec.y,
                          vec.z, gen->size, gen->grav, gen->fric);
             break;
@@ -755,7 +755,7 @@ f32 hsd_8039DAD4(HSD_Generator* gen)
             }
             gen->aux.line.x2 = elevation;
             hsd_80398F0C(gen->linkNo, gen->bank, gen->kind | 4, gen->texGroup,
-                         (s32) gen->cmdList, gen->life, 0, (s32) gen, 0.0F,
+                         (PS_POINTER_ARG) gen->cmdList, gen->life, 0, (PS_POINTER_ARG) gen, 0.0F,
                          0.0F, 0.0F, cur_angle, sin_az, 0.0F, gen->size,
                          angle1, angle3);
             break;
@@ -872,7 +872,7 @@ f32 hsd_8039DAD4(HSD_Generator* gen)
             PSMTXMultVec(rot_mtx, &vec, &vec);
 
             hsd_80398F0C(gen->linkNo, gen->bank, gen->kind, gen->texGroup,
-                         (s32) gen->cmdList, gen->life, 0, (s32) gen,
+                         (PS_POINTER_ARG) gen->cmdList, gen->life, 0, (PS_POINTER_ARG) gen,
                          emit_pos.x, emit_pos.y, emit_pos.z, vec.x, vec.y,
                          vec.z, gen->size, gen->grav, gen->fric);
             break;
@@ -943,7 +943,7 @@ f32 hsd_8039DAD4(HSD_Generator* gen)
             emit_pos.z = sin_az * emit_pos.z + gen->pos.z;
 
             hsd_80398F0C(gen->linkNo, gen->bank, gen->kind, gen->texGroup,
-                         (s32) gen->cmdList, gen->life, 0, (s32) gen,
+                         (PS_POINTER_ARG) gen->cmdList, gen->life, 0, (PS_POINTER_ARG) gen,
                          emit_pos.x, emit_pos.y, emit_pos.z, vec.x, vec.y,
                          vec.z, gen->size, gen->grav, gen->fric);
             break;

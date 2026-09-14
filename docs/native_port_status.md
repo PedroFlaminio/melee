@@ -1114,6 +1114,63 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 181/181 e ctest 14/14; `host-sanitize` com
   181/181, ctest 14/14, rota VS em 20,0 s, nenhum erro do ASan e, do UBSan, os
   mesmos quatro relatos de chamada por ponteiro de funcao.
+- [x] Loader de particulas do host. No console `psInitDataBankLocate` reescreve
+  no lugar os offsets de 32 bits dos bancos em enderecos de 32 bits, e
+  `psInitDataBankLoad` monta tabelas de ponteiros para dentro deles. No host a
+  API de arquivo monta os bancos ja localizados, em largura de ponteiro
+  (`port/src/assets/hsd_materialize.cpp`):
+  - `eff*DataTable`, o nome que `efAsync_DatEntries` da a tabela de cada
+    arquivo de efeito, vira `MaterializedEffectTable`: os dois bancos e o vetor
+    de `EF_EffectDesc` no layout do host, que `efAsync_LoadSync` enxerga como
+    `EF_DAT_Entry` e cujo `data` e o primeiro efeito. A tabela nao grava
+    quantos efeitos tem; o vetor vai de `+0x8` em registros de 0x14 bytes ate
+    o primeiro endereco que a tabela, os bancos ou um registro anterior
+    apontam, que em todo arquivo do disco vem depois da tabela.
+  - O banco de comandos vira `MeleeHostParticleCmdBank` (`psstructs.h`): o
+    cabecalho de cada `HSD_PSCmdList` convertido, `kind` com os bits que a
+    segunda fase de `psInitDataBankLocate` poe, e `cmdList`, que no console e o
+    vetor embutido em `+0x3C`, como ponteiro para os bytes de comando
+    verbatim, que o interpretador le byte a byte em big-endian. A tabela e
+    indexada pelo ID da lista, e os IDs de um banco comecam no primeiro que ele
+    grava; por isso ela fica fora da arena de descritores.
+  - O banco de texturas vira `MeleeHostParticleTexBank`: os escalares de cada
+    `HSD_PSTexGroup` convertidos e a tabela de imagens e paletas como
+    enderecos no payload verbatim. Uma entrada que o banco nao cobre fica
+    NULL: o primeiro grupo de `EfKbSs.dat` e C8 sem contagem nem flag de
+    paleta, e a palavra que seria a paleta vale `0x80A8812A`.
+  - `map_ptcl` e `map_texg`, os bancos proprios de um estagio que
+    `grDatFiles` passa ao sistema de particulas, sao os mesmos dois bancos.
+- [x] Em `particle.c` sob `MELEE_HOST`: `psInitDataBankLocate` so confere a
+  assinatura dos bancos; `psInitDataBankLoad` toma deles as tabelas de
+  `psCmdListArray`, `ptclref_804D0E5C` e `psTexGroupArray` (a contagem de
+  texturas que o console guarda em meio ponteiro de `psFormGroupArray` nunca e
+  lida, e nao e guardada); bancos de formas e tabela de referencia param com
+  nome. `psReadFloat` monta o float na ordem do host. `hsd_80398F0C` recebia a
+  lista de comandos e o gerador como `s32`; no host `PS_POINTER_ARG` e
+  `intptr_t`. `efAsync_OnLoad` e `efAsync_LoadSync` testam os dois ponteiros
+  inteiros, e nao a metade baixa deles.
+- [x] Joints de spline traduzidos (`HSD_Spline`: tipo, pontos de controle na
+  contagem que `spline.c` le para cada tipo, comprimentos e polinomios). As
+  duas tabelas de luz de `TyLight.dat` que paravam no spline agora param um
+  passo depois, com nome: a animacao dessas luzes segue um joint pela chave da
+  tabela de IDs, que o host nao resolve.
+- [x] Conferido no disco: `--load-archive` de cada uma das 36 tabelas de
+  efeito e dos 20 pares `map_ptcl`/`map_texg` traduz os 76 simbolos. A
+  varredura segue com 861 arquivos, `game_data` 86/86 e as mesmas duas recusas
+  de `TyLight.dat`. Um teste unitario monta tabela, bancos e dois efeitos com o
+  `ArchiveBuilder` e confere o cabecalho, o `kind`, os bytes de comando, o
+  grupo de textura, o que `psInitDataBank` instala e a recusa de uma tabela com
+  um banco so.
+- [x] Matching contra `58f18f6a8`, token a token, com `-DMUST_MATCH` e sem
+  `MELEE_HOST`: `efasync.c`, `generator.c`, `particle.c`, `psdisp.c` e
+  `psappsrt.c` pre-processam identicos (`particle.h` e `psstructs.h` entram
+  por eles).
+- [x] Com `GS_VS` na tabela so localmente, a entrada da luta passa por
+  `efAsync_LoadSync(0)` e `(0x1F)` e para em `Player_80036DD8`, que pede
+  `plLoadCommonData` a `PdPm.dat` (assert de `lbarchive.c:87`).
+- [x] Medido sem a entrada: `host-debug` com 182/182 e ctest 14/14;
+  `host-sanitize` com 182/182, ctest 14/14, rota VS em 19,8 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
 
 ## Em andamento
 
@@ -1150,11 +1207,9 @@ Atualizado em 13 de setembro de 2026.
    (`gmVsMelee_EnterVs`, que monta o `StartMeleeData`) e o que a cena alcanca:
    lutadores (Fox), estagio (Hyrule Temple, `grshrine.c`), mapa de colisao, HUD
    e camera. O teste `melee-host-vs-selection-asset` ja entrega a selecao que
-   ela consome. So as chamadas diretas da entrada da cena caem em 15 modulos
-   fora do build, e os bancos de particula que ela carrega ainda param em
-   `psInitDataBankLocate`. Com `GS_VS` na tabela, a primeira onda de link tem
-   437 simbolos indefinidos em cerca de 75 arquivos, a maior parte do nucleo de
-   lutador; inventario e cuidados com o `host-sanitize` em
+   ela consome. A cena liga, e com `GS_VS` na tabela so localmente a entrada
+   passa pela refracao e pelos efeitos e para nos dados comuns de jogador
+   (`plLoadCommonData`); o roteiro e o historico das ondas de link estao em
    `docs/fight_flow_port.md`.
 2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
@@ -1213,11 +1268,11 @@ Atualizado em 13 de setembro de 2026.
   e a unidade que o jogo usa (um GObj por modelo). Uma cena de varios modelos
   precisa de uma chamada por indice.
 - O materializador de descritores recusa, com mensagem propria, o que ainda
-  nao sabe traduzir: joints de spline e de particula, descritor de render de
-  material (`HSD_MObjDesc.renderdesc`, cuja forma so o setup customizado
-  conhece) e restricoes RObj de expressao e de bytecode, que guardam endereco
-  de funcao do console. Nenhum dos 647 simbolos de cena e de joint do disco
-  bate nesses casos.
+  nao sabe traduzir: joints de particula, animacao de luz que segue um joint
+  pela chave da tabela de IDs (as duas tabelas de luz de `TyLight.dat`),
+  descritor de render de material (`HSD_MObjDesc.renderdesc`, cuja forma so o
+  setup customizado conhece) e restricoes RObj de expressao e de bytecode, que
+  guardam endereco de funcao do console. Os joints de spline ja traduzem.
 - Os descritores materializados sao validados campo a campo, mas os payloads
   GX entregues aos loaders originais sao ponteiros crus. Um array de vertice
   nao tem tamanho conhecido pelo descritor, entao so a base e verificada: a
@@ -1298,14 +1353,12 @@ Atualizado em 13 de setembro de 2026.
 - O modo VS do host nao tem CPU nem handicap conferidos: o roteiro so abre
   portas HMN. Os caminhos de regras, troca de nome e botoes de time da CSS
   alcancam paradas com nome em `unported.c`.
-- Os arquivos da demo do titulo carregam, mas nada os usa ainda. Parsear um
-  arquivo de efeito pre-carregado para com nome em `psInitDataBankLocate` ou
-  `psInitDataBankLoad` (`particle.c`): as particulas relocam os bancos no lugar
-  com offsets de 32 bits. `grDatFiles_801C5FC0`, que parseia o arquivo de
-  estagio, agora e o codigo original e ainda nao foi executado.
-- `efAsync_OnLoad` e `efAsync_LoadSync` testam nulo com `(u32) a | (u32) b`,
-  o que no host descarta a metade alta dos ponteiros. Nenhum dos dois roda
-  ainda.
+- Os arquivos da demo do titulo carregam, mas nada os usa ainda. Os bancos de
+  particula que eles trazem chegam ja localizados pela API de arquivo do host.
+  `particle.c` para com nome diante de um banco de formas ou de uma tabela de
+  referencia; os efeitos e os estagios passam os dois nulos.
+  `grDatFiles_801C5FC0`, que parseia o arquivo de estagio, agora e o codigo
+  original e ainda nao foi executado.
 - A ARQ do host nao modela as duas filas de prioridade nem a divisao em
   pedacos da SDK: tudo completa no passo seguinte, na ordem postada. Postar
   sem backend ativo para com nome.
