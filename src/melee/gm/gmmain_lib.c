@@ -613,41 +613,49 @@ s32 gmMainLib_8015D818(u32 arg0)
     return 0;
 }
 
+#ifdef MELEE_HOST
+/* Flag 31 of a word shifts 1 into the sign bit of an int, which C leaves
+ * undefined.  The host shifts an unsigned 1, which sets the same bit. */
+#define GMMAINLIB_FLAG(bit) 1U << (bit)
+#else
+#define GMMAINLIB_FLAG(bit) 1 << (bit)
+#endif
+
 void gmMainLib_8015D888(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B40[0];
-    thing[arg0 / 32] |= (1 << (arg0 % 32));
+    thing[arg0 / 32] |= (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 void gmMainLib_8015D8B0(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B40[0];
-    thing[arg0 / 32] &= ~(1 << (arg0 % 32));
+    thing[arg0 / 32] &= ~(GMMAINLIB_FLAG(arg0 % 32));
 }
 
 s32 gmMainLib_8015D8D8(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B40[0];
-    return thing[arg0 / 32] & (1 << (arg0 % 32));
+    return thing[arg0 / 32] & (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 void gmMainLib_8015D8FC(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B4C[0];
-    thing[arg0 / 32] |= (1 << (arg0 % 32));
+    thing[arg0 / 32] |= (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 void gmMainLib_8015D924(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B4C[0];
-    thing[arg0 / 32] &= ~(1 << (arg0 % 32));
+    thing[arg0 / 32] &= ~(GMMAINLIB_FLAG(arg0 % 32));
 }
 
 int gmMainLib_8015D94C(u32 arg0)
 {
     u32* thing = &gmMainLib_GetSaveData()->x1B4C[0];
     u32 flag = thing[arg0 / 32];
-    return flag & (1 << (arg0 % 32));
+    return flag & (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 u32* gmMainLib_8015D970(ssize_t idx)
@@ -678,44 +686,44 @@ bool gmMainLib_8015D984(u32 arg0)
 void gmMainLib_8015D9F4(u32 arg0)
 {
     s32* base = &gmMainLib_804D3EE0->unk_44;
-    base[arg0 / 32] |= (1 << (arg0 % 32));
+    base[arg0 / 32] |= (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 s32 gmMainLib_8015DA1C(u32 arg0)
 {
     s32* base = &gmMainLib_804D3EE0->unk_44;
-    return (1 << (arg0 % 32)) & base[arg0 / 32];
+    return (GMMAINLIB_FLAG(arg0 % 32)) & base[arg0 / 32];
 }
 
 void gmMainLib_8015DA40(u32 arg0)
 {
     u32* base = &gmMainLib_GetSaveData()->x1B58[0];
-    base[arg0 / 32] |= (1 << (arg0 % 32));
+    base[arg0 / 32] |= (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 void gmMainLib_8015DA68(u32 arg0)
 {
     u32* base = &gmMainLib_GetSaveData()->x1B58[0];
-    base[arg0 / 32] &= ~(1 << (arg0 % 32));
+    base[arg0 / 32] &= ~(GMMAINLIB_FLAG(arg0 % 32));
 }
 
 int gmMainLib_8015DA90(u32 arg0)
 {
     u32* base = &gmMainLib_GetSaveData()->x1B58[0];
     u32* qwe = &base[arg0 / 32];
-    return *qwe & (1 << (arg0 % 32));
+    return *qwe & (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 void gmMainLib_8015DAB4(u32 arg0)
 {
     u32* base = &gmMainLib_GetSaveData()->x1C88[0];
-    base[arg0 / 32] |= (1 << (arg0 % 32));
+    base[arg0 / 32] |= (GMMAINLIB_FLAG(arg0 % 32));
 }
 
 bool gmMainLib_8015DADC(u32 arg0)
 {
     u32* base = &gmMainLib_GetSaveData()->x1C88[0];
-    return (1 << (arg0 % 32)) & base[arg0 / 32];
+    return (GMMAINLIB_FLAG(arg0 % 32)) & base[arg0 / 32];
 }
 
 u8 gmMainLib_8015DB00(void)
@@ -1147,7 +1155,13 @@ void gmMainLib_8015F4BC(void)
 
 u32 gmMainLib_8015F4E8(void)
 {
+#ifdef MELEE_HOST
+    /* Port 5 of the four-entry rumble array is offset 0x15 of GamePrefs,
+     * which is the deflicker byte.  That is what the console returns. */
+    return gmMainLib_GetSaveData()->x1CB0.deflicker;
+#else
     return GetRumbleSettingOfPort(5);
+#endif
 }
 
 void gmMainLib_8015F4F4(u8 arg0)

@@ -1258,10 +1258,20 @@ static char efAsync_803C0248[] = "effEmblemDataTable";
 
 void efAsync_LoadAsync(int index)
 {
+#ifdef MELEE_HOST
+    /* The address of an entry outside the table is undefined behavior, and
+     * callers pass -1 as 255.  The host takes it after the range check. */
+    EF_DAT_Entry* entry;
+    if (index >= 50 || index < 0) {
+        return;
+    }
+    entry = &efAsync_DatEntries[index];
+#else
     EF_DAT_Entry* entry = &efAsync_DatEntries[index];
     if (index >= 50 || index < 0) {
         return;
     }
+#endif
 
     if (entry->ef_DAT_file == NULL) {
         return;
@@ -1287,11 +1297,18 @@ void efAsync_LoadSync(int idx)
 {
     EF_DAT_Entry* spC;
     EF_DAT_Entry* lookup;
+#ifdef MELEE_HOST
+    if (idx >= 50 || idx < 0) {
+        return;
+    }
+    lookup = &efAsync_DatEntries[idx];
+#else
     lookup = &efAsync_DatEntries[idx];
 
     if (idx >= 50 || idx < 0) {
         return;
     }
+#endif
     if (!lookup->ef_DAT_file) {
         return;
     }

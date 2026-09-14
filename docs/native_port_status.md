@@ -982,6 +982,43 @@ Atualizado em 13 de setembro de 2026.
   rota VS em 4,2 s; `host-sanitize` com 180/180 e ctest 14/14, a rota VS em
   20,4 s, nenhum erro do ASan e, do UBSan, so relatos de chamada por ponteiro de
   funcao de outro tipo (os dois de antes e dois que a CSS e a SSS alcancam).
+- [x] `host-sanitize` sem arquivos excluidos da instrumentacao. Os 30 arquivos
+  da decomp que compilavam sem sanitizers (jogadores, `ground.c`,
+  `lbarchive.c`, menus, `ftdata.c` e os arquivos de lutador, `efasync.c` e
+  outros) estavam fora porque os metadados de globais do ASan mantinham vivo,
+  apesar do `--gc-sections`, o grafo de modulos que eles citam e o host nao
+  compila. Duas opcoes resolvem: `-fsanitize-address-globals-dead-stripping`
+  poe a descricao de cada global numa secao ligada a do proprio global, e
+  `-Wl,-z,start-stop-gc` impede o GNU ld de manter toda secao que o runtime do
+  ASan encontra por `__start_asan_globals`. Com as duas, o link sanitizado
+  descarta o mesmo que o de debug, e todo modulo compilado e instrumentado.
+- [x] O que a instrumentacao desses arquivos encontrou, corrigido sob
+  `MELEE_HOST`:
+  - `fn_8022AFEC` (`mnmain.c`) guardava um JObj por opcao do menu num vetor de
+    4 na pilha; o menu principal tem 5 opcoes e o de opcoes 10. O ASan parava
+    as rotas do menu e da selecao VS com `stack-buffer-overflow`. No host o
+    vetor tem 10 entradas.
+  - `gmMainLib_8015F4E8` le a vibracao da porta 5 de um vetor de 4. No console
+    isso cai no byte `deflicker` de `GamePrefs` (+0x15), e o host o le pelo
+    nome.
+  - O bit 31 das palavras de flags de `gmmain_lib.c` deslocava 1 para o bit
+    de sinal de um `int`; o host desloca `1U`.
+  - `efAsync_LoadAsync` e `efAsync_LoadSync` tomavam o endereco da entrada
+    antes de conferir o indice, e sao chamadas com 255; o host confere antes.
+- [x] Matching dessas mudancas contra `1a36cb89d`, com `-DMUST_MATCH` e sem
+  `MELEE_HOST`: `mnmain.c` (13.710 linhas nao vazias), `gmmain_lib.c`
+  (10.887) e `efasync.c` (8.169) pre-processam identicos. Em `gmmain_lib.c` a
+  macro `GMMAINLIB_FLAG` expande, sem o define, para os mesmos tokens de antes.
+- [x] Medido: `host-debug` com 180/180 e ctest 14/14; `host-sanitize`, agora
+  sem excecoes, com 180/180, ctest 14/14, rota VS em 20,0 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
+- [x] Sondagem de compilacao do resto da decomp: dos 808 `.c` de `src/melee`
+  que o core nao lista, 741 passam em `-fsyntax-only` com as flags do core.
+  Das 67 falhas, 59 sao estagios cujo `on_demo_init` recebe `bool` onde
+  `StageData` declara `int`; as outras sao pontuais: escrita direta em
+  `GXWGFifo` (`gm_1832.c`), declaracoes que chegam ao PowerPC por outro caminho
+  (`OS_TIMER_CLOCK`, `OSSetProgressiveMode`, `OSPanic`), um callback de item
+  e tipos de callback em `grpstadium.c` e `grshrineroute.c`.
 
 ## Em andamento
 
@@ -1137,11 +1174,6 @@ Atualizado em 13 de setembro de 2026.
 - O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue),
   `lbArq_80014D2C` e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao e
   selecionado.
-- No build com sanitizers, `lbarchive.c`, `lbfile.c`, `gm_1601.c`,
-  `gmcameramode.c`, `gmmain_lib.c`, `gmopeningmode.c`, `lbaudio_ax.c`,
-  `mnmain.c`, `mnname.c` e `mnnamenew.c` compilam sem instrumentacao: a
-  instrumentacao mantem vivas referencias a menus, estagios e cartao que o
-  `--gc-sections` descartaria.
 - Nenhum efeito sonoro pode tocar: o host nao monta descritores de amostra, os
   fluxos de comando do `.sem` continuam big-endian e os nucleos de reverb e
   chorus param se o mixer os chamar. O carregador de SFX de `synth.c` precisa

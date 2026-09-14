@@ -118,12 +118,17 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   direto; e `gm_16A2.c`, `gm_17C0.c`, `gm_17EB.c` e `gmregclear.c`, que `gmvs.c`
   referencia para outros modos.
 - Como abrir as ondas sem quebrar o que já roda: meça com a entrada `GS_VS` só
-  localmente e commite ondas que compilam sem ela. Atenção ao `host-sanitize`:
-  a instrumentação mantém vivas as referências de todo módulo compilado, então
-  um módulo que entra no core sem seu fecho quebra o link sanitizado mesmo sem
-  ser chamado (foi o que aconteceu com `gmvsmelee.c` e `gm_80177724`). Cada
-  onda precisa fechar o link nos dois presets, com paradas com nome para o que
-  não está no caminho.
+  localmente e commite ondas que compilam sem ela. Desde que o `host-sanitize`
+  descarta no link o que nada chama (`-fsanitize-address-globals-dead-stripping`
+  e `-Wl,-z,start-stop-gc`), um módulo compilado e não chamado não muda o link
+  de nenhum dos dois presets, então dá para compilar o resto da decomp antes de
+  ligá-lo à cena. A sondagem de 13/09/2026 mostra que 741 dos 808 arquivos fora
+  do core já passam em `-fsyntax-only`.
+- Plano a partir daí: (1) corrigir as 67 falhas de compilação e pôr o resto de
+  `src/melee` no core, menos `gmscdata.c`, retirando de `unported.c` as paradas
+  que os módulos novos passam a definir; (2) com `GS_VS` na tabela, o que
+  continuar indefinido é SDK, MSL ou asm, a tratar caso a caso; (3) rodar a
+  rota até a luta e seguir os crashes.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

@@ -395,6 +395,14 @@ pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
   entrada extra sob `MELEE_HOST` com esses bytes reproduz o console, como na
   tabela de estagios da SSS; se o codigo atravessa objetos inteiros, junte-os
   numa definicao so, como em `toy.c`.
+- O `host-sanitize` descarta no link o mesmo que o `host-debug`, e todo
+  modulo compilado e instrumentado. Se um modulo que ninguem chama passar a
+  exigir simbolos so no build sanitizado, confira se
+  `-fsanitize-address-globals-dead-stripping` e `-Wl,-z,start-stop-gc`
+  continuam chegando ao compilador e ao linker: sem elas os metadados de
+  globais do ASan mantem vivo tudo o que o modulo cita. Nao volte a excluir
+  arquivos da instrumentacao; quando a lista de excecoes saiu, apareceram um
+  estouro de pilha e leituras fora de vetor que ela escondia.
 
 ## Carga de cena pela camada de objetos
 

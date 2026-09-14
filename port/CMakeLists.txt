@@ -77,7 +77,23 @@ function(melee_host_enable_sanitizers target)
                 -fsanitize=address,undefined
                 -fno-omit-frame-pointer
             )
+            if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+                # ASan describes every global in a table its module
+                # constructor registers, and that table would keep each
+                # global, and whatever the global points at, alive through
+                # --gc-sections.  With this each description sits in a
+                # section tied to its global's, so the linker drops both.
+                target_compile_options(${target} PRIVATE
+                    -fsanitize-address-globals-dead-stripping
+                )
+            endif()
             target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+            if(NOT APPLE)
+                # The ASan runtime finds those descriptions through
+                # __start_asan_globals, and GNU ld keeps every section a
+                # __start_ symbol names unless told otherwise.
+                target_link_options(${target} PRIVATE -Wl,-z,start-stop-gc)
+            endif()
         else()
             message(FATAL_ERROR "Sanitizers are not configured for this compiler")
         endif()
@@ -325,48 +341,6 @@ set_source_files_properties(
     PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wpedantic;-Wshadow"
 )
 melee_host_enable_sanitizers(melee_game_core)
-# The player bootstrap is a legacy translation unit with references to the
-# unported fighter and stage graph.  Sanitizer global metadata retains that
-# graph even when --gc-sections discards the functions.  Keep the host-facing
-# boundary instrumented while this island remains independently linked.
-if(MELEE_HOST_ENABLE_SANITIZERS)
-    set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/src/melee/pl/player.c
-        ${CMAKE_SOURCE_DIR}/src/melee/pl/plattack.c
-        ${CMAKE_SOURCE_DIR}/src/melee/pl/plbonus.c
-        ${CMAKE_SOURCE_DIR}/src/melee/pl/plstale.c
-        ${CMAKE_SOURCE_DIR}/src/melee/pl/pl_040D.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c
-        # Both refer to the unported preload cache in lbdvd.c.
-        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbarchive.c
-        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbfile.c
-        # The title screen's path reaches these, and each also names menus,
-        # stages or card code the host does not build yet.
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gm_1601.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmcameramode.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmain_lib.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmopeningmode.c
-        ${CMAKE_SOURCE_DIR}/src/melee/lb/lbaudio_ax.c
-        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnmain.c
-        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnname.c
-        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnnamenew.c
-        # Their tables name every fighter's callbacks and every effect.
-        ${CMAKE_SOURCE_DIR}/src/melee/ft/ftdata.c
-        ${MELEE_HOST_FIGHTER_DATA_SOURCES}
-        ${CMAKE_SOURCE_DIR}/src/melee/ef/efasync.c
-        # The main menu's mode and what it calls directly name event mode,
-        # home run, snapshots and the fighters' common code.
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmmenumode.c
-        ${CMAKE_SOURCE_DIR}/src/melee/mn/mngallery.c
-        ${CMAKE_SOURCE_DIR}/src/melee/mn/mnsnap.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmevent.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhowto.c
-        ${CMAKE_SOURCE_DIR}/src/melee/gm/gmhomerun.c
-        ${CMAKE_SOURCE_DIR}/src/melee/ft/ft_0C31.c
-        ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/hsd_3B5C.c
-        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address,undefined"
-    )
-endif()
 # ground.c's stage table names every stage.  Stages outside the build are weak
 # references, so their entries are NULL, which the game reads as a stage
 # without data.  Appended so the sanitizer options above are kept.

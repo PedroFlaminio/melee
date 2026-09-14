@@ -1204,7 +1204,14 @@ void fn_8022AFEC(HSD_GObj* gp)
     u8 state;
     u8 option_count;
     u8 pad[0x20];
+#ifdef MELEE_HOST
+    /* The loop below stores one joint per option of the menu, and a menu has
+     * up to 10.  On the console the writes past four land in the rest of the
+     * frame; the host gives them room. */
+    HSD_JObj* sp20[10];
+#else
     HSD_JObj* sp20[4];
+#endif
     PAD_STACK(18);
 
     var_r26 = 0;
