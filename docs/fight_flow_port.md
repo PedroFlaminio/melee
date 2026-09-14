@@ -356,12 +356,18 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   de `coll_data` eles pousam e a câmera fica no estágio. O pouso passou por
   dois pontos de host, em `lbanim.c` e `lb_020A.c`. Detalhes em
   `docs/native_port_status.md`.
-- Próximo bloqueio: os lutadores estão sobre o estágio pelas posições lidas no
-  gdb, mas não aparecem na imagem. Depois: ver os lutadores responderem ao
-  stick e aos botões, conferir a SSS (saía quase toda azul antes da correção
-  de paleta e não foi olhada depois) e os dados de estágio que faltam
-  (`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit`,
-  `quake_model_set`). A tela de resultados (`onExitVs`) continua fora.
+- Resolvido: os lutadores não eram desenhados porque `fighter.c` liga a flag
+  de desenho gravando `byte = 1` num union de `u8` com bit-fields
+  (`UnkFlagStruct`), e o MWCC e o GCC alocam esses bits em ordem contrária. O
+  host declara os bits invertidos.
+- Próximo bloqueio: os lutadores desenham como planos enormes de cor chapada
+  que tomam a tela. Os suspeitos ainda não medidos são a matriz que
+  `ftDrawCommon_8008051C` monta para `HSD_JObjDispAll` e as sombras (a captura
+  passou de 3 para 5 views). Depois: ver os lutadores responderem ao stick e
+  aos botões, conferir a SSS (saía quase toda azul antes da correção de paleta
+  e não foi olhada depois) e os dados de estágio que faltam (`itemdata`,
+  `ALDYakuAll`, `yakumono_param`, `map_plit`, `quake_model_set`). A tela de
+  resultados (`onExitVs`) continua fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

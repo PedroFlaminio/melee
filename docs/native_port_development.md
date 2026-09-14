@@ -357,6 +357,12 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   trilhas de translacao. No crash, leia as variaveis locais (`info locals` no
   gdb) antes de suspeitar dos dados: um ponteiro que aponta para dentro de uma
   funcao, como `HSD_AObjAlloc+81`, e sinal disso.
+- Um union de um escalar com bit-fields (`UnkFlagStruct`: `u8 byte` e
+  `b0`..`b7`) guarda cada bit numa posicao no console e noutra no host. Uma
+  escrita ou leitura pelo escalar com valor diferente de zero muda de sentido;
+  sob `MELEE_HOST`, declare os bits na ordem inversa, como nos scripts de
+  comando. O sintoma nao e crash, e uma flag que fica 0: foi o que impedia os
+  lutadores de serem desenhados. Zerar pelo escalar nao depende da ordem.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

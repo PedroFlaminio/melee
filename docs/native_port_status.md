@@ -1795,6 +1795,31 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 197/197, ctest 15/15 e o teste da luta em
   27,3 s; `host-sanitize` com 197/197, ctest 15/15, o teste da luta em
   124,6 s e nenhum erro do ASan.
+- [x] Os lutadores nao eram desenhados. Medido sob gdb: o callback de render
+  (`ftDrawCommon_80080E18`) roda 10 vezes por frame e as flags de ocultacao
+  valem 0, mas `ftDrawCommon_800805C8` sai antes do corpo quando
+  `x21FC_flag.b7` e 0, e era. `fighter.c:747` liga a flag com
+  `fp->x21FC_flag.byte = 1`. `UnkFlagStruct` e um union de um `u8` com oito
+  bit-fields: o MWCC aloca a partir do bit mais alto, entao no console `b0` e
+  0x80 e `b7` e 0x01; o GCC e o clang alocam a partir do mais baixo, entao no
+  host `byte = 1` ligava `b0`. Sob `MELEE_HOST` o union declara os bits na
+  ordem inversa. Vale para todos os usos do tipo (24 nos headers) e para as
+  outras 8 escritas por `.byte`, todas em menus de depuracao (`dbanim.c` e
+  `dbitem.c`). Sem o define, `fighter.c` pre-processa identico ao HEAD.
+  `throw_flags`, outro union de escalar com bit-fields em `ft/types.h`, so e
+  zerado pelo escalar, o que nao depende da ordem.
+- [x] Com a correcao, `b7` vale 1 nos dois lutadores e a captura mais que
+  dobra: 28.459 triangulos e 5 views no frame 560 (antes 13.329 e 3), 25.645
+  triangulos e 4 views no 640. Na imagem, porem, os lutadores saem como planos
+  enormes de cor chapada, em cores que lembram as do Fox (laranja, cinza e
+  verde-escuro), que tomam a tela e escondem o estagio. O HUD, o "Ready" e o
+  "Go!" continuam certos. A causa nao foi investigada.
+- [x] UBSan: tres pontos novos, das classes conhecidas: `1 << 31` em
+  `cobj.c:789` e `:794`, e chamada por ponteiro de funcao de outro tipo em
+  `dobj.c:302` (`ftMaterial_800BF2B8`). O ctest tem 24 pontos distintos.
+- [x] Medido: `host-debug` com 197/197, ctest 15/15 e o teste da luta em
+  56,6 s, o dobro com os lutadores desenhados; `host-sanitize` com 197/197,
+  ctest 15/15, o teste da luta em 260,0 s e nenhum erro do ASan.
 
 ## Em andamento
 

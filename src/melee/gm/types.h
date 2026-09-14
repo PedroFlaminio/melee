@@ -19,6 +19,25 @@
 #include <melee/mn/types.h>
 
 /// @deprecated Replace with inline bitfields
+#ifdef MELEE_HOST
+/* MWCC allocates bit-fields from the most significant bit, so on the console
+ * b0 is 0x80 and b7 is 0x01, and code that writes `byte` (fighter.c sets it to
+ * 1 to let a fighter draw) means those bits.  GCC and Clang allocate from the
+ * least significant bit, so the host declares the bits in reverse. */
+typedef union UnkFlagStruct {
+    u8 byte;
+    struct {
+        u8 b7 : 1;
+        u8 b6 : 1;
+        u8 b5 : 1;
+        u8 b4 : 1;
+        u8 b3 : 1;
+        u8 b2 : 1;
+        u8 b1 : 1;
+        u8 b0 : 1;
+    };
+} UnkFlagStruct;
+#else
 typedef union UnkFlagStruct {
     u8 byte;
     struct {
@@ -32,6 +51,7 @@ typedef union UnkFlagStruct {
         u8 b7 : 1;
     };
 } UnkFlagStruct;
+#endif
 
 struct UnkMultimanData {
     u16 x0_0 : 1;
