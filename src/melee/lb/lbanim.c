@@ -62,7 +62,16 @@ HSD_FObj* fn_8001E60C(FigaTrack* track, s8 frames)
             track++;
         }
     }
+#ifdef MELEE_HOST
+    /* A part whose tracks are all translations gets no FObj.  The console
+     * then writes through whatever the register still held; the host has
+     * nothing to terminate. */
+    if (prev != NULL) {
+        prev->next = NULL;
+    }
+#else
     fobj->next = NULL;
+#endif
     return first;
 }
 

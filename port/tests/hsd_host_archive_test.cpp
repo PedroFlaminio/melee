@@ -31,6 +31,7 @@ MELEE_HOST_HSD_END
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -1129,6 +1130,108 @@ TEST_CASE("the common item data translates, leaving out per-kind layouts")
     REQUIRE(melee_host_test_check_item_public_data(data, message,
                                                    sizeof(message)) == 1);
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
+extern "C" int melee_host_test_check_stage_coll_data(void* translated,
+                                                    char* message,
+                                                    std::size_t size);
+
+TEST_CASE("a stage's coll_data translates its vertices, lines and joints")
+{
+    // Three vertices, two floor lines between them and one joint spanning
+    // them, then the record, whose trailing word is the next data on the disc.
+    // stage_data_check.c reads it back through the game's types.
+    ArchiveBuilder builder(0x200);
+    builder.f32(0x000, 1.5F);
+    builder.f32(0x004, -2.0F);
+    builder.f32(0x008, 3.0F);
+    builder.f32(0x00C, 4.25F);
+    builder.f32(0x010, -8.0F);
+    builder.f32(0x014, 0.5F);
+    builder.u16(0x020, 0);
+    builder.u16(0x022, 1);
+    builder.u16(0x024, 0xFFFF);
+    builder.u16(0x026, 1);
+    builder.u16(0x028, 0xFFFF);
+    builder.u16(0x02A, 0xFFFF);
+    builder.u16(0x02C, 0x0100);
+    builder.u16(0x02E, 0x0001);
+    builder.u16(0x030, 1);
+    builder.u16(0x032, 2);
+    builder.u16(0x034, 0);
+    builder.u16(0x036, 0xFFFF);
+    builder.u16(0x038, 0xFFFF);
+    builder.u16(0x03A, 0xFFFF);
+    builder.u16(0x03E, 0x0004);
+    builder.u16(0x042, 2);
+    builder.u16(0x044, 0xFFFF);
+    builder.f32(0x054, -8.0F);
+    builder.f32(0x058, -2.0F);
+    builder.f32(0x05C, 3.0F);
+    builder.f32(0x060, 4.25F);
+    builder.u16(0x066, 3);
+    builder.pointer(0x100, 0x000);
+    builder.u32(0x104, 3);
+    builder.pointer(0x108, 0x020);
+    builder.u32(0x10C, 2);
+    builder.u16(0x112, 2);
+    builder.u16(0x114, 0xFFFF);
+    builder.pointer(0x124, 0x040);
+    builder.u32(0x128, 1);
+    builder.u32(0x12C, 0x42001EU);
+    builder.public_symbol(0x100, "coll_data");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    REQUIRE(melee_host_hsd_symbol_kind("coll_data") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const coll = HSD_ArchiveGetPublicAddress(&archive, "coll_data");
+    REQUIRE(coll != nullptr);
+    char message[256] = {};
+    const int checked =
+        melee_host_test_check_stage_coll_data(coll, message, sizeof(message));
+    if (checked != 1) {
+        std::fprintf(stderr, "coll_data check failed: %s\n", message);
+    }
+    REQUIRE(checked == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A line naming a vertex past the map's vertices is refused.
+    ArchiveBuilder past(0x200);
+    past.u16(0x020, 0);
+    past.u16(0x022, 3);
+    past.pointer(0x100, 0x000);
+    past.u32(0x104, 3);
+    past.pointer(0x108, 0x020);
+    past.u32(0x10C, 1);
+    past.public_symbol(0x100, "coll_data");
+    std::vector<std::byte> past_bytes = past.build();
+    HSD_Archive past_archive{};
+    REQUIRE(HSD_ArchiveParse(&past_archive, bytes_of(past_bytes),
+                             past_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&past_archive, "coll_data") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("past the map's vertices") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(past_bytes.data()) ==
+            MELEE_HOST_OK);
+
+    // Lines counted with no pointer to them are refused.
+    ArchiveBuilder lost(0x200);
+    lost.u32(0x10C, 2);
+    lost.public_symbol(0x100, "coll_data");
+    std::vector<std::byte> lost_bytes = lost.build();
+    HSD_Archive lost_archive{};
+    REQUIRE(HSD_ArchiveParse(&lost_archive, bytes_of(lost_bytes),
+                             lost_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&lost_archive, "coll_data") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("counts an array") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(lost_bytes.data()) ==
+            MELEE_HOST_OK);
 }
 
 extern "C" int melee_host_test_check_stage_map_head(void* translated,

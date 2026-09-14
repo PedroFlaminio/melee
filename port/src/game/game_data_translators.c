@@ -22,6 +22,7 @@
 #include <melee/it/it_3F14.h>
 #include <melee/it/types.h>
 #include <melee/lb/types.h>
+#include <melee/mp/types.h>
 #include <melee/pl/types.h>
 #include <melee/sfx/crowdsfx.h>
 #include <melee/ty/types.h>
@@ -432,6 +433,168 @@ static void* player_common_data(MeleeHostHsdReader* reader, mh_u32 root)
     }
     *record = table;
     return melee_host_hsd_reader_failed(reader) ? NULL : record;
+}
+
+/* coll_data (Gr*.dat): the stage's collision map, which mpLibLoad copies into
+ * its line and joint tables.  Without it the game falls back to an empty map
+ * and the fighters fall through the stage.  MapCollData holds three pointers,
+ * to the vertices, the lines and the joints, and moves on the host; the three
+ * records hold none and keep their PowerPC layout.  On the disc (the 71
+ * Gr*.dat) the record is 0x2C bytes, each array fills exactly its count of
+ * records up to the next address, no relocation falls inside one, every line
+ * names vertices within the count and every joint's vertex range stays within
+ * it.  x2C, which nothing reads, would be the bytes after the record and is
+ * left zero. */
+_Static_assert(sizeof(Vec2) == 0x8 && sizeof(MapLine) == 0x10 &&
+                   sizeof(MapJoint) == 0x28,
+               "the collision records must keep the PowerPC layout");
+
+enum {
+    /* Lines and joints name each other and the vertices by 16-bit index. */
+    COLL_DATA_MAX_RECORDS = 0x10000,
+};
+
+/* The array a MapCollData pointer field names, checked against its count and
+ * against the bytes up to the next address. */
+static bool coll_array(MeleeHostHsdReader* reader, mh_u32 field, s32 count,
+                       mh_u32 record_size, mh_u32* out_target)
+{
+    bool present;
+
+    *out_target = target_of(reader, field, &present);
+    if (count < 0 || count > COLL_DATA_MAX_RECORDS ||
+        (count != 0 && !present) ||
+        (present && melee_host_hsd_reader_extent(reader, *out_target) <
+                        (mh_u32) count * record_size))
+    {
+        melee_host_hsd_reader_fail(reader,
+                                   "the collision map counts an array its "
+                                   "pointer does not hold");
+        return false;
+    }
+    return true;
+}
+
+static void* stage_coll_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const s32 vert_count = (s32) melee_host_hsd_reader_u32(reader, root + 0x4);
+    const s32 line_count = (s32) melee_host_hsd_reader_u32(reader, root + 0xC);
+    const s32 joint_count =
+        (s32) melee_host_hsd_reader_u32(reader, root + 0x28);
+    mh_u32 verts_at;
+    mh_u32 lines_at;
+    mh_u32 joints_at;
+    MapCollData* coll;
+    s32 i;
+
+    if (!coll_array(reader, root + 0x0, vert_count, 0x8, &verts_at) ||
+        !coll_array(reader, root + 0x8, line_count, 0x10, &lines_at) ||
+        !coll_array(reader, root + 0x24, joint_count, 0x28, &joints_at))
+    {
+        return NULL;
+    }
+    coll = melee_host_hsd_reader_allocate(reader, sizeof(*coll),
+                                          alignof(MapCollData));
+    if (coll == NULL) {
+        return NULL;
+    }
+    coll->vert_count = vert_count;
+    coll->line_count = line_count;
+    coll->joint_count = joint_count;
+    coll->floor_start = (s16) melee_host_hsd_reader_u16(reader, root + 0x10);
+    coll->floor_count = (s16) melee_host_hsd_reader_u16(reader, root + 0x12);
+    coll->ceiling_start = (s16) melee_host_hsd_reader_u16(reader, root + 0x14);
+    coll->ceiling_count = (s16) melee_host_hsd_reader_u16(reader, root + 0x16);
+    coll->right_wall_start =
+        (s16) melee_host_hsd_reader_u16(reader, root + 0x18);
+    coll->right_wall_count =
+        (s16) melee_host_hsd_reader_u16(reader, root + 0x1A);
+    coll->left_wall_start =
+        (s16) melee_host_hsd_reader_u16(reader, root + 0x1C);
+    coll->left_wall_count =
+        (s16) melee_host_hsd_reader_u16(reader, root + 0x1E);
+    coll->dynamic_start = (s16) melee_host_hsd_reader_u16(reader, root + 0x20);
+    coll->dynamic_count = (s16) melee_host_hsd_reader_u16(reader, root + 0x22);
+    coll->x2C = 0;
+
+    if (vert_count != 0) {
+        coll->verts = melee_host_hsd_reader_allocate(
+            reader, sizeof(Vec2) * (size_t) vert_count, alignof(Vec2));
+        if (coll->verts == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < vert_count; i++) {
+            const mh_u32 at = verts_at + (mh_u32) i * 0x8;
+            coll->verts[i].x = melee_host_hsd_reader_f32(reader, at + 0x0);
+            coll->verts[i].y = melee_host_hsd_reader_f32(reader, at + 0x4);
+        }
+    }
+    if (line_count != 0) {
+        coll->lines = melee_host_hsd_reader_allocate(
+            reader, sizeof(MapLine) * (size_t) line_count, alignof(MapLine));
+        if (coll->lines == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < line_count; i++) {
+            const mh_u32 at = lines_at + (mh_u32) i * 0x10;
+            MapLine* const line = &coll->lines[i];
+            line->v0_idx = melee_host_hsd_reader_u16(reader, at + 0x0);
+            line->v1_idx = melee_host_hsd_reader_u16(reader, at + 0x2);
+            line->prev_id0 = (s16) melee_host_hsd_reader_u16(reader, at + 0x4);
+            line->next_id0 = (s16) melee_host_hsd_reader_u16(reader, at + 0x6);
+            line->prev_id1 = (s16) melee_host_hsd_reader_u16(reader, at + 0x8);
+            line->next_id1 = (s16) melee_host_hsd_reader_u16(reader, at + 0xA);
+            line->hi_flags = melee_host_hsd_reader_u16(reader, at + 0xC);
+            line->lo_flags = melee_host_hsd_reader_u16(reader, at + 0xE);
+            if (line->v0_idx >= vert_count || line->v1_idx >= vert_count) {
+                melee_host_hsd_reader_fail(reader,
+                                           "a collision line names a vertex "
+                                           "past the map's vertices");
+                return NULL;
+            }
+        }
+    }
+    if (joint_count != 0) {
+        coll->joints = melee_host_hsd_reader_allocate(
+            reader, sizeof(MapJoint) * (size_t) joint_count,
+            alignof(MapJoint));
+        if (coll->joints == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < joint_count; i++) {
+            const mh_u32 at = joints_at + (mh_u32) i * 0x28;
+            MapJoint* const joint = &coll->joints[i];
+            joint->floor_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x00);
+            joint->floor_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x02);
+            joint->ceiling_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x04);
+            joint->ceiling_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x06);
+            joint->right_wall_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x08);
+            joint->right_wall_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x0A);
+            joint->left_wall_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x0C);
+            joint->left_wall_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x0E);
+            joint->dynamic_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x10);
+            joint->dynamic_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x12);
+            joint->left_bound = melee_host_hsd_reader_f32(reader, at + 0x14);
+            joint->bottom_bound = melee_host_hsd_reader_f32(reader, at + 0x18);
+            joint->right_bound = melee_host_hsd_reader_f32(reader, at + 0x1C);
+            joint->top_bound = melee_host_hsd_reader_f32(reader, at + 0x20);
+            joint->vtx_start =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x24);
+            joint->vtx_count =
+                (s16) melee_host_hsd_reader_u16(reader, at + 0x26);
+        }
+    }
+    return coll;
 }
 
 /* grGroundParam (Gr*.dat): a stage's scalars, the StageParam rows
@@ -2389,6 +2552,7 @@ void melee_host_game_register_data_translators(void)
     (void) melee_host_hsd_register_translator("tyDisplayModelUsTbl",
                                               trophy_display_rows);
     (void) melee_host_hsd_register_translator("grGroundParam", ground_param);
+    (void) melee_host_hsd_register_translator("coll_data", stage_coll_data);
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("plLoadCommonData",
                                               player_common_data);

@@ -195,7 +195,15 @@ void fn_8002113C(HSD_JObj* jobj, Vec3* axis, f32 angle)
     Mtx tmpMtx;
     Mtx rotMtx;
     Mtx result;
+#ifdef MELEE_HOST
+    /* HSD_JObjGetRotation and HSD_JObjSetRotation copy the whole quaternion,
+     * w included, which on the console runs past a Vec3 into the stack slot
+     * after it.  The host gives the rotation quaternion-sized storage, so w
+     * leaves the joint and comes back unchanged. */
+    Quaternion rot;
+#else
     Vec3 rot;
+#endif
     Quaternion rot2;
     Vec3 localAxis;
     Mtx mtx;
@@ -210,9 +218,15 @@ void fn_8002113C(HSD_JObj* jobj, Vec3* axis, f32 angle)
 
     if (!(jobj->flags & JOBJ_USE_QUATERNION)) {
         HSD_JObjGetRotation(jobj, (Quaternion*) &rot);
+#ifdef MELEE_HOST
+        HSD_MkRotationMtx(tmpMtx, (Vec3*) &rot);
+        PSMTXConcat(tmpMtx, rotMtx, result);
+        HSD_QuatLib_8037EB28(result, (Vec3*) &rot);
+#else
         HSD_MkRotationMtx(tmpMtx, &rot);
         PSMTXConcat(tmpMtx, rotMtx, result);
         HSD_QuatLib_8037EB28(result, &rot);
+#endif
         HSD_JObjSetRotation(jobj, (Quaternion*) &rot);
     } else {
         HSD_JObjGetRotation(jobj, &rot2);

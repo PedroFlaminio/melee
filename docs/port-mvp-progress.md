@@ -16,7 +16,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; faltam imagem conferida, lutadores respondendo ao stick, colisão (`coll_data`), KO e tela de resultados | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; a imagem mostra estágio, HUD, "Ready", "Go!" e cronômetro; faltam os lutadores aparecerem na imagem e responderem ao stick, KO e tela de resultados | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; a rota título → menu → CSS → SSS → luta → CSS → menu é um teste, sem imagem nem áudio conferidos | 10% |
 
 ### Evidências verificadas
@@ -43,13 +43,14 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 Conferir o que a luta Fox vs. Fox em Hyrule Temple (`GS_VS`) faz entre a
 entrada e a saída. A rota já entra na luta, roda os frames sem erro e sai pelo
 menu de pausa, e isso é teste. A imagem dos frames já sai por
-`FRAME:BMP=arquivo`, com estágio, HUD, "Ready" e contagem. O próximo passo é a
-câmera, que fica colada na parte de baixo do estágio e deixa os lutadores fora
-do quadro, e depois ver os lutadores responderem ao stick e aos botões (a
-pausa só prova que a entrada chega à cena). Sobram os relatos do UBSan, que a
-rota da luta multiplicou, e dois casos de layout conhecidos fora da rota de VS
-(`gm_1832.c`, `gm_19EF.c`). Do estágio faltam `coll_data` e os outros dados que
-o jogo hoje substitui por faixas padrão, e do modo VS a tela de resultados. Hyrule Temple segue
+`FRAME:BMP=arquivo`, com estágio, HUD, "Ready" e contagem. Com `coll_data` os lutadores pousam e a
+câmera fica no estágio. O próximo passo é descobrir por que os lutadores não
+aparecem na imagem, embora estejam sobre o estágio, e depois vê-los
+responderem ao stick e aos botões (a pausa só prova que a entrada chega à
+cena). Sobram os relatos do UBSan, que a rota da luta multiplicou, e dois
+casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
+estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e
+`quake_model_set`, e do modo VS a tela de resultados. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
 salvos.
@@ -93,3 +94,4 @@ salvos.
 | 2026-09-14 | 68% | `GS_VS` entra na tabela do host e a rota VS atravessa a luta pelo código do jogo: Fox vs. Fox em Hyrule Temple roda 175 frames, o HUD libera a pausa no frame 655, START na porta 1 pausa e L+R+A+START encerra a luta como no contest; `gm_Scene_Vs_OnExit` monta o resultado, o modo volta à CSS (o host não tem a tela de resultados) e B segurado leva ao menu. Teste `melee-host-vs-match-asset` no lugar de `melee-host-vs-selection-asset`: 27,3 s no `host-debug`, 127,1 s sob ASan, sem erro do ASan. 194/194 e ctest 15/15 nos dois presets. |
 | 2026-09-14 | 70% | Primeira imagem da luta: `--run-modes` aceita `FRAME:BMP=arquivo` e desenha aquele frame pelo presenter escondido. Na rota do teste, o frame 640 mostra Hyrule Temple, o "Go!", o cronômetro em 02:00, P1 e P2 com 0% e o emblema da Star Fox; o 675 tem o cronômetro em 01:59.69; o 695 mostra o menu de pausa do P1 com a legenda L R A START. Problemas vistos: no 560 o letreiro de início sai como quadriláteros brancos, no mesmo frame em que uma textura C8 não decodifica ("TLUT index exceeds palette"); a câmera fica colada na parte de baixo do estágio e os lutadores não aparecem; o frame 400 (SSS) sai quase todo azul. 194/194 e ctest 15/15 nos dois presets; teste da luta em 26,9 s no `host-debug` e 123,4 s sob ASan, sem erro do ASan. |
 | 2026-09-14 | 71% | Os quadriláteros brancos eram paleta errada: o frame é lido depois do último draw, e a textura pedia a paleta pelo nome (`GX_TLUT0`), que já guardava a de outro draw. O recorder GX passa a guardar a paleta de cada draw junto da textura capturada, e o decodificador deixa o padding dos blocos fora da paleta (dois testes unitários). Os frames 560 e 600 mostram o letreiro "Ready", a contagem, o céu e os estandartes de Hyrule Temple, sem textura recusada nos cinco frames capturados. A câmera segue colada no estágio, com os lutadores fora do quadro. 196/196 e ctest 15/15 nos dois presets; teste da luta em 26,8 s no `host-debug` e 125,3 s sob ASan, sem erro do ASan. |
+| 2026-09-14 | 73% | `coll_data` traduzido (71 de 71 estágios, com o layout levantado antes nos arquivos). Sem ele o jogo usava um mapa de colisão vazio, e os lutadores caíam depois do Ready com a câmera atrás deles (medido sob gdb: y de 22 a -201 entre os frames 340 e 440 do modo). Com a colisão os dois pousam em Hyrule Temple e a câmera fica no estágio. O pouso achou dois pontos, corrigidos sob `MELEE_HOST`: `fn_8001E60C` terminava uma lista de FObj por um ponteiro nunca atribuído quando a parte só tem trilhas de translação (SIGSEGV), e `fn_8002113C` copiava um quaternion num `Vec3` da pilha (ASan). Nos frames 640 e 675 o estágio aparece inteiro, mas os lutadores não são desenhados. 197/197 e ctest 15/15 nos dois presets; teste da luta em 27,3 s no `host-debug` e 124,6 s sob ASan, sem erro do ASan; 21 pontos do UBSan. |

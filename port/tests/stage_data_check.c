@@ -3,6 +3,7 @@
  * cannot include the stage headers to read. */
 
 #include <melee/gr/types.h>
+#include <melee/mp/types.h>
 #include <melee/sc/types.h>
 #include <sysdolphin/baselib/lobj.h>
 
@@ -11,6 +12,8 @@
 
 int melee_host_test_check_stage_map_head(void* translated, char* message,
                                          size_t size);
+int melee_host_test_check_stage_coll_data(void* translated, char* message,
+                                          size_t size);
 
 /* ground.c declares these records locally; game_data_translators.c keeps the
  * same declarations. */
@@ -38,6 +41,40 @@ typedef struct CheckStagePairs {
             return 0;                                                         \
         }                                                                     \
     } while (0)
+
+int melee_host_test_check_stage_coll_data(void* translated, char* message,
+                                          size_t size)
+{
+    const MapCollData* const coll = translated;
+    const MapJoint* joint;
+
+    CHECK(coll != NULL);
+    CHECK(coll->vert_count == 3 && coll->verts != NULL);
+    CHECK(coll->verts[0].x == 1.5F && coll->verts[0].y == -2.0F);
+    CHECK(coll->verts[2].x == -8.0F && coll->verts[2].y == 0.5F);
+
+    CHECK(coll->line_count == 2 && coll->lines != NULL);
+    CHECK(coll->lines[0].v0_idx == 0 && coll->lines[0].v1_idx == 1);
+    CHECK(coll->lines[0].prev_id0 == -1 && coll->lines[0].next_id0 == 1);
+    CHECK(coll->lines[0].hi_flags == 0x0100 && coll->lines[0].lo_flags == 1);
+    CHECK(coll->lines[1].v0_idx == 1 && coll->lines[1].v1_idx == 2);
+    CHECK(coll->lines[1].prev_id0 == 0 && coll->lines[1].next_id1 == -1);
+    CHECK(coll->lines[1].lo_flags == 4);
+
+    CHECK(coll->floor_start == 0 && coll->floor_count == 2);
+    CHECK(coll->ceiling_start == -1 && coll->dynamic_count == 0);
+
+    CHECK(coll->joint_count == 1 && coll->joints != NULL);
+    joint = &coll->joints[0];
+    CHECK(joint->floor_count == 2 && joint->ceiling_start == -1);
+    CHECK(joint->left_bound == -8.0F && joint->bottom_bound == -2.0F);
+    CHECK(joint->right_bound == 3.0F && joint->top_bound == 4.25F);
+    CHECK(joint->vtx_start == 0 && joint->vtx_count == 3);
+
+    /* The word after the 0x2C-byte record is not part of it. */
+    CHECK(coll->x2C == 0);
+    return 1;
+}
 
 int melee_host_test_check_stage_map_head(void* translated, char* message,
                                          size_t size)

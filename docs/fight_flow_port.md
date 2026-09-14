@@ -350,11 +350,18 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   textura recebia a paleta de outro draw. O frame é lido depois do último
   draw, e a paleta era pedida pelo nome (`GX_TLUT0`); o recorder GX passou a
   guardar a paleta de cada draw. O "Ready" e a contagem aparecem.
-- Próximo bloqueio: a câmera fica colada na parte de baixo do estágio e os
-  lutadores não aparecem. A SSS saía quase toda azul e não foi conferida
-  depois da correção de paleta. Depois: ver os lutadores responderem ao stick
-  e aos botões e seguir para `coll_data`, que o estágio hoje substitui por
-  faixas padrão. A tela de resultados (`onExitVs`) continua fora.
+- Resolvido: a câmera descia porque os lutadores caíam. Sem `coll_data`,
+  `mpLibLoad` usava um mapa vazio; medido sob gdb, os dois caíam de y 22 a
+  -201 entre os frames 340 e 440 do modo, com a câmera atrás. Com o tradutor
+  de `coll_data` eles pousam e a câmera fica no estágio. O pouso passou por
+  dois pontos de host, em `lbanim.c` e `lb_020A.c`. Detalhes em
+  `docs/native_port_status.md`.
+- Próximo bloqueio: os lutadores estão sobre o estágio pelas posições lidas no
+  gdb, mas não aparecem na imagem. Depois: ver os lutadores responderem ao
+  stick e aos botões, conferir a SSS (saía quase toda azul antes da correção
+  de paleta e não foi olhada depois) e os dados de estágio que faltam
+  (`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit`,
+  `quake_model_set`). A tela de resultados (`onExitVs`) continua fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

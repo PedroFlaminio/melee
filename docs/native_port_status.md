@@ -1748,6 +1748,53 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 196/196, ctest 15/15 e o teste da luta em
   26,8 s; `host-sanitize` com 196/196, ctest 15/15, o teste da luta em
   125,3 s, nenhum erro do ASan e os mesmos 17 pontos do UBSan.
+- [x] A camera descia porque os lutadores caiam. Sem `coll_data`,
+  `mpLibLoad` usa o mapa vazio `mpLib_803BF760`. Medido sob gdb na rota do
+  teste: os dois nascem no ar em (-92,7; 21,8) e (91,8; 4,5), ficam parados ate
+  o frame 340 do modo e caem, y -35 no 380, -148 no 420 e -201 no 440, com o
+  olho da camera descendo de y 34 a -139.
+- [x] `coll_data` traduzido: os 71 `Gr*.dat` traduzem (varredura com
+  `game_data` em 339 de 341; as duas recusas sao os `map_head` de `GrIz` e
+  `GrNLa`). Levantado antes com um script sobre as relocacoes dos 71 arquivos:
+  os ponteiros relocados sao sempre os de +0x0 (vertices), +0x8 (linhas) e
+  +0x24 (juntas); cada vetor ocupa exatamente contagem vezes o tamanho do
+  registro (8, 0x10 e 0x28 bytes) ate o proximo endereco, sem relocacao
+  dentro; os indices de vertice das linhas e as faixas de vertice das juntas
+  cabem na contagem; e o registro tem 0x2C bytes (em 54 arquivos o proximo
+  endereco vem logo ali). `x2C`, declarado `int` "inferred" e que nada le,
+  seria o que vem depois do registro e fica zero. `MapCollData` muda de layout
+  no host; `MapLine`, `MapJoint` e `Vec2` nao tem ponteiro e mantem o do
+  console. O tradutor recusa contagem sem ponteiro, vetor maior que o bloco e
+  linha com vertice fora da faixa. Teste unitario pelos tipos do jogo
+  (`port/tests/stage_data_check.c`).
+- [x] Com a colisao os dois lutadores pousam: no frame 380 do modo estao no
+  chao (`ground_or_air` 0) em (-92,7; 15,3) e (91,8; -2,2), e seguem ali no
+  420, com a camera na altura do estagio. O pouso achou dois pontos:
+  - `fn_8001E60C` (`lbanim.c`, matching) monta as FObj de uma parte pulando as
+    trilhas de translacao, e o `track++` so anda nas que monta. No crash, uma
+    parte chegava com tres trilhas de translacao (tipos 5, 6 e 7), pelo
+    caminho de animacao de outro tipo de lutador (`ftAnim_8006FCE4`, a partir
+    de `ftCo_Landing_Enter`): nenhuma FObj e montada e `fobj->next = NULL`
+    escreve por um ponteiro nunca atribuido. No console isso e o que o
+    registrador guardava; no host, SIGSEGV no build de debug. Sob
+    `MELEE_HOST` a lista so e terminada quando alguma FObj foi montada.
+  - `fn_8002113C` (`lb_020A.c`, matching) le a rotacao do joint num `Vec3`
+    com `HSD_JObjGetRotation`, que copia o `Quaternion` inteiro, e a devolve
+    com `HSD_JObjSetRotation`: quatro bytes alem da variavel na pilha
+    (stack-buffer-overflow sob ASan, a partir de `ft_80089B08` ->
+    `lbBgFlash_80021410`). Sob `MELEE_HOST` a variavel tem tamanho de
+    quaternion, e o `w` sai do joint e volta igual.
+  - Sem o define, `lbanim.c` e `lb_020A.c` pre-processam identicos ao HEAD.
+- [x] Imagem depois da colisao: nos frames 640 e 675 a camera mostra o topo do
+  estagio inteiro, com o "Go!" e o cronometro, mas os lutadores nao aparecem,
+  embora as posicoes lidas no gdb os ponham sobre o estagio.
+- [x] UBSan: a luta com colisao acrescenta quatro pontos de classes
+  conhecidas, `1 << 31` em `int` em `ftCo_Catch.c:29`, `ftCo_Escape.c:211` e
+  `ftCo_Guard.c:67`, e chamada por ponteiro de funcao de outro tipo em
+  `mpcoll.c:993` (`mpColl_8004ACE4`). O ctest tem 21 pontos distintos.
+- [x] Medido: `host-debug` com 197/197, ctest 15/15 e o teste da luta em
+  27,3 s; `host-sanitize` com 197/197, ctest 15/15, o teste da luta em
+  124,6 s e nenhum erro do ASan.
 
 ## Em andamento
 
@@ -1993,10 +2040,10 @@ Atualizado em 13 de setembro de 2026.
   endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
   mesmo endereco continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
-  carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam` e
-  `map_head` (69 de 71), mas nao `coll_data`, `itemdata`, `ALDYakuAll`,
+  carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam`,
+  `coll_data` e `map_head` (69 de 71), mas nao `itemdata`, `ALDYakuAll`,
   `yakumono_param`, `map_plit` nem `quake_model_set`. Os 71 arquivos
-  `Gr*.dat` trazem os quatro primeiros; 67 trazem os dois ultimos.
+  `Gr*.dat` trazem os tres primeiros desses; 67 trazem os dois ultimos.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
