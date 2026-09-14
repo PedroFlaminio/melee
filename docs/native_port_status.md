@@ -1668,6 +1668,37 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 194/194 e ctest 15/15;
   `host-sanitize` com 194/194, ctest 15/15, rota VS em 20,0 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] `GS_VS` na tabela do host (`gm_Scene_Vs_OnFrame`, `gm_Scene_Vs_OnEnter`
+  e `gm_Scene_Vs_OnExit`). A rota VS atravessa a luta pelo codigo do jogo,
+  medido com breakpoints no `host-debug`: o GO chega no frame 616
+  (`fn_8016B7F8`) e o HUD liga no 655 (`fn_8016B784`), que e quando
+  `gm_DoPauseChecksAndRoutine` passa a aceitar a pausa. START na porta 1 pausa,
+  e L+R+A+START do mesmo pad, com a pausa ja passada dos 10 frames de
+  `pause_timer`, chama `fn_8016CF4C` com `OUTCOME_NO_CONTEST`, que pede o fim
+  da cena por `gm_801A4B60`. `gm_Scene_Vs_OnExit` monta o `EndMeleeData`
+  (`gm_80166378`). Sem o `onExitVs` do console, que escolheria resultados ou
+  morte subita, a rota de estados do modo volta a CSS, e B segurado na CSS
+  leva ao menu (`GM_MENU`).
+- [x] O teste `melee-host-vs-match-asset` substitui
+  `melee-host-vs-selection-asset`, que esperava a rota parar na cena ausente:
+  titulo 122 frames, menu 120, CSS 141, SSS 149, luta 175, CSS 56, e o modo VS
+  com 521 frames termina em `GM_MENU`. A selecao lida de volta continua estagio
+  14 com Fox nos slots 0 e 1. Leva 27,3 s no `host-debug` e 127,1 s sob ASan.
+  Sem a pausa, a luta segue alem de 1.368 frames no `host-debug` sem erro; a
+  velocidade la e de cerca de 12,8 frames por segundo, medida sob gdb.
+- [x] Relatos do UBSan na rota da luta, sem correcao (o ctest nao falha por
+  eles): alem dos quatro conhecidos, chamada por ponteiro de funcao de outro
+  tipo em `lbrefract.c:46`, `granime.c:517`, `baselib_support.c:124`,
+  `gobj.c:114` (`fn_800204C8`), `gobj.c:195` (`ifMagnify_802FBBDC`),
+  `if_2F72.c:85` (`fn_8016B7F8`), `ground.c:706` (`grShrine_80201E98`) e
+  `camera.c:2077` (`Camera_SetBounds`); `1 << 31` em `int` em
+  `fighter.c:2105` e `ftCo_Attack100.c:301` e `:315` (e `ftCo_Guard.c:62`
+  numa luta mais longa); o indice 107 de `by_attack_hi[65]` em `plbonus.c:44`;
+  e, no `OnExit`, `gm_80166378` (`gm_1601.c:3022`) grava `kills[j]` com `j`
+  de 0 a 5 num `u16[4]`. O indice 4 cai em `x18` e o 5 no padding antes de
+  `x1C`, o mesmo layout no console e no host.
+- [x] Medido: `host-debug` com 194/194 e ctest 15/15; `host-sanitize` com
+  194/194, ctest 15/15 e nenhum erro do ASan.
 
 ## Em andamento
 
@@ -1835,8 +1866,9 @@ Atualizado em 13 de setembro de 2026.
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
 - A tabela de modos e cenas do host tem o titulo, o menu principal e o modo VS
-  com as duas cenas de selecao. O modo VS do host termina na luta, sem
-  resultados, morte subita nem desafiante (`gmvsmode.c` sob `MELEE_HOST`).
+  com as duas cenas de selecao e a luta. O modo VS do host termina na luta,
+  sem resultados, morte subita nem desafiante (`gmvsmode.c` sob `MELEE_HOST`):
+  quando a luta sai, a rota volta a CSS.
   Pedir um modo fora da tabela e recusado antes de o jogo seguir o NULL que
   acharia, e uma cena fora da tabela encerra o modo; nos dois casos
   `--run-modes` termina o roteiro com `stopped:`.
@@ -1889,12 +1921,14 @@ Atualizado em 13 de setembro de 2026.
   screenshot pendente, que `db_CheckScreenshot` marca nos niveis de
   depuracao.
 - O ctest nao falha por relato do UBSan, que so imprime; confira com
-  `ctest --preset host-sanitize -V`. Restam quatro, todos de chamada por um
-  ponteiro de funcao de outro tipo: `FogRelease` pelo ponteiro de release de
-  `class.h` e `HSD_JObjRemoveAll` por `gobjobject.c`, no sistema de classes do
-  HSD, e, desde que a CSS e a SSS rodam, `HSD_AObjStopAnim` passado a
-  `HSD_ForeachAnim` (`aobj.c:301`) e o callback de render `fn_8026407C` de
-  `mncharsel.c` (`gobj.c:154`).
+  `ctest --preset host-sanitize -V`. Fora da luta restam quatro, todos de
+  chamada por um ponteiro de funcao de outro tipo: `FogRelease` pelo ponteiro
+  de release de `class.h` e `HSD_JObjRemoveAll` por `gobjobject.c`, no sistema
+  de classes do HSD, e, desde que a CSS e a SSS rodam, `HSD_AObjStopAnim`
+  passado a `HSD_ForeachAnim` (`aobj.c:301`) e o callback de render
+  `fn_8026407C` de `mncharsel.c` (`gobj.c:154`). Desde que o teste atravessa a
+  luta sao 17 pontos distintos; a lista esta na entrada de
+  `melee-host-vs-match-asset`.
 - O presenter nao modela texturas de profundidade (`GXSetZTexture`), e o
   decodificador nao conhece `Z8`, `Z16` nem `Z24X8`. O apagamento de tela do
   titulo desenha seu quad com a profundidade da propria geometria, na metade

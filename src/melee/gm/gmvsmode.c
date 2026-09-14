@@ -28,7 +28,9 @@
 #ifdef MELEE_HOST
 /* The first host VS slice deliberately ends at the match.  Results, sudden
  * death, challenger approach and prize routing bring in their own unported
- * scene graphs and are not prerequisites for entering a local match. */
+ * scene graphs and are not prerequisites for entering a local match.  With no
+ * onExit to pick the results state, the mode routes from the match back to
+ * character select. */
 GameModeState gm_Mode_Vs_States[] = {
     {
         gmVsMode_State_Css,

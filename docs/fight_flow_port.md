@@ -336,11 +336,17 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   baixos da palavra. Corrigido sob `MELEE_HOST` com os campos invertidos.
 - Com o opcode certo, a luta roda o laço de frames sem erro: 600 frames da
   luta em ~60 s no `host-debug` e 400 s sob ASan, sem terminar sozinha.
-- Próximo bloqueio: a rota não tem fim. Antes de virar teste, `--run-modes`
-  precisa de um limite de frames (o jogo pede o fim da cena por
-  `gm_801A4B60`). Depois: medir o que os frames fazem (imagem e resposta à
-  entrada) e seguir para `coll_data`, que o estágio hoje substitui por faixas
-  padrão.
+- Bloqueio seguinte, resolvido sem código do host: a rota não tinha fim, e
+  o próprio jogo dá a saída. O HUD libera a pausa no frame 655; START pausa e
+  L+R+A+START encerra a luta como no contest (`fn_8016CF4C` →
+  `gm_801A4B60`). `gm_Scene_Vs_OnExit` roda, o modo VS do host volta à CSS e B
+  segurado leva ao menu. `GS_VS` entrou na tabela do host e a rota virou o
+  teste `melee-host-vs-match-asset` (luta de 175 frames).
+- Próximo bloqueio: conferir o que os frames da luta fazem. Falta capturar a
+  imagem de um frame da luta pelo presenter, ver os lutadores responderem ao
+  stick e aos botões (a pausa só prova que a entrada chega à cena) e seguir
+  para `coll_data`, que o estágio hoje substitui por faixas padrão. A tela de
+  resultados (`onExitVs`) continua fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

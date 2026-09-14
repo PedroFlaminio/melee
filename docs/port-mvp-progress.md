@@ -16,38 +16,38 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial), carrega o menu de pausa, o HUD e o flash de fundo, termina a entrada da cena e entra no laço de frames; os scripts de comando dos lutadores despacham pelo opcode certo e a luta segue desenhando frames sem erro (600 frames em ~60 s no `host-debug`, 400 s sob ASan), mas não termina sozinha e ainda não foi conferida por imagem nem por entrada | 30% |
-| Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; faltam imagem conferida, lutadores respondendo ao stick, colisão (`coll_data`), KO e tela de resultados | 30% |
+| Áudio, distribuição e regressão end-to-end | parcial; a rota título → menu → CSS → SSS → luta → CSS → menu é um teste, sem imagem nem áudio conferidos | 10% |
 
 ### Evidências verificadas
 
 - `ctest --preset host-debug`: 15/15 testes aprovados; 194/194 testes
   unitários.
 - `ctest --preset host-sanitize -V`: 15/15 e 194/194, sem erro do ASan; a rota
-  VS leva 20,0 s. O UBSan só relata chamadas por ponteiro de função de outro
-  tipo (quatro pontos, listados em `native_port_status.md`).
+  VS com a luta leva 127,1 s. O UBSan só imprime (17 pontos distintos, listados
+  em `native_port_status.md`): chamadas por ponteiro de função de outro tipo,
+  `1 << 31` em `int` e duas leituras além de vetor que caem na mesma struct.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
-- `melee-host-vs-selection-asset`: título (122 frames) → menu (120) → CSS
-  (141) → SSS (149), com dois pads roteirizados. As duas portas abrem como HMN,
-  os dois jogadores escolhem Fox, START leva à SSS e o cursor escolhe Hyrule
-  Temple. A seleção lida de volta do modo VS é estágio 14 com Fox (2) nos slots
-  0 e 1, e o modo para com nome na cena de luta (`GS_VS`, 0x02).
+- `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
+  SSS (149) → luta (175) → CSS (56) → menu, com dois pads roteirizados. As duas
+  portas abrem como HMN, os dois jogadores escolhem Fox, START leva à SSS e o
+  cursor escolhe Hyrule Temple (estágio 14 com Fox nos slots 0 e 1). Na luta, o
+  pad 1 pausa depois que o HUD liga (frame 655) e sai com L+R+A+START; o modo
+  volta à CSS, e B segurado leva ao menu. 27,3 s no `host-debug`.
 - `--diagnose-local-match` materializa dados de duas pessoas, regras e estágio,
   mas ainda não inicia a cena de combate.
 
 ## Próximo marco
 
-Seguir a luta Fox vs. Fox em Hyrule Temple (`GS_VS`) além da entrada. Os dois
-lutadores são criados, a montagem da cena (`fn_8016E730`) termina e a luta roda
-o laço de frames sem erro, com os scripts de comando lidos pelo opcode certo.
-O próximo passo é dar à rota um limite de frames, porque a luta não termina
-sozinha no tempo de um teste, e conferir o que os frames fazem: capturar a
-imagem e ver os lutadores responderem à entrada. Sobram os relatos do UBSan de chamada
-por ponteiro de função de outro tipo, que a rota da luta multiplicou, e dois
-casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
-estágio faltam `coll_data` e os outros dados que o jogo
-hoje substitui por faixas padrão. Hyrule Temple segue
+Conferir o que a luta Fox vs. Fox em Hyrule Temple (`GS_VS`) faz entre a
+entrada e a saída. A rota já entra na luta, roda os frames sem erro e sai pelo
+menu de pausa, e isso é teste. O próximo passo é capturar a imagem de um frame
+da luta pelo presenter e ver os lutadores responderem ao stick e aos botões (a
+pausa só prova que a entrada chega à cena). Sobram os relatos do UBSan, que a
+rota da luta multiplicou, e dois casos de layout conhecidos fora da rota de VS
+(`gm_1832.c`, `gm_19EF.c`). Do estágio faltam `coll_data` e os outros dados que
+o jogo hoje substitui por faixas padrão, e do modo VS a tela de resultados. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
 salvos.
@@ -88,3 +88,4 @@ salvos.
 | 2026-09-14 | 62% | O NaN do primeiro frame era da câmera: `Camera_ApplyQuake` lia a descrição da câmera pelo layout de statics em sequência do console e gravava NaN na translação de tremor. No host a função lê `cm_803BCB64` direto. O primeiro frame desenha, e a luta segue até os procs de um frame seguinte, onde o sistema de partículas guarda endereços de gerador em `u32`. |
 | 2026-09-14 | 64% | Lote de correções de layout de 32 bits achadas pela rota da luta sob ASan: endereços de gerador de partícula em `u32`, a visão `UnkX` do `IfDamageState`, structs lidas sobre statics em sequência (`lbrefract.c`, `ftmaterial.c`, `ft_800852B0`), segmentos de colisão e o pool de `HSD_psAppSRT` alocados com o tamanho do console, a posição da luz do lutador em floats, a matriz 3x4 de `lbVector_WorldToScreen` e a cor do HUD convertida para `s8`. As listas de símbolos de `lbarchive.c`, terminadas num `0` que o x86-64 passa com a metade alta indefinida, viram vetores de ponteiros. Todos os 13 arquivos pré-processam idênticos sem `MELEE_HOST`. Com `GS_VS` só local, a luta entra no laço de frames; sob ASan os lutadores chegam aos scripts de comando da animação e param em `Command_04` (`lbcommand.c:57`), no `RebirthWait`, com leitura de endereço inválido. |
 | 2026-09-14 | 65% | O SEGV em `Command_04` era o opcode lido dos bits errados: `ftAction_80073240` despacha por `gmScriptEventDefault` (`ft/types.h`), bit-fields fora de `lb/types.h` que o gerador de layouts não cobre, e o host tirava o opcode dos seis bits baixos da palavra. Com os campos invertidos sob `MELEE_HOST` (teste unitário; `ftaction.c` pré-processa idêntico sem o define), a luta com `GS_VS` só local roda o laço de frames sem erro: 600 frames da luta em ~60 s no `host-debug` e 400 s sob ASan, sem terminar sozinha. Sem a entrada: 194/194 e ctest 15/15 nos dois presets, rota VS em 20,0 s sob ASan. |
+| 2026-09-14 | 68% | `GS_VS` entra na tabela do host e a rota VS atravessa a luta pelo código do jogo: Fox vs. Fox em Hyrule Temple roda 175 frames, o HUD libera a pausa no frame 655, START na porta 1 pausa e L+R+A+START encerra a luta como no contest; `gm_Scene_Vs_OnExit` monta o resultado, o modo volta à CSS (o host não tem a tela de resultados) e B segurado leva ao menu. Teste `melee-host-vs-match-asset` no lugar de `melee-host-vs-selection-asset`: 27,3 s no `host-debug`, 127,1 s sob ASan, sem erro do ASan. 194/194 e ctest 15/15 nos dois presets. |

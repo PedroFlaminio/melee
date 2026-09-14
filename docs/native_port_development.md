@@ -302,8 +302,8 @@ aberto no `VsModeData`), `scenes:` e `route:`. Um modo que a tabela nao tem, ou
 um estado cuja cena ela nao tem, encerra o roteiro com `stopped:`. Os testes
 conferem essas linhas inteiras, frames incluidos.
 
-O roteiro do teste `melee-host-vs-selection-asset` atravessa a selecao do VS
-com dois pads:
+O roteiro do teste `melee-host-vs-match-asset` atravessa a selecao do VS com
+dois pads, entra na luta e sai dela:
 
 ```sh
 ./build/host-debug/port/melee-pc --run-modes assets-local 0 3 \
@@ -311,13 +311,23 @@ com dois pads:
     300-315:SY=127 300-315:SY=127@2 320:A 320:A@2 \
     330-337:SX=127 330-333:SX=-127@2 \
     345-354:SY=127 345-354:SY=127@2 360:A 360:A@2 \
-    380:START 420-421:SX=-127 425-439:SY=127 445:A
+    380:START 420-421:SX=-127 425-439:SY=127 445:A \
+    680:START 700-715:L+R+A 705-715:START 730-850:B
 ```
 
 Na CSS as portas comecam fechadas, inclusive a de um pad conectado. Cada pad
 sobe o cursor ate o botao HMN da propria porta e aperta A, pega a ficha no
 caminho ate o retrato da Fox e a solta com A; START so vale com o banner de
 pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
+
+Na luta a pausa so vale depois que o HUD liga (frame 655, depois do GO) e
+dez frames depois de pausar. L+R+A+START sai como no contest quando um dos
+quatro chega recem-apertado com os quatro seguros; o roteiro segura L+R+A e
+aperta START por cima. Sem a tela de resultados, o modo volta a CSS, e B
+segurado ali leva ao menu. A luta nao termina sozinha no tempo de um teste
+(passou de 1.368 frames sem acabar, e o `host-debug` desenha uns 13 frames
+por segundo), entao todo roteiro que entra nela precisa desse caminho de
+saida.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
