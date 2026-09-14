@@ -1,9 +1,12 @@
 #include <melee_host/gx.h>
 
+#include "gx/view.hpp"
+
 #include <dolphin/gx/GXGeometry.h>
 #include <dolphin/gx/GXCommandList.h>
 #include <dolphin/gx/GXDispList.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -1740,6 +1743,116 @@ extern "C" void melee_host_gx_reset_command_log(void)
     captured_raw_vertices.clear();
     captured_texture_sets.clear();
     active_draw = {};
+}
+
+extern "C" bool melee_host_gx_copy_efb_to_i4(
+    void* destination, mh_u16 source_left, mh_u16 source_top,
+    mh_u16 source_width, mh_u16 source_height, mh_u16 destination_width,
+    mh_u16 destination_height)
+{
+    if (destination == nullptr || source_width == 0 || source_height == 0 ||
+        destination_width == 0 || destination_height == 0) {
+        return false;
+    }
+
+    const std::size_t blocks_wide = (static_cast<std::size_t>(destination_width) + 7U) / 8U;
+    const std::size_t blocks_high = (static_cast<std::size_t>(destination_height) + 7U) / 8U;
+    auto* const output = static_cast<mh_u8*>(destination);
+    std::fill_n(output, blocks_wide * blocks_high * 32U, static_cast<mh_u8>(0xFF));
+
+    /* The shadow pass draws a white clear rectangle followed by untextured
+     * grayscale geometry.  Rasterising its captured vertex colours is enough
+     * to reproduce the I4 mask; full textured TEV is deliberately left to the
+     * normal presenter path. */
+    std::vector<mh_u8> pixels(static_cast<std::size_t>(destination_width) *
+                              destination_height, 255);
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    const auto write_pixel = [&](int x, int y, mh_u8 intensity) {
+        if (x < 0 || y < 0 || x >= destination_width || y >= destination_height) {
+            return;
+        }
+        pixels[static_cast<std::size_t>(y) * destination_width +
+               static_cast<std::size_t>(x)] = intensity;
+    };
+    for (const auto& indices : captured_triangle_indices) {
+        if (indices[0] >= captured_vertices.size() ||
+            indices[1] >= captured_vertices.size() ||
+            indices[2] >= captured_vertices.size()) {
+            continue;
+        }
+        const MeleeHostGxCapturedVertex& a = captured_vertices[indices[0]];
+        const MeleeHostGxCapturedVertex& b = captured_vertices[indices[1]];
+        const MeleeHostGxCapturedVertex& c = captured_vertices[indices[2]];
+        if (a.view_state >= captured_view_states.size() ||
+            b.view_state != a.view_state || c.view_state != a.view_state) {
+            continue;
+        }
+        const MeleeHostGxViewState& view = captured_view_states[a.view_state];
+        const melee::gx::ClipMatrix clip = melee::gx::clip_matrix(view);
+        const auto project = [&](const MeleeHostGxCapturedVertex& vertex,
+                                 float* x, float* y) {
+            const auto& p = vertex.position;
+            const float w = clip[3] * p.x + clip[7] * p.y + clip[11] * p.z + clip[15];
+            if (w <= 0.0F) {
+                return false;
+            }
+            const float ndc_x = (clip[0] * p.x + clip[4] * p.y + clip[8] * p.z + clip[12]) / w;
+            const float ndc_y = (clip[1] * p.x + clip[5] * p.y + clip[9] * p.z + clip[13]) / w;
+            const float screen_x = view.viewport_left + (ndc_x + 1.0F) * 0.5F * view.viewport_width;
+            const float screen_y = view.viewport_top + (1.0F - ndc_y) * 0.5F * view.viewport_height;
+            *x = (screen_x - source_left) * destination_width / source_width;
+            *y = (screen_y - source_top) * destination_height / source_height;
+            return std::isfinite(*x) && std::isfinite(*y);
+        };
+        float ax, ay, bx, by, cx, cy;
+        if (!project(a, &ax, &ay) || !project(b, &bx, &by) ||
+            !project(c, &cx, &cy)) {
+            continue;
+        }
+        const float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        if (std::abs(area) < 1.0e-6F) {
+            continue;
+        }
+        const int min_x = std::max(0, static_cast<int>(std::floor(std::min({ ax, bx, cx }))));
+        const int max_x = std::min(static_cast<int>(destination_width) - 1,
+                                   static_cast<int>(std::ceil(std::max({ ax, bx, cx }))));
+        const int min_y = std::max(0, static_cast<int>(std::floor(std::min({ ay, by, cy }))));
+        const int max_y = std::min(static_cast<int>(destination_height) - 1,
+                                   static_cast<int>(std::ceil(std::max({ ay, by, cy }))));
+        const auto intensity = [](const MeleeHostGxCapturedVertex& vertex) {
+            return (static_cast<float>(vertex.raster_color[0][0]) +
+                    vertex.raster_color[0][1] + vertex.raster_color[0][2]) / 3.0F;
+        };
+        for (int y = min_y; y <= max_y; ++y) {
+            for (int x = min_x; x <= max_x; ++x) {
+                const float px = static_cast<float>(x) + 0.5F;
+                const float py = static_cast<float>(y) + 0.5F;
+                const float wa = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area;
+                const float wb = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
+                const float wc = 1.0F - wa - wb;
+                if (wa >= 0.0F && wb >= 0.0F && wc >= 0.0F) {
+                    write_pixel(x, y, static_cast<mh_u8>(std::clamp(
+                        std::lround(wa * intensity(a) + wb * intensity(b) +
+                                    wc * intensity(c)), 0L, 255L)));
+                }
+            }
+        }
+    }
+    for (mh_u16 y = 0; y < destination_height; ++y) {
+        for (mh_u16 x = 0; x < destination_width; ++x) {
+            const std::size_t block = (static_cast<std::size_t>(y) / 8U) * blocks_wide + x / 8U;
+            const std::size_t offset = block * 32U + (static_cast<std::size_t>(y) % 8U) * 4U +
+                                       (static_cast<std::size_t>(x) % 8U) / 2U;
+            const mh_u8 value = static_cast<mh_u8>(pixels[static_cast<std::size_t>(y) *
+                                                         destination_width + x] >> 4U);
+            if ((x & 1U) == 0) {
+                output[offset] = static_cast<mh_u8>((value << 4U) | (output[offset] & 0x0FU));
+            } else {
+                output[offset] = static_cast<mh_u8>((output[offset] & 0xF0U) | value);
+            }
+        }
+    }
+    return true;
 }
 
 extern "C" size_t melee_host_gx_captured_texture_count(void)

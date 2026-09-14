@@ -5,6 +5,8 @@
 
 MELEE_HOST_TEST_HSD_BEGIN
 #include <dolphin/gx/GXCull.h>
+#include <dolphin/gx/GXCommandList.h>
+#include <dolphin/gx/GXVert.h>
 #include <dolphin/gx/GXEnum.h>
 #include <dolphin/gx/GXGeometry.h>
 #include <dolphin/gx/GXGet.h>
@@ -21,6 +23,7 @@ MELEE_HOST_TEST_HSD_BEGIN
 MELEE_HOST_TEST_HSD_END
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -406,6 +409,48 @@ TEST_CASE("EFB copies are recorded rather than silently producing pixels")
     REQUIRE(copy.last_destination == destination.data());
     REQUIRE(copy.last_clear);
     REQUIRE(copy.texture_invalidate_count == 1);
+}
+
+TEST_CASE("I4 EFB copies rasterize the recorded shadow mask")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    Mtx44 projection;
+    MTXOrtho(projection, 1.0F, -1.0F, -1.0F, 1.0F, 0.0F, 1.0F);
+    GXSetProjection(projection, GX_ORTHOGRAPHIC);
+    Mtx identity;
+    PSMTXIdentity(identity);
+    GXLoadPosMtxImm(identity, GX_PNMTX0);
+    GXSetCurrentMtx(GX_PNMTX0);
+    GXSetViewport(0.0F, 0.0F, 8.0F, 8.0F, 0.0F, 1.0F);
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    GXPosition3f32(-1.0F, 1.0F, 0.0F);
+    GXColor4u8(0, 0, 0, 255);
+    GXPosition3f32(1.0F, 1.0F, 0.0F);
+    GXColor4u8(0, 0, 0, 255);
+    GXPosition3f32(-1.0F, -1.0F, 0.0F);
+    GXEnd();
+
+    MeleeHostGxCapturedTriangle captured{};
+    REQUIRE(melee_host_gx_captured_triangle_at(0, &captured));
+    REQUIRE(captured.vertices[0].raster_color[0][0] == 0);
+
+    std::array<std::uint8_t, 32> destination{};
+    GXSetTexCopySrc(0, 0, 8, 8);
+    GXSetTexCopyDst(8, 8, GX_CTF_R4, GX_FALSE);
+    GXCopyTex(destination.data(), GX_TRUE);
+    /* I4 is 8x8 tiled, two texels per byte.  The triangle changed at least
+     * one nibble from the white EFB clear, but it does not cover the tile. */
+    REQUIRE(std::any_of(destination.begin(), destination.end(),
+                        [](std::uint8_t byte) { return byte != 0xFFU; }));
+    REQUIRE(std::any_of(destination.begin(), destination.end(),
+                        [](std::uint8_t byte) { return byte != 0; }));
 }
 
 TEST_CASE("projection helpers build the GX frustum and orthographic forms")

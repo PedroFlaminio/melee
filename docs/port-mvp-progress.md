@@ -16,7 +16,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio, com uma faixa preta grande ainda sem causa; faltam a resposta ao stick, KO e tela de resultados | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio. A cópia I4 usada pela sombra agora é materializada pelo host e falta conferir a imagem da rota completa; faltam a resposta ao stick, KO e tela de resultados | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; a rota título → menu → CSS → SSS → luta → CSS → menu é um teste, sem imagem nem áudio conferidos | 10% |
 
 ### Evidências verificadas
@@ -45,10 +45,11 @@ entrada e a saída. A rota já entra na luta, roda os frames sem erro e sai pelo
 menu de pausa, e isso é teste. A imagem dos frames já sai por
 `FRAME:BMP=arquivo`, com estágio, HUD, "Ready" e contagem. Com `coll_data` os lutadores pousam e a
 câmera fica no estágio. Os dois Fox já aparecem no tamanho certo
-sobre o estágio. O próximo passo é a faixa preta grande que cobre parte do
-estágio (a sombra projetada, cuja textura vem de uma cópia de framebuffer que
-o host ainda não produz, é a suspeita) e depois ver os lutadores responderem
-ao stick e aos botões (a pausa só prova que a entrada chega à cena). Sobram os relatos do UBSan, que a rota da luta multiplicou, e dois
+sobre o estágio. O host agora rasteriza a geometria sem textura do passe de
+sombra e escreve a cópia GX I4 (a causa da faixa preta), mas a captura da rota
+completa ainda precisa confirmar visualmente a sombra. Depois disso, verificar
+os lutadores responderem ao stick e aos botões (a pausa só prova que a entrada
+chega à cena). Sobram os relatos do UBSan, que a rota da luta multiplicou, e dois
 casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
 estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e
 `quake_model_set`, e do modo VS a tela de resultados. Hyrule Temple segue
@@ -99,3 +100,4 @@ salvos.
 | 2026-09-14 | 74% | Os lutadores passam a ser desenhados. `ftDrawCommon_800805C8` só desenha o corpo com `x21FC_flag.b7`, e `fighter.c:747` liga essa flag gravando `byte = 1` no union `UnkFlagStruct`. No console esse byte é o bit `b7`, porque o MWCC aloca bit-fields a partir do bit mais alto; no host ele ligava `b0`. Sob `MELEE_HOST` o union declara os bits na ordem inversa. A captura mais que dobra (28.459 triângulos no frame 560), mas os lutadores saem como planos enormes de cor chapada que tomam a tela e escondem o estágio. 197/197 e ctest 15/15 nos dois presets; teste da luta em 56,6 s no `host-debug` e 260,0 s sob ASan, sem erro do ASan; 24 pontos do UBSan. |
 | 2026-09-14 | 76% | Os dois Fox aparecem no tamanho certo sobre Hyrule Temple. Os planos gigantes eram vértices sem a translação da câmera: o recorder GX do host guardava a matriz de normal nas mesmas linhas da matriz de posição, e o HSD carrega a inversa transposta, que não tem translação, logo depois da posição de todo PObj iluminado. O host passou a guardar as matrizes de normal à parte, como o GX (teste unitário). O esqueleto já estava certo (medido sob gdb). Cada `FRAME:BMP=` imprime o relatório da captura, com views e sequências de draw. Resta uma faixa preta grande sobre o estágio, sem causa medida. 198/198 e ctest 15/15 nos dois presets; teste da luta em 56,7 s no `host-debug` e 260,3 s sob ASan, sem erro do ASan; 24 pontos do UBSan. |
 | 2026-09-14 | 76% | Causa da faixa preta medida: é a sombra projetada dos lutadores. O passo de sombra desenha fundo branco e a silhueta em cinza num alvo de 256x256 e copia com `GXCopyTex` (`GX_CTF_R4`) para uma textura de 4 bits alocada sem zerar. O host só registra a cópia, e a textura fica com o que havia na memória. Num experimento local, sem commit, encher a cópia de branco apagou a faixa nos frames 560 e 640. Branco também apaga a sombra; a correção é o host produzir a cópia a partir do que o passo de sombra desenhou. |
+| 2026-09-14 | 77% | `GXCopyTex` agora materializa no host a cópia I4 usada por `HSD_ShadowEndRender`: rasteriza a geometria já capturada do passe sem textura (retângulo branco e silhueta em cinza) e a codifica no tile GX 8×8, em vez de deixar a textura sem inicialização. O teste `I4 EFB copies rasterize the recorded shadow mask` verifica máscara, codificação e o despacho por `GX_CTF_R4`; 199/199 testes unitários e 14/14 testes CTest fora da rota longa de VS. A captura completa Fox/Fox ainda deve confirmar visualmente a sombra. |

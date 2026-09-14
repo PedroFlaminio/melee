@@ -1344,6 +1344,14 @@ void GXCopyTex(void* dest, GXBool clear)
     copy_state.copy_count += 1;
     copy_state.last_destination = dest;
     copy_state.last_clear = clear != GX_FALSE;
+    /* HSD shadows are I4 EFB copies.  Resolve that compact, untextured pass
+     * now so the texture sampled by the later stage draw is defined. */
+    if (copy_state.destination_format == GX_CTF_R4) {
+        static_cast<void>(melee_host_gx_copy_efb_to_i4(
+            dest, copy_state.source_left, copy_state.source_top,
+            copy_state.source_width, copy_state.source_height,
+            copy_state.destination_width, copy_state.destination_height));
+    }
 }
 
 /* GXSetTevOp is a shorthand the SDK expands into the four calls below.  A

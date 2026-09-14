@@ -154,6 +154,15 @@ void melee_host_gx_register_array_region(const void* base,
 void melee_host_gx_unregister_array_region(const void* base);
 
 void melee_host_gx_reset_command_log(void);
+/* Resolves the geometry recorded so far into a GX I4 texture.  GXCopyTex uses
+ * this for the host's CPU EFB: its arguments are the source rectangle and
+ * destination dimensions that GXSetTexCopySrc/Dst most recently installed.
+ * Other copy formats still have no CPU representation. */
+bool melee_host_gx_copy_efb_to_i4(void* destination, mh_u16 source_left,
+                                  mh_u16 source_top, mh_u16 source_width,
+                                  mh_u16 source_height,
+                                  mh_u16 destination_width,
+                                  mh_u16 destination_height);
 size_t melee_host_gx_command_count(void);
 bool melee_host_gx_command_at(size_t index, MeleeHostGxCommand* output);
 size_t melee_host_gx_triangle_count(void);
