@@ -259,6 +259,15 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
     contagem lida de um slot de ponteiro), as duas tabelas de tremor, os
     joints de `6514` (pedestal de troféu) e `6504`, e `Fighter_804D64FC`, as
     tabelas da IA de CPU por personagem, com os scripts de `cmdscripts`.
+- Executado o tradutor de `ftLoadCommonData` (detalhes em
+  `docs/native_port_status.md`). Com `GS_VS` na tabela (só local), a entrada
+  passa pelo resto de `Fighter_800679B0` e pela inicialização dos jogadores e
+  para em `Fighter_Create` → `ftData_8008572C`, que pede `ftDataFox` a
+  `PlFx.dat`: os dados próprios do personagem.
+- Próximo bloqueio: `ftData*`, os dados de cada lutador (atributos, tabela de
+  ações com os scripts de comando, que já rodam no host, hitboxes e modelos).
+  É o primeiro de 26 personagens jogáveis; a luta Fox vs. Fox só precisa de
+  `PlFx.dat`.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

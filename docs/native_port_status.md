@@ -1400,6 +1400,36 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 189/189 e ctest 15/15;
   `host-sanitize` com 189/189, ctest 15/15, rota VS em 19,6 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
+- [x] `ftLoadCommonData` traduzido (`port/src/game/game_data_translators.c`):
+  o registro de 23 ponteiros que `Fighter_LoadCommonData` copia para globais.
+  - So escalares, palavra a palavra: `ftCommonData` (0x818 bytes, com as
+    cores e `x6EC` em bytes), as linhas de `ftCo_ItemThrowAttrs` (que
+    `ftCo_ItemThrow.c` percorre com offsets do console, validos porque as
+    linhas sao so floats), as linhas de swing, os multiplicadores de staling,
+    os modificadores de escala, coelho, metal e gravidade, `CrowdConfig`, as
+    distancias e alcances da IA de CPU e as listas de ataque
+    (`ftCo_AttackEntry`, 0x24 bytes de escalares). Os vetores sem tamanho
+    gravado vao ate a proxima fronteira.
+  - `ftPartsTable` e `Fighter_804D6540`, por tipo de lutador, apontam bytes
+    que ficam verbatim. As duas tabelas de cor tem o formato dos itens, com
+    scripts convertidos. `Fighter_804D6534` e o joint e a animacao do pedestal
+    de reaparecimento. `Fighter_804D6530` guarda cada lista de `Vec2` seguida
+    do tamanho, que `ftCo_DamageFall.c` le de volta de um slot de ponteiro; o
+    host guarda ali o tamanho como inteiro. As tabelas de tremor sao uma
+    lista de `Vec2` e o tamanho; `6514` e `6504` sao joints; os scripts de CPU
+    sao bytes que `ftCo_800B4880` le um a um.
+  - `Fighter_804D6510` fica NULL: nada no jogo o le.
+  - Um teste unitario monta um `PlCo` pequeno e confere as 23 tabelas pelos
+    tipos do jogo (`port/tests/fighter_data_check.c`).
+- [x] No disco: `ftLoadCommonData` traduz de `PlCo.dat` (805 relocacoes).
+- [x] Com `GS_VS` na tabela so localmente, a entrada passa por
+  `Fighter_LoadCommonData` e pelo resto de `Fighter_800679B0` e para em
+  `Fighter_Create` -> `ftData_8008572C`, chamado por `Player_80031AD0` em
+  `fn_8016E2BC`: `PlFx.dat` nao tem traducao para `ftDataFox` (assert de
+  `lbarchive.c:87`).
+- [x] Medido sem a entrada: `host-debug` com 190/190 e ctest 15/15;
+  `host-sanitize` com 190/190, ctest 15/15, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 

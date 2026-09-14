@@ -1214,6 +1214,113 @@ TEST_CASE("a stage's map_head translates with its lights shared by address")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_fighter_common_data(void* translated,
+                                                        char* message,
+                                                        std::size_t size);
+
+TEST_CASE("the fighter common data translates its 23 tables")
+{
+    // A small PlCo.dat: the record of 23 pointers and one small instance of
+    // each table.  fighter_data_check.c reads the result through the game's
+    // types.
+    const auto command = [](std::uint32_t opcode, std::uint32_t value) {
+        return (opcode << 26U) | value;
+    };
+    const std::uint32_t tables[23] = {
+        0x100, 0x920, 0x938, 0x94C, 0x954, 0x974, 0x984, 0x994,
+        0x99C, 0x9A4, 0x9BC, 0x9CC, 0x9D4, 0xA70, 0xAAC, 0xAD0,
+        0xE00, 0xAD8, 0xAEC, 0xAF0, 0xE00, 0xAF4, 0xB38,
+    };
+    ArchiveBuilder builder(0x1000);
+    for (std::uint32_t index = 0; index < 23; ++index) {
+        builder.pointer(index * 4, tables[index]);
+    }
+    // [0] ftCommonData.
+    builder.f32(0x100, 0.25F);
+    builder.u8(0x100 + 0x6DC, 1);
+    builder.u8(0x100 + 0x6DF, 4);
+    builder.u8(0x100 + 0x6EC, 9);
+    builder.u8(0x100 + 0x7D8, 0x10);
+    builder.u8(0x100 + 0x7DB, 0x40);
+    builder.u32(0x100 + 0x814, 7);
+    // [1] two item throw rows, [2] a swing row, [3] two staling floats.
+    builder.f32(0x920, 1.5F);
+    builder.f32(0x934, 2.5F);
+    builder.f32(0x93C, 3.0F);
+    builder.f32(0x950, 0.5F);
+    // [4] two parts slots, the first with its byte tables.
+    builder.pointer(0x954, 0x960);
+    builder.pointer(0x960, 0x96C);
+    builder.pointer(0x964, 0x970);
+    builder.u32(0x968, 3);
+    builder.u8(0x96D, 6);
+    builder.u8(0x972, 10);
+    // [5] one slot of part records.
+    builder.pointer(0x974, 0x978);
+    builder.pointer(0x978, 0x980);
+    builder.u32(0x97C, 1);
+    builder.u8(0x980, 4);
+    // [6] color animations: none, then the script at 30; [7] the script at 50.
+    builder.pointer(0x98C, 0xF00);
+    builder.u8(0x990, 30);
+    builder.pointer(0x994, 0xF00);
+    builder.u8(0x998, 50);
+    // [8] the respawn platform's joint and animation.
+    builder.pointer(0x99C, 0xE00);
+    builder.pointer(0x9A0, 0xE80);
+    // [9] a Vec2 list of two and its length.
+    builder.pointer(0x9A4, 0x9AC);
+    builder.u32(0x9A8, 2);
+    builder.f32(0x9AC, 1.0F);
+    builder.f32(0x9B0, 2.0F);
+    builder.f32(0x9B4, 3.0F);
+    builder.f32(0x9B8, 4.0F);
+    // [10] and [11] shake tables sharing a Vec2 list of one.
+    builder.pointer(0x9BC, 0x9C4);
+    builder.u32(0x9C0, 1);
+    builder.f32(0x9C4, 5.0F);
+    builder.f32(0x9C8, 6.0F);
+    builder.pointer(0x9CC, 0x9C4);
+    builder.u32(0x9D0, 1);
+    // [12] to [15] modifiers.
+    builder.f32(0x9D4, 1.25F);
+    builder.f32(0xA70, 0.75F);
+    builder.f32(0xAAC + 0xC, -2.0F);
+    builder.f32(0xAD0 + 0x4, 4.0F);
+    // [17] what nothing reads, [18] and [19] bytes, [21] the crowd.
+    builder.u32(0xAD8, 0xDEADBEEFU);
+    builder.u8(0xAED, 0x22);
+    builder.u8(0xAF0, 0x33);
+    builder.f32(0xAF4, 30.0F);
+    // [22] CPU tables: scripts, one attack list, distances and reaches.
+    builder.pointer(0xB38, 0xB60);
+    builder.pointer(0xB3C, 0xB6C);
+    builder.pointer(0xB58, 0xBB8);
+    builder.pointer(0xB5C, 0xBC0);
+    builder.pointer(0xB60, 0xB68);
+    builder.u8(0xB68, 0x92);
+    builder.pointer(0xB6C, 0xB70);
+    builder.u32(0xB70, 2);
+    builder.f32(0xB70 + 0x18, 0.5F);
+    builder.f32(0xBBC, 13.0F);
+    builder.f32(0xBC0, 7.0F);
+    // The script both color animation tables name.
+    builder.u32(0xF00, command(1, 5));
+    builder.public_symbol(0x000, "ftLoadCommonData");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const data =
+        HSD_ArchiveGetPublicAddress(&archive, "ftLoadCommonData");
+    REQUIRE(data != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_fighter_common_data(data, message,
+                                                      sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed
