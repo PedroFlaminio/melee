@@ -268,6 +268,40 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   ações com os scripts de comando, que já rodam no host, hitboxes e modelos).
   É o primeiro de 26 personagens jogáveis; a luta Fox vs. Fox só precisa de
   `PlFx.dat`.
+- Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
+  arquivos de personagem em 14/09/2026):
+  - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:
+    os atributos comuns (`ftCo_DatAttrs`, 0x184 bytes, 82 membros, só o último
+    é `u8`), `x24` (um `WaitStruct` de inteiros, que `ftCo_8008A7A8` recebe),
+    `x34`, `x38`, a câmera (`x3C`), `itPickup` (`x40`), `x50` (um `Vec2` que
+    `ftchangeparam.c` copia) e os limites de borda de `x44` (com seis `s16`).
+  - Os atributos próprios (`x4`) mudam de layout por personagem. Os do Fox
+    (`ftFox_DatAttrs`, 0xD4 bytes) são 44 escalares e um `ReflectDesc` que
+    termina num `u8`.
+  - As tabelas de ação (`xC` e `x14`) têm 327 e 14 entradas
+    `Fighter_WaitAnimData` de 0x18 bytes: nome, offset e tamanho da animação em
+    `PlFxAJ.dat`, script de comando e flags. `x10` e `x18` são pares de `u8`
+    por ação. Nos 58 arquivos de personagem, os 10.091 scripts obedecem à regra
+    da conversão de comandos, menos 52 ponteiros nos 14 arquivos de cópia do
+    Kirby (`ftDataKirbyCopy*`), que têm outro formato.
+  - Partes (`x8`): `FtPartsDesc`, com `vis_table` em linhas por fantasia de
+    quatro registros `{contagem, ponteiro}` (formato ainda a confirmar), e
+    `ftData_x8_x8`, com uma tabela de pares `u16`. `x1C` são cinco
+    `ftData_x1C` com vetor de bytes de partes e vetor de animações; `x20` é um
+    vetor em que só o índice 2 é ponteiro de joint (os outros valem 0 e 8);
+    `x5C` é o joint do metal.
+  - Com ponteiros e formato próprio: a dinâmica (`x2C`, com
+    `ArticleDynamicBones` e `FigaTree`), as hurtboxes (`x30`,
+    `ftHurtboxInit`), os itens do personagem (`x48_items`, quatro `Article`
+    como os de `itPublicData`), os SFX (`x4C`, `FtSFX` com `FtSFXArr`) e o IK
+    (`x58`, `ftData_x58_t`, índices `u8` e comprimentos `f32`).
+  - `x54` é declarado `int`, mas no disco é um ponteiro relocado e
+    `ftCo_09F7.c` o lê como `int*`. No host o campo precisa de tipo ponteiro:
+    como `int`, o endereço seria cortado e `x58` ficaria no offset errado.
+  - Depois de `ftData_8008572C`, `Fighter_Create` carrega a fantasia
+    (`ftData_80085820`) e as animações, que `ftdata.c` reloca com
+    `lbArchiveRelocate` em 32 bits no lugar (já registrado nas limitações do
+    status).
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console
