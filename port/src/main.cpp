@@ -28,6 +28,7 @@
 #include <melee_host/host.h>
 #include <melee_host/input.h>
 #include <melee_host/local_match.h>
+#include <melee_host/match_trace.h>
 #include <melee_host/match_rules.h>
 #include <melee_host/menu_native.h>
 #include <melee_host/scene_graphics.h>
@@ -2073,8 +2074,9 @@ int main(int argc, char** argv)
             /* FRAME[-LAST]:INPUT[+INPUT][@PORT].  Without LAST a press is
              * held for three drawn frames, so a scene sees the buttons go down
              * and come back up; with LAST it is held through that frame.  An
-             * input is a button name, or SX=N or SY=N for the main stick.
-             * PORT is 1 to 4, 1 when omitted; a port the script names is
+             * input is a button name, SX=N or SY=N for the main stick, or
+             * the headless diagnostics SHADOW, FIGHTERS, MOVE and ACTION. PORT is 1 to 4,
+             * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
                 mh_u32 first;
@@ -2085,7 +2087,8 @@ int main(int argc, char** argv)
                 mh_s8 stick_y;
             };
             /* FRAME:BMP=PATH writes that drawn frame to a BMP file through a
-             * hidden presenter, as --view-title-scene does. */
+             * hidden presenter, as --view-title-scene does.  FRAME:SHADOW
+             * instead checks its 256x256 I4 shadow texture headlessly. */
             struct ScriptedShot {
                 mh_u32 frame;
                 std::string path;
@@ -2095,6 +2098,11 @@ int main(int argc, char** argv)
                 MeleeHostContext* context = nullptr;
                 std::vector<ScriptedPress> presses;
                 std::vector<ScriptedShot> shots;
+                std::vector<mh_u32> shadow_checks;
+                std::vector<mh_u32> fighter_traces;
+                std::vector<mh_u32> action_traces;
+                std::vector<mh_s32> action_samples;
+                std::vector<std::array<mh_f32, 2>> movement_samples;
                 bool connected[4] = { true, false, false, false };
                 mh_u32 frames = 0;
 #if defined(MELEE_HOST_SDL_RENDERER)
@@ -2103,6 +2111,8 @@ int main(int argc, char** argv)
                 bool presenter_open = false;
 #endif
                 bool shot_failed = false;
+                bool shadow_check_failed = false;
+                bool movement_check_requested = false;
                 std::string shot_error;
             };
             struct NamedButton {
@@ -2149,6 +2159,47 @@ int main(int argc, char** argv)
                 }
                 const std::string frames = entry.substr(0, colon);
                 std::string inputs = entry.substr(colon + 1);
+                if (inputs == "SHADOW") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:SHADOW, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.shadow_checks.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "FIGHTERS") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:FIGHTERS, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.fighter_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "MOVE") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:MOVE, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.fighter_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    input.movement_check_requested = true;
+                    continue;
+                }
+                if (inputs == "ACTION") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:ACTION, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.action_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
                 if (inputs.rfind("BMP=", 0) == 0) {
                     if (frames.find('-') != std::string::npos ||
                         inputs.size() == 4)
@@ -2247,6 +2298,82 @@ int main(int argc, char** argv)
             const MeleeHostGxFrameSink scripted_pad = [](void* user_data) {
                 auto* const state = static_cast<ModesInput*>(user_data);
                 state->frames += 1;
+                for (const mh_u32 frame : state->shadow_checks) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::size_t textures = 0;
+                    std::size_t non_white_bytes = 0;
+                    for (std::size_t index = 0;
+                         index < melee_host_gx_captured_texture_count();
+                         ++index)
+                    {
+                        MeleeHostGxTextureDesc texture{};
+                        if (!melee_host_gx_captured_texture_at(index,
+                                                               &texture) ||
+                            texture.image == nullptr || texture.format != 0 ||
+                            texture.width != 256 || texture.height != 256)
+                        {
+                            continue;
+                        }
+                        ++textures;
+                        const auto* const bytes =
+                            static_cast<const mh_u8*>(texture.image);
+                        constexpr std::size_t kI4Bytes = 256U * 256U / 2U;
+                        non_white_bytes += static_cast<std::size_t>(std::count_if(
+                            bytes, bytes + kI4Bytes, [](mh_u8 value) {
+                                return value != 0xFFU;
+                            }));
+                    }
+                    std::cout << "shadow copy frame " << frame << ": "
+                              << textures << " I4 texture(s), "
+                              << non_white_bytes << " non-white byte(s)\n";
+                    if (textures == 0 || non_white_bytes == 0) {
+                        state->shadow_check_failed = true;
+                    }
+                }
+                for (const mh_u32 frame : state->fighter_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::cout << "fighters frame " << frame << ':';
+                    std::array<mh_f32, 2> positions{};
+                    std::array<bool, 2> present{};
+                    for (mh_u32 slot = 0; slot < 2; ++slot) {
+                        mh_f32 x = 0;
+                        mh_f32 y = 0;
+                        mh_f32 z = 0;
+                        if (melee_host_match_fighter_position(slot, &x, &y,
+                                                              &z))
+                        {
+                            positions[slot] = x;
+                            present[slot] = true;
+                            std::cout << " P" << slot + 1 << '=' << x << ','
+                                      << y << ',' << z;
+                        } else {
+                            std::cout << " P" << slot + 1 << "=none";
+                        }
+                    }
+                    std::cout << '\n';
+                    if (state->movement_check_requested && present[0] &&
+                        present[1]) {
+                        state->movement_samples.push_back(positions);
+                    }
+                }
+                for (const mh_u32 frame : state->action_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    mh_s32 motion = -1;
+                    if (melee_host_match_fighter_motion(0, &motion)) {
+                        std::cout << "action frame " << frame << ": P1="
+                                  << motion << '\n';
+                        state->action_samples.push_back(motion);
+                    } else {
+                        std::cout << "action frame " << frame
+                                  << ": P1=none\n";
+                    }
+                }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 for (ScriptedShot& shot : state->shots) {
                     if (shot.frame != state->frames || state->shot_failed) {
@@ -2385,6 +2512,32 @@ int main(int argc, char** argv)
                               << input.shot_error << '\n';
                     failed = true;
                 }
+            }
+            if (input.shadow_check_failed) {
+                std::cerr << "a requested shadow copy was empty\n";
+                failed = true;
+            }
+            if (input.movement_check_requested) {
+                bool moved = false;
+                if (input.movement_samples.size() >= 2) {
+                    const auto& first = input.movement_samples.front();
+                    const auto& last = input.movement_samples.back();
+                    moved = std::abs(last[0] - first[0]) > 0.1F ||
+                            std::abs(last[1] - first[1]) > 0.1F;
+                }
+                if (!moved) {
+                    std::cerr << "a requested movement trace did not move a "
+                                 "fighter\n";
+                    failed = true;
+                }
+            }
+            if (!input.action_traces.empty() &&
+                (input.action_samples.size() < 2 ||
+                 input.action_samples.front() == input.action_samples.back()))
+            {
+                std::cerr << "a requested action trace did not change P1's "
+                             "motion state\n";
+                failed = true;
             }
             if (failed) {
                 return 1;

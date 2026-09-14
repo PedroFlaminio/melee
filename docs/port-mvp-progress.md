@@ -16,7 +16,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio. A cópia I4 usada pela sombra agora é materializada pelo host e falta conferir a imagem da rota completa; faltam a resposta ao stick, KO e tela de resultados | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio. A máscara I4 da sombra e a resposta ao stick são conferidas na rota completa; faltam KO e tela de resultados | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; a rota título → menu → CSS → SSS → luta → CSS → menu é um teste, sem imagem nem áudio conferidos | 10% |
 
 ### Evidências verificadas
@@ -46,16 +46,24 @@ menu de pausa, e isso é teste. A imagem dos frames já sai por
 `FRAME:BMP=arquivo`, com estágio, HUD, "Ready" e contagem. Com `coll_data` os lutadores pousam e a
 câmera fica no estágio. Os dois Fox já aparecem no tamanho certo
 sobre o estágio. O host agora rasteriza a geometria sem textura do passe de
-sombra e escreve a cópia GX I4 (a causa da faixa preta), mas a captura da rota
-completa ainda precisa confirmar visualmente a sombra. Depois disso, verificar
-os lutadores responderem ao stick e aos botões (a pausa só prova que a entrada
-chega à cena). Sobram os relatos do UBSan, que a rota da luta multiplicou, e dois
+sombra e escreve a cópia GX I4; a rota completa confirma uma máscara não
+uniforme no frame 640. O stick já desloca P1 na rota completa. O próximo passo
+é verificar botões de combate, KO e tela de resultados. Sobram os relatos do
+UBSan, que a rota da luta multiplicou, e dois
 casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
 estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e
 `quake_model_set`, e do modo VS a tela de resultados. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
 salvos.
+
+### Limite operacional atual
+
+Uma sondagem inicial longa de movimento esgotou memória antes de terminar e
+foi interrompida. A sonda curta substituta mantém o consumo limitado e provou
+o deslocamento: P1 foi de x=-92,7 a x=-65,1 enquanto P2 ficou em x=91,8.
+O roteiro de integração agora falha se duas amostras `MOVE` não detectarem
+deslocamento de pelo menos 0,1 unidade.
 
 ## Registro de atualizações
 
@@ -101,3 +109,7 @@ salvos.
 | 2026-09-14 | 76% | Os dois Fox aparecem no tamanho certo sobre Hyrule Temple. Os planos gigantes eram vértices sem a translação da câmera: o recorder GX do host guardava a matriz de normal nas mesmas linhas da matriz de posição, e o HSD carrega a inversa transposta, que não tem translação, logo depois da posição de todo PObj iluminado. O host passou a guardar as matrizes de normal à parte, como o GX (teste unitário). O esqueleto já estava certo (medido sob gdb). Cada `FRAME:BMP=` imprime o relatório da captura, com views e sequências de draw. Resta uma faixa preta grande sobre o estágio, sem causa medida. 198/198 e ctest 15/15 nos dois presets; teste da luta em 56,7 s no `host-debug` e 260,3 s sob ASan, sem erro do ASan; 24 pontos do UBSan. |
 | 2026-09-14 | 76% | Causa da faixa preta medida: é a sombra projetada dos lutadores. O passo de sombra desenha fundo branco e a silhueta em cinza num alvo de 256x256 e copia com `GXCopyTex` (`GX_CTF_R4`) para uma textura de 4 bits alocada sem zerar. O host só registra a cópia, e a textura fica com o que havia na memória. Num experimento local, sem commit, encher a cópia de branco apagou a faixa nos frames 560 e 640. Branco também apaga a sombra; a correção é o host produzir a cópia a partir do que o passo de sombra desenhou. |
 | 2026-09-14 | 77% | `GXCopyTex` agora materializa no host a cópia I4 usada por `HSD_ShadowEndRender`: rasteriza a geometria já capturada do passe sem textura (retângulo branco e silhueta em cinza) e a codifica no tile GX 8×8, em vez de deixar a textura sem inicialização. O teste `I4 EFB copies rasterize the recorded shadow mask` verifica máscara, codificação e o despacho por `GX_CTF_R4`; 199/199 testes unitários e 14/14 testes CTest fora da rota longa de VS. A captura completa Fox/Fox ainda deve confirmar visualmente a sombra. |
+| 2026-09-14 | 78% | A rota Fox/Fox inteira confirma a cópia de sombra sem depender de SDL: `640:SHADOW` encontra duas texturas I4 de 256×256 e 7.338 bytes não brancos no frame 640. A checagem passa a fazer parte de `melee-host-vs-match-asset`; se não houver textura ou a máscara estiver vazia, o roteiro falha. O ambiente atual não expõe dispositivo de vídeo, por isso a inspeção de pixels por BMP continua pendente, mas a causa da faixa preta foi removida no caminho real. |
+| 2026-09-14 | 78% | Iniciada telemetria C de posição dos fighters, isolada atrás de `melee_host_match_fighter_position` para não importar os headers PPC no executável C++. Ao manter o stick na luta, o processo esgotou memória antes da segunda amostra; a execução foi interrompida. Registrada amostra inicial dos dois Fox no frame 640, sem alegar resposta de movimento. |
+| 2026-09-14 | 80% | Resposta ao stick validada sem repetir o estouro: cinco frames de `SX=127` para P1 moveram sua posição de x=-92,7 para x=-65,1; P2 permaneceu em x=91,8. `640:MOVE` e `660:MOVE` entram em `melee-host-vs-match-asset` e fazem o roteiro falhar se nenhum Fox se deslocar mais de 0,1. A próxima lacuna funcional é botões de combate, KO e resultados. |
+| 2026-09-14 | 82% | Botão A validado. O ASan localizou o SIGSEGV pós-A em `mpFloorGetLeft`: os walkers de extremidade de piso truncavam `groundCollLine` a `int`; sob `MELEE_HOST` agora preservam o ponteiro de 64 bits. P1 vai de `ftCo_MS_Wait` (14) a `ftCo_MS_Attack11` (44) entre os frames 640 e 650. A rota VS passa a apertar A e falha se a amostra de `ACTION` não mudar; `melee-host-vs-match-asset` passa em 57,6 s. Restam KO e resultados. |

@@ -1846,7 +1846,9 @@ extern "C" bool melee_host_gx_copy_efb_to_i4(
             const mh_u8 value = static_cast<mh_u8>(pixels[static_cast<std::size_t>(y) *
                                                          destination_width + x] >> 4U);
             if ((x & 1U) == 0) {
-                output[offset] = static_cast<mh_u8>((value << 4U) | (output[offset] & 0x0FU));
+                output[offset] = static_cast<mh_u8>(
+                    (static_cast<mh_u32>(value) << 4U) |
+                    (static_cast<mh_u32>(output[offset]) & 0x0FU));
             } else {
                 output[offset] = static_cast<mh_u8>((output[offset] & 0xF0U) | value);
             }

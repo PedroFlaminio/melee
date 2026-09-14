@@ -33,6 +33,17 @@
 #include <melee/gr/stage.h>
 #include <melee/it/inlines.h>
 #include <melee/it/it_26B1.h>
+
+/* Several endpoint walkers express a byte offset by first truncating the
+ * `groundCollLine` pointer to an `int`.  That is the console's 32-bit address
+ * arithmetic, but turns a valid host pointer into garbage on x86-64. */
+#ifdef MELEE_HOST
+#define MPLIB_COLL_LINE_AT_OFFSET(offset) \
+    ((CollLine*) ((u8*) groundCollLine + (offset)))
+#else
+#define MPLIB_COLL_LINE_AT_OFFSET(offset) \
+    ((CollLine*) ((int) groundCollLine + (offset)))
+#endif
 #include <melee/it/itCharItems.h>
 #include <melee/lb/types.h>
 #include <sysdolphin/baselib/cobj.h>
@@ -4162,7 +4173,7 @@ void mpFloorGetRight(int line_id, Vec3* pos_out)
 again: {
     MapLine* line;
     int next;
-    line = ((CollLine*) ((int) groundCollLine + w.id * sizeof(CollLine)))->x0;
+    line = MPLIB_COLL_LINE_AT_OFFSET(w.id * sizeof(CollLine))->x0;
     line_offset = w.id * sizeof(CollLine);
     next = line->next_id1;
     w.id = mpLineGetNextCheckInline(line, next);
@@ -4176,7 +4187,7 @@ again: {
     }
 done: {
     CollVtx* vtx =
-        &groundCollVtx[((CollLine*) ((int) groundCollLine + line_offset))
+        &groundCollVtx[MPLIB_COLL_LINE_AT_OFFSET(line_offset)
                            ->x0->v1_idx];
     pos_out->x = vtx->pos.x;
     pos_out->y = vtx->pos.y;
@@ -4199,7 +4210,7 @@ void mpFloorGetLeft(int line_id, Vec3* pos_out)
 again: {
     MapLine* line;
     int next;
-    line = ((CollLine*) ((int) groundCollLine + w.id * sizeof(CollLine)))->x0;
+    line = MPLIB_COLL_LINE_AT_OFFSET(w.id * sizeof(CollLine))->x0;
     line_offset = w.id * sizeof(CollLine);
     next = line->prev_id1;
     w.id = mpLineGetPrevCheckInline(line, next);
@@ -4213,7 +4224,7 @@ again: {
     }
 done: {
     CollVtx* vtx =
-        &groundCollVtx[((CollLine*) ((int) groundCollLine + line_offset))
+        &groundCollVtx[MPLIB_COLL_LINE_AT_OFFSET(line_offset)
                            ->x0->v0_idx];
     pos_out->x = vtx->pos.x;
     pos_out->y = vtx->pos.y;

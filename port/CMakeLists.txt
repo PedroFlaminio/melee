@@ -147,6 +147,7 @@ set(MELEE_HOST_FIGHTER_DATA_SOURCES
 )
 
 add_library(melee_game_core STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/game/match_trace.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbtime.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbvector.c
     ${CMAKE_SOURCE_DIR}/src/melee/lb/lbanim.c
@@ -624,6 +625,8 @@ if(MELEE_HOST_BUILD_TESTS)
                     330-337:SX=127 330-333:SX=-127@2
                     345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
                     380:START 420-421:SX=-127 425-439:SY=127 445:A
+                    640:SHADOW 640:MOVE 640:ACTION 641:A 641-645:SX=127
+                    650:ACTION 660:MOVE
                     680:START 700-715:L+R+A 705-715:START 730-850:B
         )
         set_tests_properties(melee-host-vs-match-asset PROPERTIES
