@@ -205,9 +205,13 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
     formato dos scripts de lutador também: os leitores são `ftaction.c`,
     `ftcolanim.c`, `grmaterial.c`, `itanimlist.c`, `lbcommand.c`, `lb_013B.c`
     e `lb_0219.c`, e as structs de comando têm 295 linhas de bit-field. A
-    decisão (converter as palavras e inverter a ordem dos campos sob
-    `MELEE_HOST`, ou `scalar_storage_order("big-endian")`, que só o GCC tem)
-    vale para itens e lutadores e deve vir antes do tradutor.
+    decisão vale para itens e lutadores e deve vir antes do tradutor. Medido
+    em 14/09/2026: com `__attribute__((scalar_storage_order("big-endian")))`
+    numa cópia de `struct unk0`, o GCC 16 lê `opcode`, `unk1` e `unk2` certos
+    de bytes big-endian, mas o `host-sanitize` compila com clang 22, que ignora
+    o atributo com um aviso. O caminho que serve aos dois presets é converter
+    as palavras do fluxo e declarar os campos em ordem inversa sob
+    `MELEE_HOST`, ou ler os campos por acessores.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console
