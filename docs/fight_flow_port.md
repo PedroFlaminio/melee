@@ -162,6 +162,14 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   sombras e marcadores de animação. `coll_data` (`MapCollData`) traz vértices,
   linhas e juntas de colisão; `grGroundParam` (`GroundParam`) mistura
   escalares, cores e um vetor de `StageParam`.
+- Executado o tradutor de `grGroundParam` (os 71 `Gr*.dat` traduzem). A
+  entrada passa por `Ground_801C28CC` e, ainda em `Ground_801C0754`, chega a
+  `Ground_801C5878`, que inicia o display de troféus (`tyDisplay_8031C2CC`):
+  `Toy_803124BC` pede a `TyDatai.usd` sete tabelas (`tyInitModelTbl`,
+  `tyInitModelDTbl`, `tyModelSortTbl`, `tyExpDifferentTbl`, `tyNoGetUsTbl`,
+  `tyDisplayModelTbl`, `tyDisplayModelUsTbl`), todas vetores de structs só de
+  escalares terminados por -1, e para na primeira. A falta de `map_head` não é
+  fatal até ali.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

@@ -11,6 +11,7 @@
 #include <melee_host/hsd_archive.h>
 
 #include <melee/gm/gmevent.h>
+#include <melee/gr/types.h>
 #include <melee/pl/types.h>
 
 #include <stdalign.h>
@@ -420,8 +421,134 @@ static void* player_common_data(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : record;
 }
 
+/* grGroundParam (Gr*.dat): a stage's scalars, the StageParam rows
+ * Ground_801C28CC looks up by StKind, and nine colors.  The rows hold no
+ * pointer and keep their 0x64 bytes on the host.  GroundParam holds one
+ * pointer, to the rows, so its fields keep their offsets up to it and move
+ * after it; every field is read at its PowerPC offset.  On disk (GrSh.dat)
+ * the 18 rows end where the parameters begin. */
+_Static_assert(offsetof(GroundParam, stage_params) == 0xB0,
+               "GroundParam must keep the PowerPC offsets up to its rows");
+_Static_assert(sizeof(StageParam) == 0x64 && offsetof(StageParam, x1A) == 0x1A,
+               "StageParam must keep the PowerPC layout on the host");
+
+enum {
+    /* No stage lists more rows than there are stage kinds. */
+    GROUND_PARAM_MAX_STAGE_ROWS = 0x100,
+};
+
+static s16 read_s16(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    return (s16) melee_host_hsd_reader_u16(reader, at);
+}
+
+static void stage_param_row(MeleeHostHsdReader* reader, mh_u32 at,
+                            StageParam* row)
+{
+    mh_u32 i;
+
+    row->stkind = (StKind) (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    row->x4 = (s32) melee_host_hsd_reader_u32(reader, at + 0x4);
+    row->x8 = (s32) melee_host_hsd_reader_u32(reader, at + 0x8);
+    row->xC = melee_host_hsd_reader_u32(reader, at + 0xC);
+    row->x10 = melee_host_hsd_reader_u32(reader, at + 0x10);
+    row->x14 = read_s16(reader, at + 0x14);
+    row->x16 = read_s16(reader, at + 0x16);
+    row->x18 = read_s16(reader, at + 0x18);
+    for (i = 0; i < ARRAY_SIZE(row->x1A); i++) {
+        row->x1A[i] = read_s16(reader, at + 0x1A + i * 2);
+    }
+}
+
+static void* ground_param(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const s32 count = (s32) melee_host_hsd_reader_u32(reader, root + 0xB4);
+    bool present;
+    const mh_u32 rows = target_of(reader, root + 0xB0, &present);
+    GroundParam* param;
+    mh_u32 i;
+
+    if (count < 0 || count > GROUND_PARAM_MAX_STAGE_ROWS ||
+        (count != 0 && !present))
+    {
+        melee_host_hsd_reader_fail(reader,
+                                   "the ground parameters list their stage "
+                                   "rows wrongly");
+        return NULL;
+    }
+    param = melee_host_hsd_reader_allocate(reader, sizeof(*param),
+                                           alignof(GroundParam));
+    if (param == NULL) {
+        return NULL;
+    }
+    param->y = melee_host_hsd_reader_f32(reader, root + 0x0);
+    param->x4 = read_s16(reader, root + 0x4);
+    param->x6_pad[0] = melee_host_hsd_reader_u8(reader, root + 0x6);
+    param->x6_pad[1] = melee_host_hsd_reader_u8(reader, root + 0x7);
+    param->x8 = read_s16(reader, root + 0x8);
+    param->xA = read_s16(reader, root + 0xA);
+    param->xC = (s32) melee_host_hsd_reader_u32(reader, root + 0xC);
+    param->x10 = (s32) melee_host_hsd_reader_u32(reader, root + 0x10);
+    param->x14 = (s32) melee_host_hsd_reader_u32(reader, root + 0x14);
+    param->x18 = melee_host_hsd_reader_f32(reader, root + 0x18);
+    param->x1C = melee_host_hsd_reader_f32(reader, root + 0x1C);
+    param->x20 = melee_host_hsd_reader_f32(reader, root + 0x20);
+    param->x24 = melee_host_hsd_reader_f32(reader, root + 0x24);
+    param->x28 = melee_host_hsd_reader_f32(reader, root + 0x28);
+    param->x2C_pad[0] = melee_host_hsd_reader_u8(reader, root + 0x2C);
+    param->x2C_pad[1] = melee_host_hsd_reader_u8(reader, root + 0x2D);
+    param->x2E = read_s16(reader, root + 0x2E);
+    param->x30 = (s32) melee_host_hsd_reader_u32(reader, root + 0x30);
+    param->x34 = (s32) melee_host_hsd_reader_u32(reader, root + 0x34);
+    param->x38 = (s32) melee_host_hsd_reader_u32(reader, root + 0x38);
+    param->x3C = melee_host_hsd_reader_f32(reader, root + 0x3C);
+    param->x40 = melee_host_hsd_reader_f32(reader, root + 0x40);
+    param->x44 = melee_host_hsd_reader_f32(reader, root + 0x44);
+    param->x48 = melee_host_hsd_reader_f32(reader, root + 0x48);
+    /* A bool is one byte on both, followed by padding up to the float. */
+    param->x4C_fixed_cam = melee_host_hsd_reader_u8(reader, root + 0x4C) != 0;
+    param->x50 = melee_host_hsd_reader_f32(reader, root + 0x50);
+    param->x54 = melee_host_hsd_reader_f32(reader, root + 0x54);
+    param->x58 = melee_host_hsd_reader_f32(reader, root + 0x58);
+    param->x5C = melee_host_hsd_reader_f32(reader, root + 0x5C);
+    param->x60 = melee_host_hsd_reader_f32(reader, root + 0x60);
+    param->x64 = melee_host_hsd_reader_f32(reader, root + 0x64);
+    param->x68 = read_s16(reader, root + 0x68);
+    for (i = 0; i < ARRAY_SIZE(param->x6A); i++) {
+        param->x6A[i] = read_s16(reader, root + 0x6A + i * 2);
+    }
+    param->stage_params = NULL;
+    if (present) {
+        param->stage_params = melee_host_hsd_reader_allocate(
+            reader, sizeof(StageParam) * (size_t) (count != 0 ? count : 1),
+            alignof(StageParam));
+        if (param->stage_params == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < (mh_u32) count; i++) {
+            stage_param_row(reader, rows + i * 0x64, &param->stage_params[i]);
+        }
+    }
+    param->stage_param_count = count;
+    {
+        GXColor* const colors[] = {
+            &param->xB8, &param->xBC, &param->xC0, &param->xC4, &param->xC8,
+            &param->xCC, &param->xD0, &param->xD4, &param->xD8,
+        };
+        for (i = 0; i < ARRAY_SIZE(colors); i++) {
+            const mh_u32 at = root + 0xB8 + i * 4;
+            colors[i]->r = melee_host_hsd_reader_u8(reader, at + 0);
+            colors[i]->g = melee_host_hsd_reader_u8(reader, at + 1);
+            colors[i]->b = melee_host_hsd_reader_u8(reader, at + 2);
+            colors[i]->a = melee_host_hsd_reader_u8(reader, at + 3);
+        }
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : param;
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("grGroundParam", ground_param);
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("plLoadCommonData",
                                               player_common_data);

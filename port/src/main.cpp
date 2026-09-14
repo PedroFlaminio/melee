@@ -1649,6 +1649,9 @@ void print_archive_report(const ArchiveProbeReport& report)
  * them. */
 int load_archive(const char* path, const std::vector<const char*>& symbols)
 {
+    /* The game's own data translators, which the boot registers, so that a
+     * symbol like lbRefData reads as the route reads it. */
+    melee_host_game_register_data_translators();
     ArchiveProbeReport report;
     report.file = std::filesystem::path(path).filename().string();
     report.verbose = true;
@@ -1679,6 +1682,7 @@ int sweep_archives(const std::filesystem::path& root)
     }
     std::sort(paths.begin(), paths.end());
 
+    melee_host_game_register_data_translators();
     ArchiveProbeReport report;
     mh_u32 archives = 0;
     mh_u32 not_single = 0;

@@ -21,10 +21,10 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 14/14 testes aprovados; 183/183 testes
+- `ctest --preset host-debug`: 14/14 testes aprovados; 184/184 testes
   unitários.
-- `ctest --preset host-sanitize -V`: 14/14 e 183/183, sem erro do ASan; a rota
-  VS leva 19,7 s. O UBSan só relata chamadas por ponteiro de função de outro
+- `ctest --preset host-sanitize -V`: 14/14 e 184/184, sem erro do ASan; a rota
+  VS leva 20,0 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -64,3 +64,4 @@ Battlefield ficam travados na SSS sem dados salvos.
 | 2026-09-14 | 46% | Loader de partículas do host: `eff*DataTable` e `map_ptcl`/`map_texg` viram bancos já localizados em largura de ponteiro, com bytes de comando, texels e paletas verbatim; os 76 símbolos de partícula do disco traduzem. Joints de spline traduzidos. A entrada da luta passa pelos efeitos e para em `plLoadCommonData` (`PdPm.dat`). |
 | 2026-09-14 | 46% | `plLoadCommonData` (limiares de bônus e truques) traduzido, com teste unitário. A entrada da luta passa pelos dados de jogador e pelo começo do estágio e cai em `Ground_801C0754`: a entrada de Hyrule Temple em `stage_datas` é nula, porque o host liga os estágios por referência fraca. |
 | 2026-09-14 | 46% | A tabela de estágios de `ground.c` liga forte (sem `host_weak_stages.h`), sem símbolo indefinido e com as rotas nos mesmos frames. A entrada da luta acha Hyrule Temple, lê `GrSh.dat` e para nos dados de estágio, que o host ainda não traduz (`map_head`, `coll_data`, `grGroundParam` e mais cinco). |
+| 2026-09-14 | 47% | `grGroundParam` (parâmetros e linhas `StageParam` de cada estágio) traduzido, com teste; os 71 `Gr*.dat` traduzem. `--load-archive` e `--sweep-archives` passam a registrar os tradutores C do jogo (varredura: `game_data` 170/170). A entrada da luta passa por `Ground_801C28CC` e para no display de troféus, que pede as sete tabelas de `TyDatai.usd`. |

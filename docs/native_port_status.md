@@ -1109,8 +1109,9 @@ Atualizado em 13 de setembro de 2026.
   particulas, que `psInitDataBankLocate` e `psInitDataBankLoad` relocam no
   lugar com enderecos de 32 bits.
 - [x] Os diagnosticos `--load-archive` e `--sweep-archives` nao fazem o boot e
-  por isso nao registram os tradutores C do jogo: la um simbolo como
-  `lbRefData` aparece como sem traducao, embora a rota o traduza.
+  por isso nao registravam os tradutores C do jogo: la um simbolo como
+  `lbRefData` aparecia como sem traducao, embora a rota o traduza. Desde
+  14/09/2026 eles os registram (ver adiante).
 - [x] Medido: `host-debug` com 181/181 e ctest 14/14; `host-sanitize` com
   181/181, ctest 14/14, rota VS em 20,0 s, nenhum erro do ASan e, do UBSan, os
   mesmos quatro relatos de chamada por ponteiro de funcao.
@@ -1206,6 +1207,26 @@ Atualizado em 13 de setembro de 2026.
   (`ground.c:1509`).
 - [x] Medido sem a entrada: `host-debug` com 183/183 e ctest 14/14;
   `host-sanitize` com 183/183, ctest 14/14, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
+- [x] `grGroundParam` traduzido (`port/src/game/game_data_translators.c`). O
+  registro de 0xDC bytes tem um unico ponteiro, em `+0xB0`, para as linhas
+  `StageParam` (0x64 bytes cada, sem ponteiro), seguido da contagem e de nove
+  cores; no host os campos ate o ponteiro mantem o offset e os seguintes andam
+  quatro bytes. O tradutor le cada campo no offset do PowerPC, com
+  `_Static_assert` do offset do ponteiro e do layout de `StageParam`, e recusa
+  linhas contadas sem ponteiro. No `GrSh.dat` as 18 linhas terminam onde o
+  registro comeca. Um teste unitario confere escalares, `bool`, cores e duas
+  linhas.
+- [x] `--load-archive` e `--sweep-archives` registram os tradutores C do jogo
+  antes de ler, como o boot faz. Os 71 `grGroundParam` do disco traduzem. A
+  varredura passa a `game_data` 170/170 (eram 86) e `unsupported` 5.312, com
+  as mesmas duas recusas de `TyLight.dat`.
+- [x] Com `GS_VS` na tabela so localmente, a entrada passa por
+  `Ground_801C28CC` e para em `Toy_803124BC`, chamado por `Ground_801C5878` e
+  `tyDisplay_8031C2CC`: `TyDatai.usd` (19 KB, sem relocacoes, 7 simbolos) nao
+  tem traducao para `tyInitModelTbl` (assert de `lbarchive.c:87`).
+- [x] Medido sem a entrada: `host-debug` com 184/184 e ctest 14/14;
+  `host-sanitize` com 184/184, ctest 14/14, rota VS em 20,0 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
@@ -1446,10 +1467,10 @@ Atualizado em 13 de setembro de 2026.
   endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
   mesmo endereco continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
-  carrega ainda: a API de arquivo do host nao traduz `map_head`, `coll_data`,
-  `grGroundParam`, `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` nem
-  `quake_model_set`. Os 71 arquivos `Gr*.dat` trazem os seis primeiros; 67
-  trazem os dois ultimos.
+  carrega ainda: a API de arquivo do host traduz `grGroundParam`, mas nao
+  `map_head`, `coll_data`, `itemdata`, `ALDYakuAll`, `yakumono_param`,
+  `map_plit` nem `quake_model_set`. Os 71 arquivos `Gr*.dat` trazem os cinco
+  primeiros; 67 trazem os dois ultimos.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.

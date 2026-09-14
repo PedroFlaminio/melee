@@ -734,6 +734,117 @@ TEST_CASE("the player common data translates to a pointer and host words")
             MELEE_HOST_OK);
 }
 
+TEST_CASE("the ground parameters translate with their stage rows")
+{
+    // GrSh.dat's layout: the StageParam rows (0x64 bytes each), then the
+    // parameters, whose pointer to the rows sits at +0xB0 with the count
+    // after it and nine colors from +0xB8.  On the host the pointer is eight
+    // bytes wide, so the count and the colors move by four.
+    struct HostGroundParam {
+        unsigned char prefix[0xB0];
+        unsigned char* stage_params;
+        std::int32_t stage_param_count;
+        std::uint8_t colors[9 * 4];
+    };
+    REQUIRE(offsetof(HostGroundParam, stage_param_count) == 0xB8);
+    REQUIRE(offsetof(HostGroundParam, colors) == 0xBC);
+
+    ArchiveBuilder builder(0x200);
+    // Two rows at data+0x00.
+    builder.u32(0x00, 14);
+    builder.u32(0x04, 0xFFFFFFFFU);
+    builder.u16(0x14, 0xFFF6);
+    builder.u16(0x1A, 7);
+    builder.u16(0x62, 9);
+    builder.u32(0x64, 15);
+    builder.u16(0xC6, 11);
+    // The parameters at data+0x100.
+    builder.f32(0x100, 0.9F);
+    builder.u16(0x104, 195);
+    builder.u32(0x10C, 83);
+    builder.u32(0x114, 0xFFFFFFF6U);
+    builder.f32(0x118, 0.15F);
+    builder.u16(0x12E, 60);
+    builder.u8(0x14C, 1);
+    builder.f32(0x160, -1.0F);
+    builder.u16(0x168, 76);
+    builder.u16(0x16A, 160);
+    builder.u16(0x1AE, 40);
+    builder.pointer(0x1B0, 0x00);
+    builder.u32(0x1B4, 2);
+    builder.u32(0x1B8, 0x649BFAFFU);
+    builder.u32(0x1D8, 0x5A78D2FFU);
+    builder.public_symbol(0x100, "grGroundParam");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    REQUIRE(melee_host_hsd_symbol_kind("grGroundParam") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const param = static_cast<HostGroundParam*>(
+        HSD_ArchiveGetPublicAddress(&archive, "grGroundParam"));
+    REQUIRE(param != nullptr);
+    const auto f32_at = [](const unsigned char* base, std::size_t at) {
+        float value = 0.0F;
+        std::memcpy(&value, base + at, sizeof(value));
+        return value;
+    };
+    const auto s32_at = [](const unsigned char* base, std::size_t at) {
+        std::int32_t value = 0;
+        std::memcpy(&value, base + at, sizeof(value));
+        return value;
+    };
+    const auto s16_at = [](const unsigned char* base, std::size_t at) {
+        std::int16_t value = 0;
+        std::memcpy(&value, base + at, sizeof(value));
+        return value;
+    };
+    REQUIRE(f32_at(param->prefix, 0x00) == 0.9F);
+    REQUIRE(s16_at(param->prefix, 0x04) == 195);
+    REQUIRE(s32_at(param->prefix, 0x0C) == 83);
+    REQUIRE(s32_at(param->prefix, 0x14) == -10);
+    REQUIRE(f32_at(param->prefix, 0x18) == 0.15F);
+    REQUIRE(s16_at(param->prefix, 0x2E) == 60);
+    REQUIRE(param->prefix[0x4C] == 1);
+    REQUIRE(f32_at(param->prefix, 0x60) == -1.0F);
+    REQUIRE(s16_at(param->prefix, 0x68) == 76);
+    REQUIRE(s16_at(param->prefix, 0x6A) == 160);
+    REQUIRE(s16_at(param->prefix, 0xAE) == 40);
+    REQUIRE(param->stage_param_count == 2);
+    REQUIRE(param->colors[0] == 0x64);
+    REQUIRE(param->colors[3] == 0xFF);
+    REQUIRE(param->colors[32] == 0x5A);
+    REQUIRE(param->colors[34] == 0xD2);
+
+    const unsigned char* const rows = param->stage_params;
+    REQUIRE(rows != nullptr);
+    REQUIRE(s32_at(rows, 0x00) == 14);
+    REQUIRE(s32_at(rows, 0x04) == -1);
+    REQUIRE(s16_at(rows, 0x14) == -10);
+    REQUIRE(s16_at(rows, 0x1A) == 7);
+    REQUIRE(s16_at(rows, 0x62) == 9);
+    REQUIRE(s32_at(rows, 0x64) == 15);
+    REQUIRE(s16_at(rows, 0xC6) == 11);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // Rows counted with no pointer to them are refused.
+    ArchiveBuilder lost(0x200);
+    lost.u32(0x1B4, 2);
+    lost.public_symbol(0x100, "grGroundParam");
+    std::vector<std::byte> lost_bytes = lost.build();
+    HSD_Archive lost_archive{};
+    REQUIRE(HSD_ArchiveParse(&lost_archive, bytes_of(lost_bytes),
+                             lost_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&lost_archive, "grGroundParam") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("stage rows") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(lost_bytes.data()) ==
+            MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed
