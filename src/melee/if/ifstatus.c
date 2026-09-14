@@ -741,6 +741,18 @@ HSD_GObj* ifStatus_802F6194(HSD_GObj* node, s32 n)
     if ((node == NULL) || (n < 0)) {
         return NULL;
     }
+#ifdef MELEE_HOST
+    /* ifStatus_802F5EC0 hands over a JObj cast to a GObj.  On the console
+     * next_gx and next lie where a JObj keeps child and next; the host's
+     * pointer width moves them apart, so the walk goes through the JObj. */
+    {
+        HSD_JObj* jobj = HSD_JObjGetChild((HSD_JObj*) node);
+        for (i = 0; i < n && jobj != NULL; i++) {
+            jobj = HSD_JObjGetNext(jobj);
+        }
+        return (HSD_GObj*) jobj;
+    }
+#endif
     if (node == NULL) {
         gx_head = NULL;
     } else {

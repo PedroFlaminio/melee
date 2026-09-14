@@ -287,8 +287,13 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `ifStatus_802F665C` → `ifStatus_802F5EC0` (`ifstatus.c:712`) acha os dígitos
   de dano com `ifStatus_802F6194`, que recebe um JObj convertido em GObj e
   anda por `next_gx` e `next`: no console esses campos caem onde o JObj guarda
-  `child` e `next`, e no host a largura de ponteiro os separa. A correção é
-  andar pelo próprio JObj sob `MELEE_HOST`.
+  `child` e `next`, e no host a largura de ponteiro os separa. Corrigido sob
+  `MELEE_HOST`, andando pelo próprio JObj.
+- Com a correção, `gm_Scene_Vs_OnEnter` termina e a cena entra no laço de
+  frames (`gm_801A4D34`). O primeiro frame roda os procs e, no desenho,
+  `ftDrawCommon_80080E18` → `ftLib_80086A8C` → `Camera_80030CFC` projeta um
+  ponto da caixa de câmera do lutador fora de ±50.000 (assert de
+  `lbvector.c:383`). Próximo passo: ver de onde vem a posição.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

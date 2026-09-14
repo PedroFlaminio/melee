@@ -1532,6 +1532,17 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
   `host-sanitize` com 193/193, ctest 15/15, rota VS em 20,6 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] `ifStatus_802F6194` sob `MELEE_HOST` anda pelo `child` e pelo `next` do
+  proprio JObj. Sem o define, `ifstatus.c` pre-processa identico, token a
+  token.
+- [x] Com `GS_VS` na tabela so localmente, `gm_Scene_Vs_OnEnter` termina e a
+  cena entra no laco de frames. O primeiro frame roda os procs e para no
+  desenho: `ftDrawCommon_80080E18` -> `ftLib_80086A8C` ->
+  `Camera_80030CFC` projeta um ponto da caixa de camera de um lutador com x
+  fora de +-50.000 (assert de `lbvector.c:383`).
+- [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
+  `host-sanitize` com 193/193, ctest 15/15, rota VS em 20,3 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 

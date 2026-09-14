@@ -16,7 +16,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial), carrega o menu de pausa, o HUD e o flash de fundo, termina a montagem da cena (`fn_8016E730`) e para nos dígitos de dano do HUD (`ifstatus.c:712`), por um JObj lido com o layout de GObj | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial), carrega o menu de pausa, o HUD e o flash de fundo, termina a entrada da cena e roda os procs do primeiro frame; para no desenho, ao projetar a caixa de câmera de um lutador com posição fora da faixa (`lbvector.c:383`) | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
 
 ### Evidências verificadas
@@ -24,7 +24,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 - `ctest --preset host-debug`: 15/15 testes aprovados; 193/193 testes
   unitários.
 - `ctest --preset host-sanitize -V`: 15/15 e 193/193, sem erro do ASan; a rota
-  VS leva 20,6 s. O UBSan só relata chamadas por ponteiro de função de outro
+  VS leva 20,3 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -40,10 +40,10 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 Seguir a entrada da cena de luta (`GS_VS`) até o primeiro frame da luta Fox
 vs. Fox em Hyrule Temple. Os dois lutadores são criados e a montagem da cena
-(`fn_8016E730`) termina, com pausa, HUD e flash de fundo. O próximo passo é o
-resto de `gm_Scene_Vs_OnEnter`, a começar pelos dígitos de dano do HUD
-(`ifStatus_802F6194`, que anda por um JObj com o layout de GObj), e depois o
-primeiro frame. Do estágio faltam `coll_data` e os outros dados que o jogo
+(`fn_8016E730`) termina, com pausa, HUD e flash de fundo; a cena entra no laço
+de frames. O próximo passo é o desenho do primeiro frame, que para ao projetar
+a caixa de câmera de um lutador com posição fora da faixa, e depois os frames
+seguintes. Do estágio faltam `coll_data` e os outros dados que o jogo
 hoje substitui por faixas padrão. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
@@ -81,3 +81,4 @@ salvos.
 | 2026-09-14 | 58% | `ftDataFox` traduzido (atributos, ações, partes, dinâmica, hurtboxes, itens, SFX e IK), com teste. Endereços de animação em largura de ponteiro; fila de ARAM (`lbarq.c`) montada no boot, com a espera síncrona dando passos no escalonador; e, no `map_head`, o joint de cada entrada de pares, sem o qual os lutadores nasciam na posição lida da pilha. A entrada da luta cria os dois Fox e para no menu de pausa (`ScGamPause_scene_data`, `GmPause.dat`). |
 | 2026-09-14 | 59% | `_scene_data` na API de arquivo: `SceneDesc` com modelos, câmeras, luzes e fogs e suas animações; câmeras e fogs são vetores sem terminador, contados pelas entradas com descritor até a próxima fronteira. Os 43 do disco traduzem e carregam (1.495 objetos), com teste. A entrada da luta carrega o menu de pausa e a cena do HUD e para nos modelos do HUD (`ScInfCnt_scene_models`). |
 | 2026-09-14 | 60% | `_scene_models` na API de arquivo e as tabelas do HUD sem sufixo (`Stc_scemdls`, `Stc_rarwmdls`, `tdsce`, `lupe`), com teste; os 26 do disco carregam (268 JObjs). `lbBgFlashColAnimData` traduzido. A montagem da cena de luta (`fn_8016E730`) termina; a entrada para nos dígitos de dano do HUD, onde `ifStatus_802F6194` anda por um JObj com o layout de GObj. |
+| 2026-09-14 | 61% | `ifStatus_802F6194` anda pelo próprio JObj no host (no console `next_gx` e `next` do GObj caem sobre `child` e `next` do JObj). A entrada da cena de luta termina e a cena entra no laço de frames: o primeiro frame roda os procs e para no desenho, ao projetar a caixa de câmera de um lutador com posição fora da faixa (`lbvector.c:383`). |
