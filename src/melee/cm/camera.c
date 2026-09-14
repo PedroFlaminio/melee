@@ -918,12 +918,20 @@ void Camera_ApplyQuake(CameraBounds* bounds, CameraTransformState* state)
     f32 input_x;
     f32 input_y;
     f32 depth_ratio;
+#ifdef MELEE_HOST
+    /* The console reaches cm_803BCB64 through the statics it lays out in a row
+     * after cm_803BCB18.  The host neither keeps them in a row nor gives the
+     * callback table the same size, so it names the description itself. */
+#define CAMERA_QUAKE_DESC cm_803BCB64
+#else
     struct CameraStaticData {
         CameraModeCallbacks callbacks;
         HSD_WObjDesc interest;
         HSD_WObjDesc eyepos;
         HSD_CameraDescPerspective desc;
     }* data = (struct CameraStaticData*) &cm_803BCB18;
+#define CAMERA_QUAKE_DESC data->desc
+#endif
 
     input_x = game_camera.quake_offset.x * game_camera.quake_scale;
     input_y = game_camera.quake_offset.y * game_camera.quake_scale;
@@ -940,12 +948,13 @@ void Camera_ApplyQuake(CameraBounds* bounds, CameraTransformState* state)
     half_view_height =
         bounds->z_pos * tanf(0.5f * (0.017453292f * state->fov));
     viewport_x_scale =
-        data->desc.aspect *
-        (half_view_height /
-         (0.5f * (f32) (data->desc.viewport.xmax - data->desc.viewport.xmin)));
+        CAMERA_QUAKE_DESC.aspect *
+        (half_view_height / (0.5f * (f32) (CAMERA_QUAKE_DESC.viewport.xmax -
+                                          CAMERA_QUAKE_DESC.viewport.xmin)));
     viewport_y_scale =
-        half_view_height /
-        (0.5f * (f32) (data->desc.viewport.ymax - data->desc.viewport.ymin));
+        half_view_height / (0.5f * (f32) (CAMERA_QUAKE_DESC.viewport.ymax -
+                                          CAMERA_QUAKE_DESC.viewport.ymin));
+#undef CAMERA_QUAKE_DESC
     depth_factor_y = Stage_GetCamZoomRate();
     depth_factor_x = Stage_GetCamMaxDepth() - depth_factor_y;
 

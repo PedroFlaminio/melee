@@ -24,7 +24,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 - `ctest --preset host-debug`: 15/15 testes aprovados; 193/193 testes
   unitários.
 - `ctest --preset host-sanitize -V`: 15/15 e 193/193, sem erro do ASan; a rota
-  VS leva 20,3 s. O UBSan só relata chamadas por ponteiro de função de outro
+  VS leva 19,7 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -82,3 +82,4 @@ salvos.
 | 2026-09-14 | 59% | `_scene_data` na API de arquivo: `SceneDesc` com modelos, câmeras, luzes e fogs e suas animações; câmeras e fogs são vetores sem terminador, contados pelas entradas com descritor até a próxima fronteira. Os 43 do disco traduzem e carregam (1.495 objetos), com teste. A entrada da luta carrega o menu de pausa e a cena do HUD e para nos modelos do HUD (`ScInfCnt_scene_models`). |
 | 2026-09-14 | 60% | `_scene_models` na API de arquivo e as tabelas do HUD sem sufixo (`Stc_scemdls`, `Stc_rarwmdls`, `tdsce`, `lupe`), com teste; os 26 do disco carregam (268 JObjs). `lbBgFlashColAnimData` traduzido. A montagem da cena de luta (`fn_8016E730`) termina; a entrada para nos dígitos de dano do HUD, onde `ifStatus_802F6194` anda por um JObj com o layout de GObj. |
 | 2026-09-14 | 61% | `ifStatus_802F6194` anda pelo próprio JObj no host (no console `next_gx` e `next` do GObj caem sobre `child` e `next` do JObj). A entrada da cena de luta termina e a cena entra no laço de frames: o primeiro frame roda os procs e para no desenho, ao projetar a caixa de câmera de um lutador com posição fora da faixa (`lbvector.c:383`). |
+| 2026-09-14 | 62% | O NaN do primeiro frame era da câmera: `Camera_ApplyQuake` lia a descrição da câmera pelo layout de statics em sequência do console e gravava NaN na translação de tremor. No host a função lê `cm_803BCB64` direto. O primeiro frame desenha, e a luta segue até os procs de um frame seguinte, onde o sistema de partículas guarda endereços de gerador em `u32`. |

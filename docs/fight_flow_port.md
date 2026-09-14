@@ -293,7 +293,11 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   frames (`gm_801A4D34`). O primeiro frame roda os procs e, no desenho,
   `ftDrawCommon_80080E18` → `ftLib_80086A8C` → `Camera_80030CFC` projeta um
   ponto da caixa de câmera do lutador fora de ±50.000 (assert de
-  `lbvector.c:383`). Próximo passo: ver de onde vem a posição.
+  `lbvector.c:383`). A causa era a câmera: `Camera_ApplyQuake` lê a descrição
+  da câmera (`cm_803BCB64`) pelo layout de statics em sequência a partir de
+  `cm_803BCB18`, que no host não vale; a translação de tremor saía NaN e
+  contaminava olho e interesse. Corrigido sob `MELEE_HOST`, lendo
+  `cm_803BCB64` direto.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

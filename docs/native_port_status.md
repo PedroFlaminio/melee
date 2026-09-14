@@ -1543,6 +1543,20 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
   `host-sanitize` com 193/193, ctest 15/15, rota VS em 20,3 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] O NaN do primeiro frame vinha da camera, nao do lutador: posicao, caixa
+  de camera e ECB estavam validos, mas o olho e o interesse do CObj tinham x e
+  y NaN. `Camera_8002AF68` soma `game_camera.translation` ao transform, e um
+  watchpoint mostrou `Camera_ApplyQuake` gravando NaN ali. A funcao chega a
+  `cm_803BCB64` (a descricao da camera) convertendo `&cm_803BCB18` numa
+  struct com a tabela de callbacks, os dois `HSD_WObjDesc` e a descricao, que
+  no console ficam em sequencia no `.data`. No host os statics nao ficam em
+  sequencia e a tabela de callbacks tem ponteiros de 8 bytes; a largura do
+  viewport lida saia zero, a escala infinita e `0 * inf` dava NaN. Sob
+  `MELEE_HOST` a funcao le `cm_803BCB64` direto; sem o define `camera.c`
+  pre-processa identico, token a token.
+- [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
+  `host-sanitize` com 193/193, ctest 15/15, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 
