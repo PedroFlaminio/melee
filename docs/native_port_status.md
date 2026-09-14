@@ -1094,6 +1094,26 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 180/180 e ctest 14/14;
   `host-sanitize` com 180/180, ctest 14/14, rota VS em 19,8 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
+- [x] `lbRefData` traduzido (`port/src/game/game_data_translators.c`). O
+  `LbRf.dat` tem 32 bytes de dados: seis floats e, em `data+0x18`, um registro
+  com a contagem (3) e um ponteiro relocado para eles, dois floats por tipo de
+  refracao. `lbrefract.c` declara o registro em particular como `u8` e
+  ponteiro; o tradutor monta o mesmo layout com os floats convertidos de
+  big-endian e recusa a tabela sem ponteiro. Um teste unitario monta o
+  arquivo com o `ArchiveBuilder` e confere contagem, floats e a recusa.
+- [x] Com `GS_VS` na tabela so localmente, a entrada da luta passa pela
+  refracao, `lb_8000FCDC` e `efLib_Init`, e para em `efAsync_LoadSync(0)`:
+  `EfCoData.dat` (1,3 MB, 4.321 relocacoes, um simbolo publico) pede
+  `effCommonDataTable`, que o host nao traduz, e `efAsync_OnLoad` segue o NULL
+  que recebe. A tabela aponta os bancos de comando e de textura das
+  particulas, que `psInitDataBankLocate` e `psInitDataBankLoad` relocam no
+  lugar com enderecos de 32 bits.
+- [x] Os diagnosticos `--load-archive` e `--sweep-archives` nao fazem o boot e
+  por isso nao registram os tradutores C do jogo: la um simbolo como
+  `lbRefData` aparece como sem traducao, embora a rota o traduza.
+- [x] Medido: `host-debug` com 181/181 e ctest 14/14; `host-sanitize` com
+  181/181, ctest 14/14, rota VS em 20,0 s, nenhum erro do ASan e, do UBSan, os
+  mesmos quatro relatos de chamada por ponteiro de funcao.
 
 ## Em andamento
 

@@ -135,9 +135,18 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
 - Executado o passo (2): com `psdisp.c`, `psdisptev.c`, textura indireta e
   `GXEnableTexOffsets` no host, a cena de luta liga sem símbolo indefinido.
 - Em andamento o passo (3). Com `GS_VS` na tabela (só local), a rota entra na
-  luta e para em `lbRefract_800222A4`, que carrega `lbRefData` de `LbRf.dat`:
-  32 bytes de dados, uma contagem e um ponteiro para floats, dois por tipo de
-  refração. É o primeiro tradutor da luta.
+  luta. `lbRefData`, o primeiro dado que ela pede, já tem tradutor.
+- Próximo bloqueio: os efeitos. `efAsync_LoadSync(0)` carrega `EfCoData.dat`
+  e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
+  textura das partículas (e os modelos dos efeitos). No console
+  `psInitDataBankLocate` reloca os bancos no lugar com endereços de 32 bits e
+  `psInitDataBankLoad` monta tabelas de ponteiros para dentro deles
+  (`psCmdListArray`, `ptclref_804D0E5C`, `psTexGroupArray`,
+  `psNumCmdList`). O host precisa de um loader de partículas que construa
+  essas tabelas em largura de ponteiro, mantendo os streams de comando
+  verbatim, como a animação e as display lists, e traduza os grupos de
+  textura. Os três pontos a portar juntos são a tabela de efeitos, os bancos
+  e o interpretador de comandos de `particle.c`, que lê esses streams.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

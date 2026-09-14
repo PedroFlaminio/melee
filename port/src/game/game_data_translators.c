@@ -331,8 +331,49 @@ static void* card_icon_table(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : table;
 }
 
+/* lbRefData (LbRf.dat): two floats per refraction kind, the period and the
+ * strength lbRefract_80021CE8 bends the texture behind a refracting object
+ * with.  lbrefract.c declares the record privately as a count byte and a
+ * pointer to the floats; this is the same layout, with the floats converted
+ * from big-endian.  On disk the count is 3 and the six floats sit before the
+ * record. */
+struct RefractData {
+    u8 count;
+    f32* params;
+};
+
+static void* refract_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 count = melee_host_hsd_reader_u8(reader, root + 0x0);
+    bool present;
+    const mh_u32 params = target_of(reader, root + 0x4, &present);
+    struct RefractData* data;
+    mh_u32 i;
+
+    if (!present || count == 0) {
+        melee_host_hsd_reader_fail(reader, "the refraction table is empty");
+        return NULL;
+    }
+    data = melee_host_hsd_reader_allocate(reader, sizeof(*data),
+                                          alignof(struct RefractData));
+    if (data == NULL) {
+        return NULL;
+    }
+    data->params = melee_host_hsd_reader_allocate(
+        reader, sizeof(f32) * count * 2, alignof(f32));
+    if (data->params == NULL) {
+        return NULL;
+    }
+    data->count = (u8) count;
+    for (i = 0; i < count * 2; i++) {
+        data->params[i] = melee_host_hsd_reader_f32(reader, params + i * 4);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : data;
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("sqEventInitDataLevelTbl",
                                               event_level_table);
     (void) melee_host_hsd_register_translator("lbAudioLoadData",

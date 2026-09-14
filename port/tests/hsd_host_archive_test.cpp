@@ -3,6 +3,7 @@
 #include "assets/hsd_materialize.hpp"
 
 #include <melee_host/baselib.h>
+#include <melee_host/boot.h>
 #include <melee_host/hsd_archive.h>
 
 MELEE_HOST_HSD_BEGIN
@@ -607,6 +608,57 @@ TEST_CASE("a translator registered by name reads the archive through the C "
                                                nullptr) == MELEE_HOST_OK);
     REQUIRE(melee_host_hsd_symbol_kind("test_game_data") ==
             MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
+}
+
+TEST_CASE("the refraction table translates to a count and host floats")
+{
+    // LbRf.dat's layout: six floats, then the record with the count and a
+    // pointer back to them.  The host record is lbrefract.c's private one.
+    struct HostRefractData {
+        std::uint8_t count;
+        float* params;
+    };
+    const float floats[6] = { 0.0F, 0.0F, 0.0F, 0.1F, 0.2F, 5.0F };
+    ArchiveBuilder builder(0x20);
+    for (std::uint32_t i = 0; i < 6; ++i) {
+        builder.f32(i * 4, floats[i]);
+    }
+    builder.u8(0x18, 3);
+    builder.pointer(0x1C, 0x00);
+    builder.public_symbol(0x18, "lbRefData");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    REQUIRE(melee_host_hsd_symbol_kind("lbRefData") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const data = static_cast<HostRefractData*>(
+        HSD_ArchiveGetPublicAddress(&archive, "lbRefData"));
+    REQUIRE(data != nullptr);
+    REQUIRE(data->count == 3);
+    REQUIRE(data->params != nullptr);
+    for (std::size_t i = 0; i < 6; ++i) {
+        REQUIRE(data->params[i] == floats[i]);
+    }
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // Without the pointer there is nothing to count; the table is refused.
+    ArchiveBuilder empty(0x20);
+    empty.u8(0x18, 3);
+    empty.public_symbol(0x18, "lbRefData");
+    std::vector<std::byte> empty_bytes = empty.build();
+    HSD_Archive empty_archive{};
+    REQUIRE(HSD_ArchiveParse(&empty_archive, bytes_of(empty_bytes),
+                             empty_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&empty_archive, "lbRefData") ==
+            nullptr);
+    REQUIRE(melee_host_hsd_archive_release(empty_bytes.data()) ==
+            MELEE_HOST_OK);
+
+    REQUIRE(melee_host_hsd_register_translator("lbRefData", nullptr) ==
+            MELEE_HOST_OK);
 }
 
 TEST_CASE("parsing a buffer again replaces what was built from it")
