@@ -15,6 +15,8 @@ MELEE_HOST_HSD_BEGIN
 #include <sysdolphin/baselib/spline.h>
 MELEE_HOST_HSD_END
 
+#include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -1666,6 +1668,115 @@ HsdMaterializedArchive::stage_select_data(std::string_view public_symbol)
     }
     materialize_model(&host->random_stage, 0xC0);
     return host;
+}
+
+/* A command stream: the words lbcommand.c and the item, fighter and color
+ * overlay tables interpret, which the console reads through bit-fields over
+ * big-endian words.  The host converts the words in place in the payload to
+ * native order, which host_command_layout.h lays out, and hands back the
+ * address of the first.
+ *
+ * A stream records no length.  It is converted up to the first address a
+ * relocation targets or a public symbol names, because what starts there is
+ * something else the archive points at; a stream that runs on past such an
+ * address is the target of a goto, and is converted from there when that goto
+ * is.  A relocated word in a stream is the operand of a subroutine (5) or a
+ * goto (7): it becomes the distance from itself to its target, as
+ * Command_05 and Command_07 read it on the host, and the target's stream is
+ * converted in turn.  Any other pointer in a stream is refused. */
+void* HsdMaterializedArchive::translator_command_stream(
+    std::uint32_t data_offset)
+{
+    return command_stream({ data_offset });
+}
+
+void HsdMaterializedArchive::index_stream_boundaries()
+{
+    if (streams_indexed_) {
+        return;
+    }
+    for (const HsdRuntimeReference& reference :
+         archive_.internal_references())
+    {
+        relocated_fields_.emplace(reference.field_offset,
+                                  reference.target.data_offset);
+        stream_boundaries_.push_back(reference.target.data_offset);
+    }
+    for (const HsdPublicSymbol& symbol :
+         archive_.disk_view().public_symbols())
+    {
+        stream_boundaries_.push_back(symbol.data_offset);
+    }
+    std::sort(stream_boundaries_.begin(), stream_boundaries_.end());
+    stream_boundaries_.erase(
+        std::unique(stream_boundaries_.begin(), stream_boundaries_.end()),
+        stream_boundaries_.end());
+    converted_words_.assign(payload_size_ / 4, false);
+    streams_indexed_ = true;
+}
+
+void* HsdMaterializedArchive::command_stream(HsdRuntimeNode start)
+{
+    constexpr std::uint32_t kWord = 4;
+    constexpr std::uint32_t kOpcodeShift = 26;
+    constexpr std::uint32_t kSubroutine = 5;
+    constexpr std::uint32_t kGoto = 7;
+    static_assert(std::endian::native == std::endian::little,
+                  "the host command layouts assume a little-endian target");
+
+    index_stream_boundaries();
+    std::vector<std::uint32_t> pending{ start.data_offset };
+    while (!pending.empty()) {
+        const std::uint32_t begin = pending.back();
+        pending.pop_back();
+        if (begin % kWord != 0 || begin >= payload_size_ / kWord * kWord) {
+            throw HsdArchiveError("HSD command stream at data+0x" +
+                                  hex_string(begin) +
+                                  " is not a word of the data section");
+        }
+        const auto next = std::upper_bound(stream_boundaries_.begin(),
+                                           stream_boundaries_.end(), begin);
+        const std::uint32_t limit =
+            next == stream_boundaries_.end()
+                ? static_cast<std::uint32_t>(payload_size_)
+                : *next;
+        for (std::uint32_t at = begin; at + kWord <= limit; at += kWord) {
+            /* Converted already, and so is the rest up to the boundary. */
+            if (converted_words_[at / kWord]) {
+                break;
+            }
+            std::byte* const word = payload_ + at;
+            const std::uint32_t value =
+                (std::to_integer<std::uint32_t>(word[0]) << 24U) |
+                (std::to_integer<std::uint32_t>(word[1]) << 16U) |
+                (std::to_integer<std::uint32_t>(word[2]) << 8U) |
+                std::to_integer<std::uint32_t>(word[3]);
+            const auto relocated = relocated_fields_.find(at);
+            if (relocated == relocated_fields_.end()) {
+                std::memcpy(word, &value, sizeof(value));
+            } else {
+                std::uint32_t command = 0;
+                if (at != begin) {
+                    std::memcpy(&command, word - kWord, sizeof(command));
+                }
+                const std::uint32_t opcode = command >> kOpcodeShift;
+                if (at == begin || (opcode != kSubroutine && opcode != kGoto)) {
+                    throw HsdArchiveError(
+                        "HSD command stream at data+0x" + hex_string(begin) +
+                        " has a pointer at data+0x" + hex_string(at) +
+                        " that does not follow a subroutine or a goto");
+                }
+                const std::uint32_t target = relocated->second;
+                const auto distance = static_cast<std::int32_t>(
+                    static_cast<std::int64_t>(target) -
+                    static_cast<std::int64_t>(at));
+                std::memcpy(word, &distance, sizeof(distance));
+                pending.push_back(target);
+            }
+            converted_words_[at / kWord] = true;
+        }
+    }
+    return payload_ + start.data_offset;
 }
 
 /* A spline a joint follows (JOBJ_SPLINE): its type, control point count and

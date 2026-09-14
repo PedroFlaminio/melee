@@ -240,8 +240,23 @@ public:
     translator_pointer(std::uint32_t field_offset) const;
     [[nodiscard]] void* translator_payload(std::uint32_t data_offset,
                                            std::size_t length) const;
+    /* The command stream at `data_offset`, its words converted in place to
+     * the native order host_command_layout.h lays out.  Converting it again
+     * returns the same words. */
+    [[nodiscard]] void* translator_command_stream(std::uint32_t data_offset);
 
 private:
+    void index_stream_boundaries();
+    void* command_stream(HsdRuntimeNode start);
+
+    /* Where a command stream stops: every relocation target and public root,
+     * sorted.  Indexed with the relocated fields the first time a stream is
+     * converted, together with which payload words already are. */
+    std::vector<std::uint32_t> stream_boundaries_;
+    std::unordered_map<std::uint32_t, std::uint32_t> relocated_fields_;
+    std::vector<bool> converted_words_;
+    bool streams_indexed_ = false;
+
     template <typename T> T* allocate();
     void* allocate_bytes(std::size_t size, std::size_t alignment);
     /* A block owned by this archive but outside the descriptor arena, for

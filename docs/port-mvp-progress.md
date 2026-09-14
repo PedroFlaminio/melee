@@ -21,10 +21,10 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 14/14 testes aprovados; 185/185 testes
+- `ctest --preset host-debug`: 15/15 testes aprovados; 187/187 testes
   unitários.
-- `ctest --preset host-sanitize -V`: 14/14 e 185/185, sem erro do ASan; a rota
-  VS leva 19,9 s. O UBSan só relata chamadas por ponteiro de função de outro
+- `ctest --preset host-sanitize -V`: 15/15 e 187/187, sem erro do ASan; a rota
+  VS leva 19,8 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -67,3 +67,4 @@ Battlefield ficam travados na SSS sem dados salvos.
 | 2026-09-14 | 47% | `grGroundParam` (parâmetros e linhas `StageParam` de cada estágio) traduzido, com teste; os 71 `Gr*.dat` traduzem. `--load-archive` e `--sweep-archives` passam a registrar os tradutores C do jogo (varredura: `game_data` 170/170). A entrada da luta passa por `Ground_801C28CC` e para no display de troféus, que pede as sete tabelas de `TyDatai.usd`. |
 | 2026-09-14 | 48% | As sete tabelas de troféu de `TyDatai.usd` traduzidas (vetores de structs de escalares terminados por -1), com teste. A entrada do estágio termina (`Stage_802251E8` retorna) e a luta para dois passos adiante, nos dados comuns de item (`itPublicData`, `ItCo.usd`). |
 | 2026-09-14 | 48% | Levantamento de `itPublicData`: 43 itens comuns, 8 dos 118 de personagem e 47 Pokémon em `ItCo.usd`, 11 blocos de atributos próprios com ponteiros e scripts de estado lidos por bit-fields sobre `u32`, o mesmo formato dos scripts de lutador. Plano em `fight_flow_port.md`. |
+| 2026-09-14 | 49% | Scripts de comando no host: a API de arquivo converte as palavras dos scripts para a ordem nativa, as structs de bit-field do host são geradas de `lb/types.h` com os campos invertidos (255 campos conferidos contra o modelo do MWCC) e sub-rotina e goto usam distâncias relativas. Vale para itens, lutadores e sobreposição de cor; nos 150 scripts de estado de `ItCo.usd` a regra de parada vale. |

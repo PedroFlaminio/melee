@@ -328,6 +328,12 @@ struct ColorOverlay_UnkInner {
     /* +7B */ u8 x7B;
 };
 
+#ifdef MELEE_HOST
+/* The host converts the words of a command stream to native order when it
+ * loads the archive.  These layouts, generated from the declarations below and
+ * from the commands further down, put every field on the bits MWCC gives it. */
+#include <game/host_command_layout.h>
+#else
 union ColorOverlay_x8_t {
     GXColor light_color;
     struct {
@@ -352,6 +358,7 @@ union ColorOverlay_x8_t {
         u32 timer : 26;
     } unk;
 };
+#endif
 ASSERT_SIZE(union ColorOverlay_x8_t, 0x4);
 
 struct ColorOverlay {
@@ -523,6 +530,9 @@ struct lbColl_8000A10C_arg0_t {
     Vec3 x14;
 };
 
+#ifndef MELEE_HOST
+/* The host's layouts of these commands come from host_command_layout.h,
+ * included above. */
 struct Command_00 {
     u32 code : 6;
     u32 value : 26;
@@ -920,6 +930,7 @@ struct wind_fx_3 {
     s16 angle : 16;
     s16 decay : 16;
 };
+#endif
 
 union CmdUnion {
     struct Command_00 Command_00;

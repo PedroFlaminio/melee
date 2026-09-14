@@ -956,6 +956,97 @@ TEST_CASE("the trophy tables translate up to and including their end rows")
             MELEE_HOST_OK);
 }
 
+extern "C" {
+struct MeleeHostCommandRun {
+    int steps;
+    float timer;
+    unsigned loop_count;
+    int finished;
+};
+void melee_host_test_run_generic_commands(void* stream, int max_steps,
+                                          MeleeHostCommandRun* out);
+}
+
+TEST_CASE("a command stream converts in place and runs the generic commands")
+{
+    // As the console encodes them: the opcode in the top six bits of each
+    // big-endian word, and the subroutine and goto targets relocated in the
+    // word after.  A loop runs a timer twice, then a subroutine adds another
+    // and a goto reaches the reset.
+    const auto command = [](std::uint32_t opcode, std::uint32_t value) {
+        return (opcode << 26U) | value;
+    };
+    const auto translate = +[](MeleeHostHsdReader* reader,
+                               mh_u32 root) -> void* {
+        mh_u32 target = 0;
+        if (!melee_host_hsd_reader_pointer(reader, root, &target)) {
+            return nullptr;
+        }
+        return melee_host_hsd_reader_command_stream(reader, target);
+    };
+    REQUIRE(melee_host_hsd_register_translator("testCommandStream",
+                                               translate) == MELEE_HOST_OK);
+
+    ArchiveBuilder builder(0x40);
+    builder.u32(0x00, command(3, 2));
+    builder.u32(0x04, command(1, 5));
+    builder.u32(0x08, command(4, 0));
+    builder.u32(0x0C, command(5, 0));
+    builder.pointer(0x10, 0x20);
+    builder.u32(0x14, command(7, 0));
+    builder.pointer(0x18, 0x28);
+    builder.u32(0x20, command(1, 3));
+    builder.u32(0x24, command(6, 0));
+    builder.u32(0x28, command(0, 0));
+    builder.pointer(0x30, 0x00);
+    builder.public_symbol(0x30, "testCommandStream");
+    std::vector<std::byte> bytes = builder.build();
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const words = static_cast<std::uint32_t*>(
+        HSD_ArchiveGetPublicAddress(&archive, "testCommandStream"));
+    REQUIRE(words != nullptr);
+    // Native words, and each target as its distance from the operand.
+    REQUIRE(words[0] == command(3, 2));
+    REQUIRE(words[1] == command(1, 5));
+    REQUIRE(static_cast<std::int32_t>(words[4]) == 0x10);
+    REQUIRE(static_cast<std::int32_t>(words[6]) == 0x10);
+    REQUIRE(words[8] == command(1, 3));
+    REQUIRE(words[9] == command(6, 0));
+
+    MeleeHostCommandRun run{};
+    melee_host_test_run_generic_commands(words, 32, &run);
+    // SetLoop, timer, loop, timer, loop, subroutine, timer, return, goto and
+    // reset.
+    REQUIRE(run.finished == 1);
+    REQUIRE(run.steps == 10);
+    REQUIRE(run.timer == 13.0F);
+    REQUIRE(run.loop_count == 0);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A pointer that no subroutine or goto owns is refused.
+    ArchiveBuilder stray(0x40);
+    stray.u32(0x00, command(1, 5));
+    stray.pointer(0x04, 0x10);
+    stray.u32(0x10, command(0, 0));
+    stray.pointer(0x20, 0x00);
+    stray.public_symbol(0x20, "testCommandStream");
+    std::vector<std::byte> stray_bytes = stray.build();
+    HSD_Archive stray_archive{};
+    REQUIRE(HSD_ArchiveParse(&stray_archive, bytes_of(stray_bytes),
+                             stray_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&stray_archive, "testCommandStream") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("does not follow a subroutine or a goto") !=
+            std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(stray_bytes.data()) ==
+            MELEE_HOST_OK);
+    REQUIRE(melee_host_hsd_register_translator("testCommandStream", nullptr) ==
+            MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed

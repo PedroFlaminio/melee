@@ -109,6 +109,13 @@ bool melee_host_hsd_reader_pointer(MeleeHostHsdReader* reader, mh_u32 field,
 /* `length` bytes of the host's verbatim copy of the data at `offset`. */
 void* melee_host_hsd_reader_payload(MeleeHostHsdReader* reader, mh_u32 offset,
                                     size_t length);
+/* The command stream at `offset` (a script or a color overlay), its words
+ * converted in place to native order for the host's command layouts, with
+ * every subroutine and goto target stored as its distance from the operand
+ * word; the streams those reach are converted too.  Asking again returns the
+ * same words. */
+void* melee_host_hsd_reader_command_stream(MeleeHostHsdReader* reader,
+                                           mh_u32 offset);
 void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader, size_t size,
                                      size_t alignment);
 void melee_host_hsd_reader_fail(MeleeHostHsdReader* reader,

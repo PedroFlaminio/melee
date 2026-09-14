@@ -605,6 +605,15 @@ extern "C" void* melee_host_hsd_reader_payload(MeleeHostHsdReader* reader,
         });
 }
 
+extern "C" void*
+melee_host_hsd_reader_command_stream(MeleeHostHsdReader* reader, mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) {
+            return d.translator_command_stream(offset);
+        });
+}
+
 extern "C" void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader,
                                                 size_t size, size_t alignment)
 {

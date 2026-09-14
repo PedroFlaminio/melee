@@ -1222,7 +1222,7 @@ void ftAction_80072E4C(Fighter_GObj* gobj, CommandInfo* cmd)
     }
 
     if (gfx_id == -1) {
-        gfx_id = ((u16*) cmd->u)[1];
+        gfx_id = CMD_U16(cmd->u, 1);
     }
     offset.z = 0.0f;
     range.z = 0.0f;

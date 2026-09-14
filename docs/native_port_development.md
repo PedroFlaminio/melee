@@ -354,6 +354,17 @@ pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
 - Texto SIS e big-endian no disco e nos buffers que o jogo monta, e o
   interpretador lia palavras no lugar. Uma leitura `*(u16*)` ou `*(s16*)` de
   stream vira `HSD_SisLib_ReadU16` ou `HSD_SisLib_ReadS16` sob `MELEE_HOST`.
+- Scripts de comando (lutador, item, sobreposicao de cor) chegam ao jogo pela
+  API de arquivo ja convertidos para a ordem nativa
+  (`melee_host_hsd_reader_command_stream`), e o jogo os le pelas structs de
+  `port/src/game/host_command_layout.h`. Ao mudar uma struct de comando ou a
+  union `ColorOverlay_x8_t` em `lb/types.h`, rode
+  `port/tools/gen_host_command_layout.py`, que regenera o header e o check em
+  C; o ctest `melee-host-command-layout-generated` acusa quando isso ficou para
+  tras. Uma leitura por cast de `u8`, `u16` ou `s16` do script vira `CMD_U8`,
+  `CMD_U16` ou `CMD_S16`; a palavra `u32` inteira nao muda. Um ponteiro no
+  script so existe como operando de sub-rotina ou goto, e no host e a
+  distancia ate o alvo (`rel`).
 - Toda lista variadica de ponteiros terminada por `0` precisa de `VA_END_PTR`
   quando a unidade entra no build. No build de debug o `0` pode passar por
   sorte; sob ASan a metade alta do slot vem suja e o carregador escreve num

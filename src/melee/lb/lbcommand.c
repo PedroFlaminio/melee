@@ -34,14 +34,32 @@ void Command_02(CommandInfo* info)
 void Command_03(CommandInfo* info)
 {
     info->event_return[info->loop_count++] = info->u + 1;
+#ifdef MELEE_HOST
+    /* The count takes a whole return slot, which is a pointer on the host. */
+    info->event_return[info->loop_count++] =
+        (union CmdUnion*) (intptr_t) info->u->Command_03.value;
+#else
     info->event_return[info->loop_count++] =
         (union CmdUnion*) info->u->Command_03.value;
+#endif
     NEXT_CMD(info);
 }
 
 /// Execute Loop
 void Command_04(CommandInfo* info)
 {
+#ifdef MELEE_HOST
+    /* The console counts down through a u32 view of CommandInfo, whose slot
+     * loop_count + 3 is event_return[loop_count - 1], and jumps back to the
+     * address two slots below the count.  The host does the same through the
+     * fields, which are not all u32 wide here. */
+    union CmdUnion** const count = &info->event_return[info->loop_count - 1];
+    *count = (union CmdUnion*) ((intptr_t) *count - 1);
+    if ((s32) (intptr_t) *count) {
+        info->u = info->event_return[info->loop_count - 2];
+        return;
+    }
+#else
     u32* ptr = (u32*) info;
     ptr[info->loop_count + 3] -= 1;
 
@@ -49,6 +67,7 @@ void Command_04(CommandInfo* info)
         info->ptr[0] = &info->ptr[info->loop_count][0];
         return;
     }
+#endif
     NEXT_CMD(info);
     info->loop_count -= 2;
 }
@@ -58,7 +77,12 @@ void Command_05(CommandInfo* info)
 {
     NEXT_CMD(info);
     info->event_return[info->loop_count++] = info->u + 1;
+#ifdef MELEE_HOST
+    /* The host stores the target as its distance from this word. */
+    info->u = (union CmdUnion*) ((char*) info->u + info->u->Command_05.rel);
+#else
     info->u = info->u->Command_05.ptr;
+#endif
 }
 
 /// Return
@@ -71,7 +95,11 @@ void Command_06(CommandInfo* info)
 void Command_07(CommandInfo* info)
 {
     NEXT_CMD(info);
+#ifdef MELEE_HOST
+    info->u = (union CmdUnion*) ((char*) info->u + info->u->Command_07.rel);
+#else
     info->u = info->u->Command_07.ptr;
+#endif
 }
 
 /// SetTimerAnimation

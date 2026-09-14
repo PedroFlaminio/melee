@@ -212,6 +212,16 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
     o atributo com um aviso. O caminho que serve aos dois presets é converter
     as palavras do fluxo e declarar os campos em ordem inversa sob
     `MELEE_HOST`, ou ler os campos por acessores.
+- Executada a decisão dos scripts de comando (detalhes em
+  `docs/native_port_status.md`): a API de arquivo converte as palavras de um
+  script para a ordem nativa no lugar, as structs de comando do host vêm de
+  `port/tools/gen_host_command_layout.py` com os campos na ordem inversa, as
+  leituras por cast passam por `CMD_U8`/`CMD_U16`/`CMD_S16`, e os alvos de
+  sub-rotina e goto viram distâncias relativas. Vale para itens, lutadores e
+  sobreposição de cor. Nos 150 scripts de estado de `ItCo.usd` a regra de
+  parada vale: 154 trechos convertidos, nenhum ponteiro fora de sub-rotina ou
+  goto, e todos terminam em reset, return ou goto antes da fronteira. O
+  próximo passo é o tradutor de `itPublicData`.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

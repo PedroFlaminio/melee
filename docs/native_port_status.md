@@ -1254,6 +1254,60 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 185/185 e ctest 14/14;
   `host-sanitize` com 185/185, ctest 14/14, rota VS em 19,9 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
+- [x] Scripts de comando no host. O console le os scripts de lutador, de item
+  e de sobreposicao de cor por bit-fields sobre palavras big-endian, que o
+  MWCC aloca a partir do bit mais significativo, e por casts de `u8`, `u16` e
+  `s16` sobre as mesmas palavras:
+  - A API de arquivo converte as palavras de um script no lugar, na copia host
+    do payload, para a ordem nativa (`melee_host_hsd_reader_command_stream`):
+    uma palavra vale o mesmo inteiro nos dois. Um script nao grava o proprio
+    tamanho; a conversao vai ate o primeiro endereco que uma relocacao aponta
+    ou uma raiz publica nomeia. Uma palavra relocada so e aceita logo depois de
+    uma sub-rotina (5) ou de um goto (7) e vira a distancia ate o alvo, cujo
+    script e convertido em seguida; qualquer outro ponteiro e recusado com
+    nome. Um mapa das palavras ja convertidas impede converter duas vezes.
+  - `port/tools/gen_host_command_layout.py` le as structs de comando e a union
+    `ColorOverlay_x8_t` de `lb/types.h`, posiciona cada campo como o MWCC e
+    gera `port/src/game/host_command_layout.h`, com os campos de cada palavra
+    em ordem inversa e preenchimento onde o console deixa bits sem uso.
+    `lb/types.h` inclui o header sob `MELEE_HOST` e mantem as declaracoes
+    originais no `#else`. `Command_05` e `Command_07` guardam `rel`, a
+    distancia, e a `CmdUnion` segue com 4 bytes. O gerador tambem escreve
+    `port/tests/command_layout_check.c`, que empacota valores nos bits do
+    modelo do console e os le pelas declaracoes do host: os 255 campos batem.
+    O ctest `melee-host-command-layout-generated` falha quando os dois
+    arquivos deixam de corresponder a `lb/types.h`. O `scalar_storage_order`
+    do GCC evitaria a conversao, mas o clang do `host-sanitize` o ignora.
+  - As leituras por cast passam por `CMD_U8`, `CMD_U16` e `CMD_S16`
+    (`lb/inlines.h`), que no console expandem para o mesmo cast e no host
+    espelham o indice dentro da palavra: 27 em `itanimlist.c` e 1 em
+    `ftaction.c`. `itAnimlistCmdUnk`, local de `itanimlist.c`, tem layout host
+    proprio.
+  - `lbcommand.c` sob `MELEE_HOST`: `Command_03` guarda a contagem num slot de
+    ponteiro, `Command_04` conta e volta pelos campos em vez da visao `u32` de
+    `CommandInfo`, e `Command_05` e `Command_07` somam a distancia.
+  - Um teste unitario monta um script com laco, sub-rotina e goto no formato do
+    console, confere as palavras convertidas, executa-o pelos comandos
+    genericos (10 passos, timer 13) e recusa um ponteiro fora de sub-rotina ou
+    goto.
+- [x] A regra de parada conferida nos dados: nos 150 scripts de estado dos
+  itens de `ItCo.usd`, uma simulacao da conversao converte 154 trechos (os
+  scripts e os alvos de sub-rotina), nao acha ponteiro fora de sub-rotina ou
+  goto, e a decodificacao com os comprimentos de `itanimlist.c` termina todos
+  em reset (148), return (4) ou goto (2) antes da fronteira, sem opcode
+  desconhecido.
+- [x] Matching contra `63f7f1874`, token a token, com `-DMUST_MATCH` e sem
+  `MELEE_HOST`: `lbcommand.c`, `itanimlist.c`, `ftaction.c`, `lb_013B.c`,
+  `ftcolanim.c`, `grmaterial.c` e `lb_0219.c` pre-processam identicos.
+- [x] `lb_80014258` passa `ColorOverlay*` como `CommandInfo*` a
+  `Command_Execute`. Pelos layouts do host, os campos que os comandos
+  genericos tocam ainda coincidem (ponteiro em +8, contagem em +16, retornos a
+  partir de +24), com a mesma sobreposicao que o console tem a partir do
+  terceiro retorno; nenhuma assercao confere isso ainda.
+- [x] Medido: `host-debug` com 187/187 e ctest 15/15 (o novo e o do
+  gerador); `host-sanitize`, compilado com clang, com 187/187, ctest 15/15, os
+  255 campos batendo tambem ali, rota VS em 19,8 s, nenhum erro do ASan e, do
+  UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 

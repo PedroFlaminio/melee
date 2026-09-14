@@ -432,17 +432,41 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/dol_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
+        tests/command_layout_test.cpp
+        tests/command_layout_check.c
+        tests/command_stream_run.c
         tests/test_main.cpp
     )
     target_link_libraries(melee-host-tests PRIVATE melee_game_core)
     target_include_directories(melee-host-tests PRIVATE src tests)
     melee_host_set_warnings(melee-host-tests)
+    # The C checks include the game's own headers, which need the relaxations
+    # the decompiled code builds with.
+    if(NOT MSVC)
+        set_source_files_properties(
+            tests/command_layout_check.c
+            tests/command_stream_run.c
+            PROPERTIES COMPILE_OPTIONS
+                "-Wno-pedantic;-Wno-conversion;-Wno-shadow;-Wno-sign-conversion;-Wno-sign-compare;-Wno-deprecated-non-prototype;-Wno-unused-parameter;-Wno-missing-field-initializers"
+        )
+    endif()
     melee_host_enable_sanitizers(melee-host-tests)
     if(UNIX AND NOT APPLE)
         target_link_options(melee-host-tests PRIVATE -Wl,--gc-sections)
     endif()
 
     add_test(NAME melee-host-tests COMMAND melee-host-tests)
+    # host_command_layout.h and command_layout_check.c are generated from
+    # src/melee/lb/types.h; this fails when they no longer match it.
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME melee-host-command-layout-generated
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_host_command_layout.py
+                    --check
+        )
+    endif()
     # Local game assets are intentionally untracked.  When available, retain
     # an end-to-end regression for the TLUT material path without making CI
     # depend on proprietary data.
