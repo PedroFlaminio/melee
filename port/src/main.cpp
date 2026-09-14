@@ -739,7 +739,7 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         melee::assets::DecodedTexture decoded{};
         MeleeHostGxTlutDesc tlut{};
         if (desc.color_indexed &&
-            melee_host_gx_loaded_tlut(desc.tlut_name, &tlut) && tlut.loaded &&
+            melee_host_gx_captured_texture_tlut(id, &tlut) && tlut.loaded &&
             tlut.entries != nullptr)
         {
             decoded = melee::assets::decode_gx_texture_with_tlut(
@@ -759,8 +759,8 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         }
     } catch (const std::exception& error) {
         std::cerr << "texture " << id << " (format 0x" << std::hex
-                  << desc.format << std::dec
-                  << ") not decoded: " << error.what() << '\n';
+                  << desc.format << std::dec << ", " << desc.width << 'x'
+                  << desc.height << ") not decoded: " << error.what() << '\n';
     }
     return image;
 }
@@ -817,8 +817,7 @@ private:
             return {};
         }
         if (desc.color_indexed) {
-            static_cast<void>(
-                melee_host_gx_loaded_tlut(desc.tlut_name, &tlut));
+            static_cast<void>(melee_host_gx_captured_texture_tlut(id, &tlut));
         }
         return {
             static_cast<mh_u64>(reinterpret_cast<uintptr_t>(desc.image)),

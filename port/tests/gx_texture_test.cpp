@@ -157,3 +157,39 @@ TEST_CASE("GX C8 and C14X2 decoders preserve TLUT alpha")
     REQUIRE(wide.rgba[3] == 64);
     REQUIRE(melee::assets::gx_texture_data_size(4, 4, 10) == 32);
 }
+
+TEST_CASE("GX indexed decoders leave tile padding out of the TLUT")
+{
+    // A 5 by 3 C8 image fills one 8 by 4 tile.  The texels past the image's
+    // edge can hold any index, here one far past a two-entry palette.
+    std::array<std::byte, 32> c8{};
+    for (std::byte& texel : c8) {
+        texel = std::byte{ 0xFF };
+    }
+    for (std::size_t y = 0; y < 3; ++y) {
+        for (std::size_t x = 0; x < 5; ++x) {
+            c8[y * 8 + x] = std::byte{ 0 };
+        }
+    }
+    c8[0] = std::byte{ 1 };
+    std::array<std::byte, 4> ia8_tlut{
+        std::byte{ 0 }, std::byte{ 0 }, std::byte{ 64 }, std::byte{ 200 }
+    };
+    const auto image = melee::assets::decode_gx_texture_with_tlut(
+        c8, 5, 3, 9, ia8_tlut, 0);
+    REQUIRE(image.rgba.size() == 5U * 3U * 4U);
+    REQUIRE(image.rgba[0] == 200);
+    REQUIRE(image.rgba[3] == 64);
+    REQUIRE(image.rgba[(2U * 5U + 4U) * 4U + 3U] == 0);
+
+    // Inside the image an index past the palette is still refused.
+    c8[1] = std::byte{ 0xFF };
+    bool refused = false;
+    try {
+        static_cast<void>(melee::assets::decode_gx_texture_with_tlut(
+            c8, 5, 3, 9, ia8_tlut, 0));
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    REQUIRE(refused);
+}

@@ -464,6 +464,13 @@ bool melee_host_gx_channel_control(mh_u32 channel,
 size_t melee_host_gx_captured_texture_count(void);
 bool melee_host_gx_captured_texture_at(size_t index,
                                        MeleeHostGxTextureDesc* output);
+/* The palette a colour-indexed captured texture was drawn with: the one loaded
+ * under its TLUT name when the draw began.  A frame is read after all of its
+ * draws, and by then another draw may have loaded a different palette under
+ * the same name.  `loaded` is false for a texture that is not colour indexed
+ * or found no palette. */
+bool melee_host_gx_captured_texture_tlut(size_t index,
+                                         MeleeHostGxTlutDesc* output);
 /* The texture sets the captured draws used, in first-use order: for each
  * texture map, an id into the captured texture table or
  * MELEE_HOST_GX_NO_TEXTURE.  Only maps some TEV stage of the draw samples are

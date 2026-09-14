@@ -345,6 +345,12 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   decoded` com o motivo, e o presenter a troca por uma textura branca. Antes de
   procurar geometria errada atras de quadrilateros brancos, confira se o mesmo
   frame imprimiu esse aviso.
+- A captura e lida depois do ultimo draw do frame. Um estado que o draw
+  consulta e que outro draw pode mudar precisa ser copiado para a captura no
+  inicio do draw; consultado na leitura, ele devolve o do ultimo draw. Foi o
+  caso da paleta sob um nome de TLUT (`melee_host_gx_captured_texture_tlut`):
+  o sintoma era "TLUT index exceeds palette" com paletas de tamanho sem
+  relacao com o formato da textura, como 16 entradas para uma C8.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

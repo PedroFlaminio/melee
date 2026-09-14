@@ -346,13 +346,15 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   (`FRAME:BMP=arquivo`) pelo presenter escondido. O frame 640 da rota do teste
   mostra o estágio, o "Go!", o cronômetro, P1 e P2 e os painéis de dano; o 695
   mostra o menu de pausa. Detalhes em `docs/native_port_status.md`.
-- Próximo bloqueio: o que a imagem mostra de errado. A câmera fica colada na
-  parte de baixo do estágio e os lutadores não aparecem, o letreiro de início
-  sai como quadriláteros brancos, com uma textura C8 cuja paleta o
-  decodificador recusa, e a SSS sai quase toda azul. Depois: ver os lutadores
-  responderem ao stick e aos botões e seguir para `coll_data`, que o estágio
-  hoje substitui por faixas padrão. A tela de resultados (`onExitVs`) continua
-  fora.
+- Resolvido: o letreiro de início saía como quadriláteros brancos porque a
+  textura recebia a paleta de outro draw. O frame é lido depois do último
+  draw, e a paleta era pedida pelo nome (`GX_TLUT0`); o recorder GX passou a
+  guardar a paleta de cada draw. O "Ready" e a contagem aparecem.
+- Próximo bloqueio: a câmera fica colada na parte de baixo do estágio e os
+  lutadores não aparecem. A SSS saía quase toda azul e não foi conferida
+  depois da correção de paleta. Depois: ver os lutadores responderem ao stick
+  e aos botões e seguir para `coll_data`, que o estágio hoje substitui por
+  faixas padrão. A tela de resultados (`onExitVs`) continua fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

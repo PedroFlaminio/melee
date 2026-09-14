@@ -83,7 +83,9 @@ std::array<std::uint8_t, 4> tlut_color(std::span<const std::byte> tlut,
 {
     const std::size_t offset = index * 2;
     if (offset + 2 > tlut.size()) {
-        throw HsdArchiveError("GX TLUT index exceeds palette");
+        throw HsdArchiveError("GX TLUT index " + std::to_string(index) +
+                              " exceeds a palette of " +
+                              std::to_string(tlut.size() / 2) + " entries");
     }
     const std::uint16_t value = read_be16(tlut, offset);
     switch (format) {
@@ -166,6 +168,12 @@ DecodedTexture decode_gx_texture_with_tlut(
         for (std::size_t tile_x = 0; tile_x < width; tile_x += tile_width) {
             for (std::size_t y = 0; y < tile_height; ++y) {
                 for (std::size_t x = 0; x < tile_width; ++x) {
+                    /* A tile past the image's edge still holds whole texels,
+                     * and the padding can name any index; only the texels
+                     * inside the image go through the palette. */
+                    if (tile_x + x >= width || tile_y + y >= height) {
+                        continue;
+                    }
                     std::size_t index;
                     if (format == kGxC4) {
                         const auto packed = std::to_integer<std::uint8_t>(

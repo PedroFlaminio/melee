@@ -74,6 +74,8 @@ std::vector<TextureSet> captured_texture_sets;
  * A consumer uploads each once and indexes it by the id carried on the
  * vertex. */
 std::vector<MeleeHostGxTextureDesc> captured_textures;
+/* The palette each captured texture was drawn with, by the same index. */
+std::vector<MeleeHostGxTlutDesc> captured_texture_tluts;
 /* Distinct pixel states the draws ran under, in first-use order. */
 std::vector<MeleeHostGxDrawState> captured_draw_states;
 /* Distinct projections, viewports and scissor boxes, likewise. */
@@ -544,7 +546,9 @@ void transform_vertex_locked(MeleeHostGxCapturedVertex& vertex,
 }
 
 /* Resolves the texture bound to a texture map into an index in the captured
- * table, adding it the first time it is seen. */
+ * table, adding it the first time it is seen.  A colour-indexed texture keeps
+ * the palette loaded under its TLUT name at this draw, and the same image with
+ * another palette is another texture. */
 mh_u32 current_texture_id_locked(mh_u32 texmap)
 {
     MeleeHostGxTextureDesc desc{};
@@ -553,15 +557,23 @@ mh_u32 current_texture_id_locked(mh_u32 texmap)
     {
         return MELEE_HOST_GX_NO_TEXTURE;
     }
+    MeleeHostGxTlutDesc tlut{};
+    if (desc.color_indexed) {
+        static_cast<void>(melee_host_gx_loaded_tlut(desc.tlut_name, &tlut));
+    }
     for (std::size_t index = 0; index < captured_textures.size(); ++index) {
+        const MeleeHostGxTlutDesc& seen = captured_texture_tluts[index];
         if (captured_textures[index].image == desc.image &&
             captured_textures[index].format == desc.format &&
-            captured_textures[index].tlut_name == desc.tlut_name)
+            captured_textures[index].tlut_name == desc.tlut_name &&
+            seen.loaded == tlut.loaded && seen.entries == tlut.entries &&
+            seen.entry_count == tlut.entry_count && seen.format == tlut.format)
         {
             return static_cast<mh_u32>(index);
         }
     }
     captured_textures.push_back(desc);
+    captured_texture_tluts.push_back(tlut);
     return static_cast<mh_u32>(captured_textures.size() - 1);
 }
 
@@ -1720,6 +1732,7 @@ extern "C" void melee_host_gx_reset_command_log(void)
     display_list_errors = 0;
     rejected_index_count = 0;
     captured_textures.clear();
+    captured_texture_tluts.clear();
     captured_draw_states.clear();
     captured_view_states.clear();
     captured_tev_states.clear();
@@ -1746,6 +1759,20 @@ extern "C" bool melee_host_gx_captured_texture_at(
         return false;
     }
     *output = captured_textures[index];
+    return true;
+}
+
+extern "C" bool melee_host_gx_captured_texture_tlut(
+    size_t index, MeleeHostGxTlutDesc* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= captured_texture_tluts.size()) {
+        return false;
+    }
+    *output = captured_texture_tluts[index];
     return true;
 }
 

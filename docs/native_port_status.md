@@ -1722,6 +1722,32 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 194/194, ctest 15/15 e o teste da luta em
   26,9 s; `host-sanitize` com 194/194, ctest 15/15, o teste da luta em
   123,4 s, nenhum erro do ASan e os mesmos 17 pontos do UBSan.
+- [x] Os quadrilateros brancos eram paleta errada, nao textura quebrada. O
+  frame sink decodifica depois do ultimo draw do frame, e o decodificador
+  pedia a paleta pelo nome (`melee_host_gx_loaded_tlut`), que entao guardava a
+  ultima carregada. Na luta, materiais e particulas carregam paletas
+  diferentes sob `GX_TLUT0` no mesmo frame: as texturas C8 do letreiro
+  recebiam paletas de 16 ou 251 entradas, e indices como 50, 206 e 252 eram
+  recusados. O recorder GX guarda a paleta carregada no inicio de cada draw
+  junto da textura capturada (`melee_host_gx_captured_texture_tlut`), e a
+  mesma imagem com outra paleta vira outra textura. Teste unitario com dois
+  draws e duas paletas sob `GX_TLUT0`.
+- [x] O decodificador de texturas indexadas passava pela paleta tambem os
+  texels de padding dos blocos alem da borda da imagem, que podem trazer
+  qualquer indice. Agora so os texels dentro da imagem sao lidos; um indice
+  fora da paleta dentro dela continua recusado, e a mensagem diz o indice e o
+  tamanho da paleta (o aviso do `main.cpp` diz tambem o tamanho da textura).
+  Teste unitario com uma C8 de 5x3. Nao era a causa dos quadrilateros: os
+  indices recusados estavam dentro das imagens.
+- [x] Com as duas correcoes, nenhuma textura e recusada nos frames 400, 560,
+  600, 640 e 695 da rota do teste. O 560 mostra o letreiro "Ready" com a barra
+  colorida e a contagem em 1.99, o 600 a contagem em 0.56, o ceu azul e os
+  estandartes do estagio; no 695 o ceu com nuvens aparece atras do menu de
+  pausa. A camera continua colada no estagio e os lutadores continuam fora do
+  quadro.
+- [x] Medido: `host-debug` com 196/196, ctest 15/15 e o teste da luta em
+  26,8 s; `host-sanitize` com 196/196, ctest 15/15, o teste da luta em
+  125,3 s, nenhum erro do ASan e os mesmos 17 pontos do UBSan.
 
 ## Em andamento
 

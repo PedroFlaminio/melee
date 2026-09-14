@@ -659,6 +659,60 @@ TEST_CASE("a captured vertex names the texture bound when its draw began")
     REQUIRE((vertex.attributes & MELEE_HOST_GX_VERTEX_TEXTURE_IMAGE) == 0);
 }
 
+TEST_CASE("a captured indexed texture keeps the palette of its own draw")
+{
+    // The match draws many colour-indexed textures through GX_TLUT0, and the
+    // capture is read after the frame's last draw, when the name holds the
+    // last palette loaded under it.
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    static u8 image[32] ATTRIBUTE_ALIGN(32) = { 0 };
+    static u8 first_palette[4] = { 0x80, 0x00, 0xFF, 0xFF };
+    static u8 second_palette[8] = { 0 };
+    GXTlutObj tlut;
+    GXTexObj texture;
+    GXInitTexObjCI(&texture, image, 8, 4, GX_TF_C8, GX_CLAMP, GX_CLAMP,
+                   GX_FALSE, GX_TLUT0);
+    GXLoadTexObj(&texture, GX_TEXMAP0);
+
+    const auto draw = []() {
+        GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+        GXPosition3f32(0.0F, 0.0F, 0.0F);
+        GXPosition3f32(1.0F, 0.0F, 0.0F);
+        GXPosition3f32(0.0F, 1.0F, 0.0F);
+        GXEnd();
+    };
+    GXInitTlutObj(&tlut, first_palette, GX_TL_RGB5A3, 2);
+    GXLoadTlut(&tlut, GX_TLUT0);
+    draw();
+    GXInitTlutObj(&tlut, second_palette, GX_TL_IA8, 4);
+    GXLoadTlut(&tlut, GX_TLUT0);
+    draw();
+    // Drawn again with the second palette, the same texture is not added.
+    draw();
+
+    REQUIRE(melee_host_gx_captured_texture_count() == 2);
+    MeleeHostGxTlutDesc first{};
+    REQUIRE(melee_host_gx_captured_texture_tlut(0, &first));
+    REQUIRE(first.entries == first_palette);
+    REQUIRE(first.entry_count == 2);
+    REQUIRE(first.format == GX_TL_RGB5A3);
+    MeleeHostGxTlutDesc second{};
+    REQUIRE(melee_host_gx_captured_texture_tlut(1, &second));
+    REQUIRE(second.entries == second_palette);
+    REQUIRE(second.entry_count == 4);
+    REQUIRE(second.format == GX_TL_IA8);
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.texture_image == 0);
+    REQUIRE(melee_host_gx_captured_vertex_at(3, &vertex));
+    REQUIRE(vertex.texture_image == 1);
+    REQUIRE(melee_host_gx_captured_vertex_at(6, &vertex));
+    REQUIRE(vertex.texture_image == 1);
+}
+
 TEST_CASE("draws are grouped by the pixel state they ran under")
 {
     melee_host_gx_state_reset();
