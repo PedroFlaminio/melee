@@ -132,6 +132,12 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
 - Executado o passo (1): os 808 arquivos compilam e estão no core, com
   `particle.c`, `generator.c`, `psappsrt.c`, `quatlib.c` e `src/MSL/float.c`.
   As rotas existentes não mudaram. Detalhes em `docs/native_port_status.md`.
+- Executado o passo (2): com `psdisp.c`, `psdisptev.c`, textura indireta e
+  `GXEnableTexOffsets` no host, a cena de luta liga sem símbolo indefinido.
+- Em andamento o passo (3). Com `GS_VS` na tabela (só local), a rota entra na
+  luta e para em `lbRefract_800222A4`, que carrega `lbRefData` de `LbRf.dat`:
+  32 bytes de dados, uma contagem e um ponteiro para floats, dois por tipo de
+  refração. É o primeiro tradutor da luta.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

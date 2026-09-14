@@ -125,6 +125,50 @@ std::array<std::array<float, 4>, kMatrixRows> matrix_memory{};
  * by it has to know whether the game ever loaded the row it is about to use. */
 std::array<bool, kMatrixRows> matrix_loaded{};
 
+/* Indirect texturing, as the GX calls leave it.  It is recorded so the state a
+ * draw ran with is known, but tev.cpp and the presenter still evaluate every
+ * stage as direct. */
+struct IndirectTexStage {
+    mh_u32 texcoord = static_cast<mh_u32>(GX_TEXCOORD_NULL);
+    mh_u32 texmap = static_cast<mh_u32>(GX_TEXMAP_NULL);
+    mh_u32 scale_s = 0;
+    mh_u32 scale_t = 0;
+};
+struct IndirectTevStage {
+    bool indirect = false;
+    mh_u32 ind_stage = 0;
+    mh_u32 format = 0;
+    mh_u32 bias = 0;
+    mh_u32 matrix = 0;
+    mh_u32 wrap_s = 0;
+    mh_u32 wrap_t = 0;
+    bool add_previous = false;
+    bool unmodified_lod = false;
+    mh_u32 alpha_select = 0;
+};
+struct IndirectMatrix {
+    std::array<std::array<f32, 3>, 2> offset{};
+    s8 scale_exp = 0;
+};
+constexpr std::size_t kIndirectStages = 4;
+constexpr std::size_t kIndirectMatrices = 3;
+struct IndirectState {
+    mh_u32 stage_count = 0;
+    std::array<IndirectTexStage, kIndirectStages> stages{};
+    std::array<IndirectTevStage, kTevStages> tev_stages{};
+    std::array<IndirectMatrix, kIndirectMatrices> matrices{};
+};
+IndirectState indirect_state{};
+
+/* Per texture coordinate, whether lines and points take the texture offsets
+ * GXEnableTexOffsets turns on.  Recorded only: the presenter does not draw
+ * lines or points as textured sprites yet. */
+struct TextureOffsets {
+    bool lines = false;
+    bool points = false;
+};
+std::array<TextureOffsets, kTexCoords> texture_offsets{};
+
 /* GXSetTevOp is shorthand: the SDK expands it into the input and operation
  * calls, so the stage the hardware sees is the expanded one.  Recording only
  * the mode would leave every reader to repeat the expansion. */
@@ -251,6 +295,10 @@ void reset_locked()
         gen.normalize = false;
         gen.post_matrix = static_cast<mh_u32>(GX_PTIDENTITY);
     }
+    /* GXInit leaves every stage direct, no indirect stage and no texture
+     * offsets. */
+    indirect_state = IndirectState{};
+    texture_offsets.fill(TextureOffsets{});
 
     fog_state = MeleeHostGxFogState{};
     fog_state.type = static_cast<mh_u32>(GX_FOG_NONE);
@@ -754,6 +802,97 @@ void GXSetTevOrder(GXTevStageID stage_id, GXTexCoordID coord, GXTexMapID map,
     tev_state.stages[stage].color_channel = static_cast<mh_u32>(color);
 }
 
+void GXSetNumIndStages(u8 nIndStages)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    indirect_state.stage_count = nIndStages;
+}
+
+void GXSetIndTexOrder(GXIndTexStageID ind_stage, GXTexCoordID tex_coord,
+                      GXTexMapID tex_map)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto stage = static_cast<std::size_t>(ind_stage);
+    if (stage >= kIndirectStages) {
+        return;
+    }
+    indirect_state.stages[stage].texcoord = static_cast<mh_u32>(tex_coord);
+    indirect_state.stages[stage].texmap = static_cast<mh_u32>(tex_map);
+}
+
+void GXSetIndTexCoordScale(GXIndTexStageID ind_state, GXIndTexScale scale_s,
+                           GXIndTexScale scale_t)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto stage = static_cast<std::size_t>(ind_state);
+    if (stage >= kIndirectStages) {
+        return;
+    }
+    indirect_state.stages[stage].scale_s = static_cast<mh_u32>(scale_s);
+    indirect_state.stages[stage].scale_t = static_cast<mh_u32>(scale_t);
+}
+
+/* GX_ITM_0 to GX_ITM_2 name the three loadable matrices; GX_ITM_OFF and the
+ * texture-coordinate matrices (GX_ITM_S*, GX_ITM_T*) are not loaded here. */
+void GXSetIndTexMtx(GXIndTexMtxID mtx_id, f32 offset[2][3], s8 scale_exp)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto id = static_cast<std::size_t>(mtx_id);
+    const auto first = static_cast<std::size_t>(GX_ITM_0);
+    if (id < first || id >= first + kIndirectMatrices) {
+        return;
+    }
+    IndirectMatrix& matrix = indirect_state.matrices[id - first];
+    for (std::size_t row = 0; row < 2; ++row) {
+        for (std::size_t column = 0; column < 3; ++column) {
+            matrix.offset[row][column] = offset[row][column];
+        }
+    }
+    matrix.scale_exp = scale_exp;
+}
+
+void GXSetTevIndirect(GXTevStageID tev_stage, GXIndTexStageID ind_stage,
+                      GXIndTexFormat format, GXIndTexBiasSel bias_sel,
+                      GXIndTexMtxID matrix_sel, GXIndTexWrap wrap_s,
+                      GXIndTexWrap wrap_t, GXBool add_prev, GXBool utc_lod,
+                      GXIndTexAlphaSel alpha_sel)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto stage = static_cast<std::size_t>(tev_stage);
+    if (stage >= kTevStages) {
+        return;
+    }
+    IndirectTevStage& slot = indirect_state.tev_stages[stage];
+    slot.indirect = true;
+    slot.ind_stage = static_cast<mh_u32>(ind_stage);
+    slot.format = static_cast<mh_u32>(format);
+    slot.bias = static_cast<mh_u32>(bias_sel);
+    slot.matrix = static_cast<mh_u32>(matrix_sel);
+    slot.wrap_s = static_cast<mh_u32>(wrap_s);
+    slot.wrap_t = static_cast<mh_u32>(wrap_t);
+    slot.add_previous = add_prev != GX_FALSE;
+    slot.unmodified_lod = utc_lod != GX_FALSE;
+    slot.alpha_select = static_cast<mh_u32>(alpha_sel);
+}
+
+/* The SDK writes the all-zero indirect command, which is what a direct stage
+ * is. */
+void GXSetTevDirect(GXTevStageID tev_stage)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto stage = static_cast<std::size_t>(tev_stage);
+    if (stage >= kTevStages) {
+        return;
+    }
+    indirect_state.tev_stages[stage] = IndirectTevStage{};
+}
+
 void GXSetTexCoordGen2(GXTexCoordID dst_coord, GXTexGenType func,
                        GXTexGenSrc src_param, u32 mtx, GXBool normalize,
                        u32 pt_texmtx)
@@ -769,6 +908,18 @@ void GXSetTexCoordGen2(GXTexCoordID dst_coord, GXTexGenType func,
     tev_state.texcoord_gens[coord].matrix = mtx;
     tev_state.texcoord_gens[coord].normalize = normalize != GX_FALSE;
     tev_state.texcoord_gens[coord].post_matrix = pt_texmtx;
+}
+
+void GXEnableTexOffsets(GXTexCoordID coord, u8 line_enable, u8 point_enable)
+{
+    const std::lock_guard<std::mutex> guard(state_mutex);
+    ensure_initialized_locked();
+    const auto index = static_cast<std::size_t>(coord);
+    if (index >= kTexCoords) {
+        return;
+    }
+    texture_offsets[index].lines = line_enable != 0;
+    texture_offsets[index].points = point_enable != 0;
 }
 
 /* The hardware has four lighting channels: COLOR0, COLOR1, ALPHA0 and ALPHA1.

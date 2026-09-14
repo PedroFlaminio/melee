@@ -1070,6 +1070,30 @@ Atualizado em 13 de setembro de 2026.
   pre-processa identico sem o define. Nenhum simbolo C e definido ao mesmo
   tempo no core e em `libmelee_host.a`, entao nenhum modulo da decomp esconde
   uma implementacao do host, nem o contrario.
+- [x] A cena de luta liga. Com `psdisp.c` e `psdisptev.c` no core e tres pecas
+  novas no GX do host, `GS_VS` na tabela deixa o `melee-pc` sem nenhum simbolo
+  indefinido (67 MB em debug):
+  - `psdisp.c` escrevia os vertices das particulas direto em `GXWGFifo` (35
+    escritas de `f32` e de `u8`). Sob `MELEE_HOST` as macros `PS_FIFO_F32` e
+    `PS_FIFO_U8` entregam os mesmos bytes, na mesma ordem e largura, a
+    `melee_host_gx_submit_f32` e `_u8`, que o recorder le pelo descritor de
+    vertice corrente. Sem o define elas expandem para a escrita original, e
+    `psdisp.c` pre-processa para os mesmos tokens.
+  - Textura indireta registrada no recorder (`GXSetNumIndStages`,
+    `GXSetIndTexOrder`, `GXSetIndTexCoordScale`, `GXSetIndTexMtx`,
+    `GXSetTevIndirect` e `GXSetTevDirect`), que `lbrefract.c` usa, e
+    `GXEnableTexOffsets`, que `psdisp.c` usa. O TEV por fragmento e o presenter
+    ainda nao avaliam nenhum dos dois.
+- [x] Primeiro passo da luta em execucao, medido com `GS_VS` posto na tabela so
+  localmente: depois da SSS o modo VS monta o estado da luta,
+  `gm_Scene_Vs_OnEnter` passa por `db_Setup` e pela inicializacao da camera e
+  para em `lbRefract_800222A4`, que pede `lbRefData` de `LbRf.dat`, um simbolo
+  que a API de arquivo do host ainda nao traduz (assert de `lbarchive.c:87`).
+  A entrada nao foi commitada, porque o teste da selecao VS espera a parada
+  com nome na cena de luta.
+- [x] Medido sem a entrada: `host-debug` com 180/180 e ctest 14/14;
+  `host-sanitize` com 180/180, ctest 14/14, rota VS em 19,8 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
 
 ## Em andamento
 

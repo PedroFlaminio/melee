@@ -349,6 +349,8 @@ target_sources(melee_game_core PRIVATE ${MELEE_HOST_REST_OF_GAME})
 # system, its generators and their application SRT.
 target_sources(melee_game_core PRIVATE
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/particle.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/psdisp.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/psdisptev.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/generator.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/psappsrt.c
     ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/quatlib.c
