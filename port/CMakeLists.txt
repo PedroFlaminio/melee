@@ -365,12 +365,6 @@ set_source_files_properties(
     PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wpedantic;-Wshadow"
 )
 melee_host_enable_sanitizers(melee_game_core)
-# ground.c's stage table names every stage.  Stages outside the build are weak
-# references, so their entries are NULL, which the game reads as a stage
-# without data.  Appended so the sanitizer options above are kept.
-set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/melee/gr/ground.c APPEND PROPERTY
-    COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/src/game/host_weak_stages.h"
-)
 target_link_libraries(melee_game_core PUBLIC melee_host)
 if(NOT MSVC)
     target_compile_options(melee_game_core PRIVATE -ffunction-sections -fdata-sections)

@@ -205,7 +205,9 @@ Como a cadeia foi aberta, e como abrir a proxima:
 - Leia as referencias indefinidas com `LANG=C`, agrupe por arquivo de origem e
   decida caso a caso. Preferencia: compilar o modulo original; dado que vive no
   DOL, ler do `main.dol`; tabela que cita conteudo inteiro do jogo (estagios,
-  lutadores), referencia `weak` quando o jogo ja trata a entrada nula; funcao
+  lutadores), ligada forte, porque a decomp inteira esta no core e uma
+  referencia `weak` nao puxa membro de biblioteca estatica (a entrada fica
+  nula sem aviso); funcao
   so alcancavel por um caminho que a cena nao toma, parada com nome em
   `port/src/game/unported.c`.
 - Um arquivo de dados que o codigo le direto como struct (`.ssm`, `.sem`) e

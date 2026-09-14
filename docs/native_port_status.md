@@ -1191,6 +1191,22 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 183/183 e ctest 14/14;
   `host-sanitize` com 183/183, ctest 14/14, rota VS em 19,7 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
+- [x] A tabela de estagios liga forte. `host_weak_stages.h` declarava `weak`
+  todo `StageData` que `ground.c` cita, de quando o host nao compilava os
+  estagios; com a decomp inteira no core, ele so escondia os estagios da
+  biblioteca estatica. Sem ele, `stage_datas` puxa todos os estagios da tabela
+  (e `grIzumi_801CD2D4` e `grStadium_801D511C`) e o `melee-pc` liga sem simbolo
+  indefinido: 67.258.080 bytes em debug sem a entrada `GS_VS`, 69.969.008 com
+  ela. As rotas seguem com os mesmos frames.
+- [x] Com `GS_VS` na tabela so localmente, `Ground_801C0754` acha Hyrule
+  Temple e `grDatFiles_801C6038` le `GrSh.dat` (1,2 MB, 2.158 relocacoes, 63
+  simbolos publicos). Nenhum dos oito simbolos de dados de estagio que ela pede
+  tem traducao: `map_head` falta com "Cannot find symbol", os outros voltam
+  NULL, e `Ground_801C28CC` cai com SIGSEGV ao seguir `stage_info.param`
+  (`ground.c:1509`).
+- [x] Medido sem a entrada: `host-debug` com 183/183 e ctest 14/14;
+  `host-sanitize` com 183/183, ctest 14/14, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 
@@ -1429,8 +1445,11 @@ Atualizado em 13 de setembro de 2026.
 - O cache de texturas do titulo e o presenter reconhecem uma imagem pelo
   endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
   mesmo endereco continua mostrando a primeira.
-- Uma referencia `weak` nao puxa membro de biblioteca estatica. Um estagio
-  portado precisa de uma referencia forte, senao sua entrada continua nula.
+- A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
+  carrega ainda: a API de arquivo do host nao traduz `map_head`, `coll_data`,
+  `grGroundParam`, `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` nem
+  `quake_model_set`. Os 71 arquivos `Gr*.dat` trazem os seis primeiros; 67
+  trazem os dois ultimos.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.

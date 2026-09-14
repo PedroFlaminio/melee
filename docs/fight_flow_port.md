@@ -149,6 +149,19 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   Temple em `stage_datas` é nula: o host liga os estágios por referência fraca
   (`port/src/game/host_weak_stages.h`), o que não puxa `grshrine.c` da
   biblioteca estática.
+- Executado: `stage_datas` liga forte. Sem `host_weak_stages.h`, o `melee-pc`
+  liga todos os estágios da tabela sem símbolo indefinido, `Ground_801C0754`
+  acha Hyrule Temple e `grDatFiles_801C6038` lê `GrSh.dat`. A entrada para nos
+  dados do estágio: nenhum dos oito símbolos que ela pede tem tradução
+  (`map_head`, `coll_data`, `grGroundParam`, `itemdata`, `ALDYakuAll`,
+  `yakumono_param`, `map_plit`, `quake_model_set`), e `Ground_801C28CC` segue
+  o `stage_info.param` nulo.
+- Próximo bloqueio: esses oito tradutores, presentes nos 71 `Gr*.dat`
+  (`map_plit` e `quake_model_set` em 67). `map_head` (`UnkStageDat`) é o
+  maior: modelos com câmera, luzes e fog (`UnkStageDat_x8_t`), splines,
+  sombras e marcadores de animação. `coll_data` (`MapCollData`) traz vértices,
+  linhas e juntas de colisão; `grGroundParam` (`GroundParam`) mistura
+  escalares, cores e um vetor de `StageParam`.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console
