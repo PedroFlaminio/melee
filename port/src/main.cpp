@@ -2085,11 +2085,26 @@ int main(int argc, char** argv)
                 mh_s8 stick_x;
                 mh_s8 stick_y;
             };
+            /* FRAME:BMP=PATH writes that drawn frame to a BMP file through a
+             * hidden presenter, as --view-title-scene does. */
+            struct ScriptedShot {
+                mh_u32 frame;
+                std::string path;
+                bool written;
+            };
             struct ModesInput {
                 MeleeHostContext* context = nullptr;
                 std::vector<ScriptedPress> presses;
+                std::vector<ScriptedShot> shots;
                 bool connected[4] = { true, false, false, false };
                 mh_u32 frames = 0;
+#if defined(MELEE_HOST_SDL_RENDERER)
+                TitleTextureCache* textures = nullptr;
+                melee::render::FramePresenter* presenter = nullptr;
+                bool presenter_open = false;
+#endif
+                bool shot_failed = false;
+                std::string shot_error;
             };
             struct NamedButton {
                 const char* name;
@@ -2112,6 +2127,14 @@ int main(int argc, char** argv)
             };
 
             ModesInput input;
+#if defined(MELEE_HOST_SDL_RENDERER)
+            /* The presenter keeps a GL texture per decoded image, so the cache
+             * that owns the images is declared first and outlives it. */
+            TitleTextureCache shot_textures;
+            melee::render::FramePresenter shot_presenter;
+            input.textures = &shot_textures;
+            input.presenter = &shot_presenter;
+#endif
             const auto first_mode =
                 static_cast<mh_u32>(std::stoul(argv[3], nullptr, 0));
             const auto max_modes =
@@ -2127,6 +2150,25 @@ int main(int argc, char** argv)
                 }
                 const std::string frames = entry.substr(0, colon);
                 std::string inputs = entry.substr(colon + 1);
+                if (inputs.rfind("BMP=", 0) == 0) {
+                    if (frames.find('-') != std::string::npos ||
+                        inputs.size() == 4)
+                    {
+                        std::cerr << "expected FRAME:BMP=PATH, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+#if defined(MELEE_HOST_SDL_RENDERER)
+                    input.shots.push_back(
+                        { static_cast<mh_u32>(std::stoul(frames)),
+                          inputs.substr(4), false });
+                    continue;
+#else
+                    std::cerr << "BMP needs the SDL renderer, got " << entry
+                              << '\n';
+                    return 2;
+#endif
+                }
                 ScriptedPress press{};
                 const auto dash = frames.find('-');
                 press.first =
@@ -2206,6 +2248,36 @@ int main(int argc, char** argv)
             const MeleeHostGxFrameSink scripted_pad = [](void* user_data) {
                 auto* const state = static_cast<ModesInput*>(user_data);
                 state->frames += 1;
+#if defined(MELEE_HOST_SDL_RENDERER)
+                for (ScriptedShot& shot : state->shots) {
+                    if (shot.frame != state->frames || state->shot_failed) {
+                        continue;
+                    }
+                    if (!state->presenter_open) {
+                        state->presenter_open = state->presenter->open(
+                            true, &state->shot_error);
+                        if (!state->presenter_open) {
+                            state->shot_failed = true;
+                            continue;
+                        }
+                    }
+                    state->presenter->present(
+                        state->textures->images_for_frame());
+                    shot.written = state->presenter->save_bmp(
+                        shot.path.c_str(), &state->shot_error);
+                    state->shot_failed = !shot.written;
+                    if (shot.written) {
+                        std::cout << "frame " << shot.frame << " written to "
+                                  << shot.path << ": "
+                                  << melee_host_gx_triangle_count()
+                                  << " triangles, "
+                                  << melee_host_gx_captured_view_state_count()
+                                  << " views, "
+                                  << melee_host_gx_captured_texture_count()
+                                  << " textures\n";
+                    }
+                }
+#endif
                 MeleeHostPadState pads[4]{};
                 for (const ScriptedPress& press : state->presses) {
                     if (state->frames < press.first ||
@@ -2303,6 +2375,14 @@ int main(int argc, char** argv)
                 }
             }
             melee_host_destroy(context);
+            for (const ScriptedShot& shot : input.shots) {
+                if (!shot.written) {
+                    std::cerr << "frame " << shot.frame << " was not written"
+                              << (input.shot_error.empty() ? "" : ": ")
+                              << input.shot_error << '\n';
+                    failed = true;
+                }
+            }
             if (failed) {
                 return 1;
             }

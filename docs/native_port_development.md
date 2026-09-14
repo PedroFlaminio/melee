@@ -329,6 +329,23 @@ segurado ali leva ao menu. A luta nao termina sozinha no tempo de um teste
 por segundo), entao todo roteiro que entra nela precisa desse caminho de
 saida.
 
+Uma entrada `FRAME:BMP=arquivo` grava aquele frame desenhado num BMP, pelo
+mesmo presenter escondido de `--view-title-scene`, e imprime triangulos, views
+e texturas da captura. Pode haver varias; a rota sai com erro se uma nao for
+gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
+
+```sh
+./build/host-debug/port/melee-pc --run-modes assets-local 0 3 \
+    ... 640:BMP=/tmp/go.bmp 695:BMP=/tmp/pausa.bmp
+```
+
+- O frame e o global da rota, o mesmo das entradas de botao. A luta do teste
+  vai do 533 ao 707, e a CSS do 243 ao 383; o 400 ja e SSS.
+- Uma textura que o decodificador recusa imprime `texture N (format 0x..) not
+  decoded` com o motivo, e o presenter a troca por uma textura branca. Antes de
+  procurar geometria errada atras de quadrilateros brancos, confira se o mesmo
+  frame imprimiu esse aviso.
+
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
   lutadores, estagio e efeitos. Eles carregam em segundo plano enquanto o

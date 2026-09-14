@@ -1699,6 +1699,29 @@ Atualizado em 13 de setembro de 2026.
   `x1C`, o mesmo layout no console e no host.
 - [x] Medido: `host-debug` com 194/194 e ctest 15/15; `host-sanitize` com
   194/194, ctest 15/15 e nenhum erro do ASan.
+- [x] Imagem de frames de qualquer rota: `--run-modes` aceita a entrada
+  `FRAME:BMP=arquivo`, e o frame sink desenha a captura daquele frame num
+  presenter escondido, com o cache de texturas do titulo, e grava o BMP. Uma
+  entrada pedida e nao gravada faz a rota sair com erro. Na rota de
+  `melee-host-vs-match-asset` (luta do frame 533 ao 707):
+  - Frame 640: Hyrule Temple com modelos e texturas, o "Go!", o cronometro em
+    02:00, os marcadores P1 e P2, 0% nos dois paineis de dano com o emblema
+    da Star Fox. 12.329 triangulos, 2 views, 51 texturas.
+  - Frame 675: o cronometro em 01:59.69, o que confirma a luta por tempo de 2
+    minutos das regras padrao. 12.327 triangulos.
+  - Frame 695: o menu de pausa, "P1 Pause" e a legenda L R A START RESET.
+  - Frame 560: o letreiro de inicio sai como quadrilateros brancos. No mesmo
+    frame uma textura C8 (formato 0x9) nao decodifica ("GX TLUT index exceeds
+    palette"), e o mesmo aviso aparece no 695.
+  - Nos frames 640 e 675 a camera fica colada na parte de baixo da ilha do
+    estagio e os lutadores nao aparecem; no 560 os marcadores P1 e P2 estao nas
+    bordas da tela. A causa nao foi investigada; os dados de estagio que faltam
+    (`coll_data` e os que o jogo troca por "dummy CamRange") sao suspeitos.
+  - Frame 400, na SSS: quase todo azul, com um canto roxo, 1.315 triangulos em
+    uma view. A SSS nunca tinha sido desenhada.
+- [x] Medido: `host-debug` com 194/194, ctest 15/15 e o teste da luta em
+  26,9 s; `host-sanitize` com 194/194, ctest 15/15, o teste da luta em
+  123,4 s, nenhum erro do ASan e os mesmos 17 pontos do UBSan.
 
 ## Em andamento
 

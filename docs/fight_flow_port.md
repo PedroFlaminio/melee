@@ -342,11 +342,17 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `gm_801A4B60`). `gm_Scene_Vs_OnExit` roda, o modo VS do host volta à CSS e B
   segurado leva ao menu. `GS_VS` entrou na tabela do host e a rota virou o
   teste `melee-host-vs-match-asset` (luta de 175 frames).
-- Próximo bloqueio: conferir o que os frames da luta fazem. Falta capturar a
-  imagem de um frame da luta pelo presenter, ver os lutadores responderem ao
-  stick e aos botões (a pausa só prova que a entrada chega à cena) e seguir
-  para `coll_data`, que o estágio hoje substitui por faixas padrão. A tela de
-  resultados (`onExitVs`) continua fora.
+- Executado: imagem da luta. `--run-modes` grava um frame pedido
+  (`FRAME:BMP=arquivo`) pelo presenter escondido. O frame 640 da rota do teste
+  mostra o estágio, o "Go!", o cronômetro, P1 e P2 e os painéis de dano; o 695
+  mostra o menu de pausa. Detalhes em `docs/native_port_status.md`.
+- Próximo bloqueio: o que a imagem mostra de errado. A câmera fica colada na
+  parte de baixo do estágio e os lutadores não aparecem, o letreiro de início
+  sai como quadriláteros brancos, com uma textura C8 cuja paleta o
+  decodificador recusa, e a SSS sai quase toda azul. Depois: ver os lutadores
+  responderem ao stick e aos botões e seguir para `coll_data`, que o estágio
+  hoje substitui por faixas padrão. A tela de resultados (`onExitVs`) continua
+  fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:
