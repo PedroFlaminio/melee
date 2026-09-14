@@ -128,7 +128,7 @@ StageData grFs_StageData = {
     ARRAY_SIZE(grFs_803E3CE8),
 };
 
-void grFourside_801F2D0C(bool arg) {}
+void grFourside_801F2D0C(GrDemoInitArg arg) {}
 
 void grFourside_801F2D10(void)
 {

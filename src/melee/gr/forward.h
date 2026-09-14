@@ -10,6 +10,17 @@
 #define HSD_GOBJ_CLASS_GROUND 13
 #define HSD_GOBJ_PLINK_GROUND 5
 
+/* The parameter of a stage's StageData::on_demo_init.  The field takes an
+ * int, which Stage_8022532C passes through (0x19 and 0x1A for Final
+ * Destination's demos, which grLast_OnDemoInit compares), but most stages
+ * declare the parameter as bool.  On the host that is a different function
+ * type, and a bool parameter would turn 0x1A into 1, so the host uses int. */
+#ifdef MELEE_HOST
+#define GrDemoInitArg int
+#else
+#define GrDemoInitArg bool
+#endif
+
 struct grCorneria_GroundVars;
 typedef struct grDynamicAttr_UnkStruct grDynamicAttr_UnkStruct;
 typedef struct GrJoint GrJoint;

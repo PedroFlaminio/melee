@@ -333,6 +333,28 @@ if(NOT MSVC)
     target_compile_options(melee_game_core PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-fgnu89-inline>)
 endif()
+# The rest of the decompiled game.  --gc-sections drops what nothing reaches,
+# in the sanitizer build too, so a module no scene calls adds nothing to a
+# link, and what a scene reaches is what gets linked.  gmscdata.c stays out:
+# the host's mode and scene tables (src/game/game_tables.c) stand in for it.
+file(GLOB_RECURSE MELEE_HOST_REST_OF_GAME CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/melee/*.c)
+get_target_property(melee_game_core_listed melee_game_core SOURCES)
+list(REMOVE_ITEM MELEE_HOST_REST_OF_GAME
+    ${melee_game_core_listed}
+    ${CMAKE_SOURCE_DIR}/src/melee/gm/gmscdata.c
+)
+target_sources(melee_game_core PRIVATE ${MELEE_HOST_REST_OF_GAME})
+# The baselib the rest of the game calls into: quaternions, the particle
+# system, its generators and their application SRT.
+target_sources(melee_game_core PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/particle.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/generator.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/psappsrt.c
+    ${CMAKE_SOURCE_DIR}/src/sysdolphin/baselib/quatlib.c
+    # The not-a-number and infinity constants lbtrigf.c returns.
+    ${CMAKE_SOURCE_DIR}/src/MSL/float.c
+)
 # Port code keeps the strict warning set even where it shares a target with
 # decompiled translation units, which need the legacy relaxations.
 set_source_files_properties(

@@ -627,6 +627,49 @@ void GXSetProjection(f32 mtx[4][4], GXProjectionType type)
     }
 }
 
+/* A point through a model-view matrix, a projection in GXGetProjectionv's
+ * six-float form and a GXGetViewportv viewport, to window coordinates.  It
+ * reads no GX state; the arithmetic keeps the SDK's order of operations, so
+ * the result is the same float for float. */
+void GXProject(f32 x, f32 y, f32 z, f32 mtx[3][4], f32* pm, f32* vp, f32* sx,
+               f32* sy, f32* sz)
+{
+    const f32 eye_x =
+        mtx[0][3] + ((mtx[0][2] * z) + ((mtx[0][0] * x) + (mtx[0][1] * y)));
+    const f32 eye_y =
+        mtx[1][3] + ((mtx[1][2] * z) + ((mtx[1][0] * x) + (mtx[1][1] * y)));
+    const f32 eye_z =
+        mtx[2][3] + ((mtx[2][2] * z) + ((mtx[2][0] * x) + (mtx[2][1] * y)));
+    f32 clip_x;
+    f32 clip_y;
+    f32 clip_z;
+    f32 inverse_w;
+
+    /* The type tag is GX_PERSPECTIVE, which is 0, or GX_ORTHOGRAPHIC. */
+    if (std::fpclassify(pm[0]) == FP_ZERO) {
+        clip_x = (eye_x * pm[1]) + (eye_z * pm[2]);
+        clip_y = (eye_y * pm[3]) + (eye_z * pm[4]);
+        clip_z = pm[6] + (eye_z * pm[5]);
+        inverse_w = 1.0F / -eye_z;
+    } else {
+        clip_x = pm[2] + (eye_x * pm[1]);
+        clip_y = pm[4] + (eye_y * pm[3]);
+        clip_z = pm[6] + (eye_z * pm[5]);
+        inverse_w = 1.0F;
+    }
+    *sx = (vp[2] / 2.0F) + (vp[0] + (inverse_w * (clip_x * vp[2] / 2.0F)));
+    *sy = (vp[3] / 2.0F) + (vp[1] + (inverse_w * (-clip_y * vp[3] / 2.0F)));
+    *sz = vp[5] + (inverse_w * (clip_z * (vp[5] - vp[4])));
+}
+
+/* The SDK only asserts that the hardware has no TEV clamp mode.  The game
+ * still calls it, with (0, 0), before drawing collision and debug lines. */
+void GXSetTevClampMode(int stage, int mode)
+{
+    (void) stage;
+    (void) mode;
+}
+
 void GXGetProjectionv(f32* ptr)
 {
     const std::lock_guard<std::mutex> guard(state_mutex);

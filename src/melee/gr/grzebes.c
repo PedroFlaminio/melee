@@ -24,7 +24,7 @@
 #include <sysdolphin/baselib/lobj.h>
 #include <sysdolphin/baselib/random.h>
 
-/* 1D84A0 */ static void grZebes_801D84A0(bool arg);
+/* 1D84A0 */ static void grZebes_801D84A0(GrDemoInitArg arg);
 /* 1D8528 */ static void grZebes_801D8528(void);
 /* 1D852C */ void grZebes_801D852C(void);
 /* 1D8550 */ static bool grZebes_801D8550(void);
@@ -246,7 +246,7 @@ StageData grZe_StageData = {
     ARRAY_SIZE(grZe_803E1A10),
 };
 
-void grZebes_801D84A0(bool arg) {}
+void grZebes_801D84A0(GrDemoInitArg arg) {}
 
 void grZebes_801D84A4(void)
 {

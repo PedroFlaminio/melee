@@ -42,7 +42,7 @@ typedef struct grTPrSpecialParams {
 
 static grTPrSpecialParams* yakumono_param;
 
-void grTPurin_80223160(bool unused)
+void grTPurin_80223160(GrDemoInitArg unused)
 {
     return;
 }

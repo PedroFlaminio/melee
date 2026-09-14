@@ -395,6 +395,19 @@ pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
   entrada extra sob `MELEE_HOST` com esses bytes reproduz o console, como na
   tabela de estagios da SSS; se o codigo atravessa objetos inteiros, junte-os
   numa definicao so, como em `toy.c`.
+- Todo `.c` de `src/melee` ja esta no core (menos `gmscdata.c`), entao alcancar
+  uma cena nova nao pede fonte nova no CMake. O que aparece no link e outra
+  coisa: um "multiple definition" contra `unported.c` quer dizer que o modulo
+  real passou a ser puxado, e a parada deve sair; uma referencia indefinida
+  costuma ser SDK, baselib fora do core ou dado que so existe no DOL. Codigo
+  original que nao pode rodar no host como esta, como uma relocacao de 32 bits
+  no lugar, para com nome dentro do proprio modulo sob `MELEE_HOST`, com o
+  motivo, como `psInitDataBankLocate`.
+- Um tipo de funcao que o GCC recusa (`incompatible-pointer-types`) quase sempre
+  e declaracao e definicao discordando. Antes de escolher o lado, veja o que
+  quem chama passa e o que o corpo faz com o valor: `on_demo_init` parecia
+  `bool` em quase todos os estagios, mas Final Destination compara o parametro
+  com 26.
 - O `host-sanitize` descarta no link o mesmo que o `host-debug`, e todo
   modulo compilado e instrumentado. Se um modulo que ninguem chama passar a
   exigir simbolos so no build sanitizado, confira se

@@ -1019,6 +1019,57 @@ Atualizado em 13 de setembro de 2026.
   `GXWGFifo` (`gm_1832.c`), declaracoes que chegam ao PowerPC por outro caminho
   (`OS_TIMER_CLOCK`, `OSSetProgressiveMode`, `OSPanic`), um callback de item
   e tipos de callback em `grpstadium.c` e `grshrineroute.c`.
+- [x] O resto da decomp no core. Todo `.c` de `src/melee` entra no
+  `melee_game_core` por um glob no `port/CMakeLists.txt`, menos `gmscdata.c`
+  (as tabelas de modos e cenas do host o substituem), junto de `particle.c`,
+  `generator.c`, `psappsrt.c` e `quatlib.c` do baselib e das constantes de
+  `src/MSL/float.c`. Como os dois presets descartam o que nada alcanca, o
+  executavel so ganha o que as cenas chamam: as rotas de titulo, menu e
+  selecao VS continuam com os mesmos frames. Ficam fora `archive.c` (substituido
+  por `hsd_host_archive.cpp`), `debug.c` (E/S da MSL; o host implementa
+  `OSPanic` e `HSD_Panic`), `psdisp.c` (escreve direto em `GXWGFifo`) e
+  `sislib_font.c` (o `.inc` gerado do DOL).
+- [x] O que precisou mudar para os 808 arquivos compilarem, sob `MELEE_HOST`:
+  - `StageData::on_demo_init` recebe `int`, e `Stage_8022532C` passa `0x19` e
+    `0x1A` nas demos de Final Destination, que `grLast_OnDemoInit` compara.
+    Cerca de 60 estagios declaravam o parametro como `bool`, que no host e
+    outro tipo de funcao e dobraria 26 em 1. A macro `GrDemoInitArg`
+    (`gr/forward.h`) e `int` no host e `bool` fora dele.
+  - Tipos que a declaracao e a definicao discordavam: `grLast_8021B5C4`
+    devolve 0 a 3 e estava declarado `bool`; `grLib_801C9EE8`,
+    `grShrineRoute_8020B020`, `itMewtwodisable_UnkMotion0_Coll` e os callbacks
+    de rota de `gricemt.c` e `grkinokoroute.h` passam a concordar com quem os
+    chama.
+  - `gm_1832.c` escrevia posicoes direto em `GXWGFifo`; o host usa
+    `GXPosition3f32`, como em `hsd_3915.c`. `gm_1884.c`, `gmprogressive.c`,
+    `gmregclear.c` e `grpstadium.c` incluem `dolphin/os.h`, que a build PowerPC
+    recebe por outro caminho. O callback de DevCom de `grpstadium.c` recebe
+    `HSD_DevComArg`.
+- [x] Novas pecas do host para o que passou a ser alcancado: `GXProject` (a
+  aritmetica da SDK, na mesma ordem de operacoes) e `GXSetTevClampMode` (a
+  SDK so avisa que o hardware nao tem esse modo) em
+  `port/src/gx/state_recorder.cpp`.
+- [x] Paradas de `unported.c` que viraram codigo original: `gm_80177724`,
+  `grDatFiles_801C5FC0` e `psInitDataBankLocate`. As duas funcoes de
+  `particle.c` que relocam bancos de particula no lugar com enderecos de 32
+  bits, `psInitDataBankLocate` e `psInitDataBankLoad`, param com nome dentro
+  do proprio arquivo sob `MELEE_HOST`.
+- [x] Matching contra `1f493384a`, token a token, com `-DMUST_MATCH` e sem
+  `MELEE_HOST`: os 77 `gr/*.c`, `gm_1832.c`, `gm_1884.c`, `gmprogressive.c`,
+  `gmregclear.c`, `itmewtwodisable.c` e `particle.c` sao identicos, menos
+  `grpstadium.c`, que so difere por `HSD_DevComArg` no lugar de `int`, o mesmo
+  tipo na build PowerPC.
+- [x] Medido: `host-debug` com 180/180 e ctest 14/14; o `melee-pc` de debug
+  tem 64 MB. `host-sanitize` com 180/180, ctest 14/14, rota VS em 19,9 s,
+  nenhum erro do ASan e, do UBSan, so os quatro relatos de chamada por ponteiro
+  de funcao de antes.
+- [x] Trigonometria do proprio jogo. `atan2f`, `acosf` e `asinf` passaram a vir
+  de `lbtrigf.c`; antes dele entrar no core, o cursor da CSS ligava o `atan2f`
+  da glibc. As rotas seguem com os mesmos frames. `SIGN_BIT` desloca `1U` sob
+  `MELEE_HOST`, porque o UBSan acusava `1 << 31` em `int`, e `lbtrigf.c`
+  pre-processa identico sem o define. Nenhum simbolo C e definido ao mesmo
+  tempo no core e em `libmelee_host.a`, entao nenhum modulo da decomp esconde
+  uma implementacao do host, nem o contrario.
 
 ## Em andamento
 
@@ -1204,9 +1255,10 @@ Atualizado em 13 de setembro de 2026.
   portas HMN. Os caminhos de regras, troca de nome e botoes de time da CSS
   alcancam paradas com nome em `unported.c`.
 - Os arquivos da demo do titulo carregam, mas nada os usa ainda. Parsear um
-  arquivo de efeito ou de estagio pre-carregado para em
-  `psInitDataBankLocate` e em `grDatFiles_801C5FC0`, que param com nome: as
-  particulas relocam os bancos no lugar com offsets de 32 bits.
+  arquivo de efeito pre-carregado para com nome em `psInitDataBankLocate` ou
+  `psInitDataBankLoad` (`particle.c`): as particulas relocam os bancos no lugar
+  com offsets de 32 bits. `grDatFiles_801C5FC0`, que parseia o arquivo de
+  estagio, agora e o codigo original e ainda nao foi executado.
 - `efAsync_OnLoad` e `efAsync_LoadSync` testam nulo com `(u32) a | (u32) b`,
   o que no host descarta a metade alta dos ponteiros. Nenhum dos dois roda
   ainda.
@@ -1267,5 +1319,15 @@ Atualizado em 13 de setembro de 2026.
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
 - O jogo tem 59 listas variadicas de ponteiros terminadas por `0`; 10 delas usam
   `VA_END_PTR` (`gmTitle_801A1AC0`, `lb_80014534` e as oito do caminho do
-  menu). Cada unidade que entrar no build com uma dessas listas precisa da
-  mesma troca.
+  menu). Todas as unidades ja compilam no core, entao o que falta nao aparece
+  no build: cada caminho novo que alcance uma das outras 49 precisa da mesma
+  troca, e sob ASan o sintoma e escrita num endereco com os 32 bits baixos
+  zerados.
+- Parte da matematica de ponto flutuante ainda e da glibc, e nao do jogo: o
+  `melee-pc` resolve `atanf`, `sinf`, `cosf`, `tanf`, `sqrtf`, `sqrt` e `fmodf`
+  pela `libm`. O `atanf` de `lbtrigf.c` so compila sob `__MWERKS__`, porque usa
+  o intrinseco `__fnmsubs` do PowerPC, e as outras vem da MSL, que o host nao
+  compila. Para o determinismo contra o console essas funcoes precisam dar o
+  mesmo resultado bit a bit. `lbtrigf.c` tambem le floats por `*(u32*) &f`,
+  o que funciona no build de debug e pede `-fno-strict-aliasing` ou `memcpy`
+  num build otimizado.

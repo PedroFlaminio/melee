@@ -102,7 +102,13 @@ bool itMewtwodisable_UnkMotion0_Anim(Item_GObj* item_gobj)
 
 void itMewtwodisable_UnkMotion0_Phys(Item_GObj* item_gobj) {}
 
+#ifdef MELEE_HOST
+/* The state table calls it as a bool callback; the flags convert to true
+ * when any is set, as the table's caller tests them. */
+bool itMewtwodisable_UnkMotion0_Coll(Item_GObj* item_gobj)
+#else
 int itMewtwodisable_UnkMotion0_Coll(Item_GObj* item_gobj)
+#endif
 {
     u32 coll_flags = 0;
 

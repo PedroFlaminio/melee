@@ -359,7 +359,7 @@ static struct grMc_YakumonoParam* yakumono_param;
 
 static s32 grMc_804D69D4;
 
-void grMuteCity_801EFC68(bool arg) {}
+void grMuteCity_801EFC68(GrDemoInitArg arg) {}
 
 void grMuteCity_801EFC6C(void)
 {

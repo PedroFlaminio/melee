@@ -60,7 +60,7 @@ struct grOldKongo_YakumonoParam {
     void* x6C;
 };
 
-/* 20F468 */ static void grOldKongo_8020F468(bool);
+/* 20F468 */ static void grOldKongo_8020F468(GrDemoInitArg);
 /* 20F46C */ static void grOldKongo_8020F46C(void);
 /* 20F4E4 */ static void grOldKongo_8020F4E4(void);
 /* 20F4E8 */ static void grOldKongo_8020F4E8(void);
@@ -141,7 +141,7 @@ StageData grOk_StageData = {
     ARRAY_SIZE(grOk_803E6580),
 };
 
-void grOldKongo_8020F468(bool arg) {}
+void grOldKongo_8020F468(GrDemoInitArg arg) {}
 
 void grOldKongo_8020F46C(void)
 {

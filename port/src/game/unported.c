@@ -35,29 +35,6 @@
 #define MELEE_HOST_UNPORTED(name)                                             \
     OSPanic(__FILE__, __LINE__, "%s is not ported to the host yet", name)
 
-/* efAsync_OnLoad hands a preloaded effect archive's particle banks to this,
- * which relocates them in place with 32-bit offsets.  Registering the archive
- * for preload does not reach it; a scene that asks for the archive does. */
-void psInitDataBankLocate(HSD_Archive* cmdBank, HSD_Archive* texBank,
-                          int* formBank)
-{
-    (void) cmdBank;
-    (void) texBank;
-    (void) formBank;
-    MELEE_HOST_UNPORTED("psInitDataBankLocate");
-}
-
-/* lbDvd_GetPreloadedArchive hands a preloaded stage archive to this.  The
- * title state preloads a stage for the demo, but only a scene that asks for
- * the archive afterwards parses it, and the title does not. */
-void grDatFiles_801C5FC0(HSD_Archive* archive, void* data, size_t length)
-{
-    (void) archive;
-    (void) data;
-    (void) length;
-    MELEE_HOST_UNPORTED("grDatFiles_801C5FC0");
-}
-
 /* lb_8001B14C lists the save files on a mounted memory card and keeps the ones
  * whose company and game code match the disc's.  The host never mounts a card,
  * and it does not read the disc header yet. */
@@ -236,13 +213,4 @@ void mn_802339FC(void)
 void gm_80190EA4(void)
 {
     MELEE_HOST_UNPORTED("gm_80190EA4");
-}
-
-/* gmVsMelee_EnterResults hands the match to the results screen through this.
- * The host's VS mode ends at the match, so nothing routes there; --gc-sections
- * drops the caller in the debug build, and the sanitizer build keeps it. */
-void gm_80177724(struct ResultsMatchInfo* arg0)
-{
-    (void) arg0;
-    MELEE_HOST_UNPORTED("gm_80177724");
 }

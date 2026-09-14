@@ -5,6 +5,9 @@
 #include "gmmain_lib.h"
 #include "types.h"
 #include <dolphin/pad.h>
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+#endif
 #include <melee/lb/lbarchive.h>
 #include <melee/lb/lblanguage.h>
 #include <melee/mn/inlines.h>

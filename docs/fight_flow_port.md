@@ -129,6 +129,9 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   que os módulos novos passam a definir; (2) com `GS_VS` na tabela, o que
   continuar indefinido é SDK, MSL ou asm, a tratar caso a caso; (3) rodar a
   rota até a luta e seguir os crashes.
+- Executado o passo (1): os 808 arquivos compilam e estão no core, com
+  `particle.c`, `generator.c`, `psappsrt.c`, `quatlib.c` e `src/MSL/float.c`.
+  As rotas existentes não mudaram. Detalhes em `docs/native_port_status.md`.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de

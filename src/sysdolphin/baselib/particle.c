@@ -119,6 +119,12 @@ void psInitDataBankLoad(int bank, const int* cmdBank, const int* texBank,
 {
     u16 version;
 
+#ifdef MELEE_HOST
+    /* It stores the relocated banks' addresses in 32-bit tables; see
+     * psInitDataBankLocate. */
+    OSPanic(__FILE__, __LINE__,
+            "psInitDataBankLoad is not ported to the host yet");
+#endif
     (void) hsd_804D0908;
 
     if (formBank != NULL && *formBank != *texBank) {
@@ -170,6 +176,13 @@ void psInitDataBankLocate(HSD_Archive* cmdBank, HSD_Archive* texBank,
     s32* base;
     s32 version;
 
+#ifdef MELEE_HOST
+    /* The banks hold 32-bit offsets that this rewrites in place into 32-bit
+     * addresses, and a host address does not fit.  An effect archive needs a
+     * host loader before any scene hands its banks here. */
+    OSPanic(__FILE__, __LINE__,
+            "psInitDataBankLocate is not ported to the host yet");
+#endif
     version = *(u16*) cmdBank;
     if (version < 0x40) {
         if (version == 0) {

@@ -11,6 +11,9 @@
 #include "stage.h"
 #include "types.h"
 #include <dolphin/gx/GXStruct.h>
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+#endif
 #include <melee/cm/camera.h>
 #include <melee/ft/ftlib.h>
 #include <melee/gm/gm_unsplit.h>
@@ -1867,7 +1870,8 @@ void grStadium_801D4194(Ground_GObj* arg0)
 }
 
 /// HSD_DevComCallback
-static void fn_801D4220(int dcreq, int args, void* buf, bool cancelflag)
+static void fn_801D4220(int dcreq, HSD_DevComArg args, void* buf,
+                        bool cancelflag)
 {
     Ground_GObj* map_gobj;
     Ground* gp;

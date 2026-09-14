@@ -122,7 +122,7 @@ struct StageData grRc_StageData = {
 
 static struct grRCruise_YakumonoParam* yakumono_param;
 
-void grRCruise_801FF164(bool arg) {}
+void grRCruise_801FF164(GrDemoInitArg arg) {}
 
 void grRCruise_801FF168(void)
 {

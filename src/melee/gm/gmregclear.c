@@ -1,6 +1,9 @@
 #include "gmregclear.h"
 
 #include <Runtime/platform.h>
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+#endif
 
 #include <sysdolphin/baselib/forward.h>
 

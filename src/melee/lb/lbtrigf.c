@@ -9,7 +9,12 @@
 /* 400770 */ extern float MSL_TrigF_80400770[];
 /* 400774 */ extern float MSL_TrigF_80400774[];
 
+#ifdef MELEE_HOST
+/* 1 << 31 shifts into the sign bit of an int, which C leaves undefined. */
+#define SIGN_BIT (1U << 31)
+#else
 #define SIGN_BIT (1 << 31)
+#endif
 #define BITWISE(f) (*(u32*) &f)
 #define SIGNED_BITWISE(f) ((s32) BITWISE(f))
 #define GET_SIGN_BIT(f) (SIGNED_BITWISE(f) & SIGN_BIT)

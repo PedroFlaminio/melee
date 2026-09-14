@@ -190,7 +190,7 @@ static inline struct grGreens_BlockVars* getBlock(Ground* gp, int i, int j)
     return &gp->u.greens.x8_blocks[i][j];
 }
 
-void grGreens_80213458(bool arg)
+void grGreens_80213458(GrDemoInitArg arg)
 {
     grGr_804D6AAC = 1;
 }

@@ -54,7 +54,7 @@ struct grSh_Route_LightConfig {
     /* 0x30 */ GXDistAttnFn dist_func;
 };
 
-/* 2087B8 */ static void grShrineRoute_OnDemoInit(bool);
+/* 2087B8 */ static void grShrineRoute_OnDemoInit(GrDemoInitArg);
 /* 2087BC */ static void grShrineRoute_OnInit(void);
 /* 20882C */ static void grShrineRoute_OnLoad(void);
 /* 208850 */ static void grShrineRoute_OnStart(void);
@@ -176,7 +176,7 @@ StageData grSh_Route_StageData = {
 
 static struct grShrineRoute_YakumonoParam* yakumono_param;
 
-void grShrineRoute_OnDemoInit(bool arg) {}
+void grShrineRoute_OnDemoInit(GrDemoInitArg arg) {}
 
 void grShrineRoute_OnInit(void)
 {
@@ -1530,7 +1530,12 @@ void grShrineRoute_8020AF38(HSD_GObj* gobj, s32 arg1)
     }
 }
 
+#ifdef MELEE_HOST
+/* The static declaration above takes a bool. */
+void grShrineRoute_8020B020(HSD_GObj* gobj, int r4, bool r5)
+#else
 void grShrineRoute_8020B020(HSD_GObj* gobj, int r4, int r5)
+#endif
 {
     Ground* gp = gobj->user_data;
     int comp;

@@ -8,6 +8,9 @@
 #include "gmscene.h"
 #include "types.h"
 #include <dolphin/pad.h>
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+#endif
 #include <melee/gr/stage.h>
 #include <melee/if/ifall.h>
 #include <melee/if/ifstatus.h>

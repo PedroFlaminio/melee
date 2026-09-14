@@ -89,7 +89,7 @@ StageData grHr_StageData = {
     1,
 };
 
-void grHomeRun_8021C750(bool arg) {}
+void grHomeRun_8021C750(GrDemoInitArg arg) {}
 
 void grHomeRun_8021C754(void)
 {
