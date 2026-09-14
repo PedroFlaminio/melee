@@ -213,6 +213,11 @@ public:
     [[nodiscard]] MaterializedSceneDesc*
     scene_desc(std::string_view public_symbol);
 
+    /* A `*_scene_models` symbol: a NULL-terminated table of models laid out
+     * as DynamicModelDesc, each a joint and its animation tables. */
+    [[nodiscard]] MaterializedDynamicModel**
+    scene_models(std::string_view public_symbol);
+
     /* A camera named on its own, which is how a menu or the title keeps one
      * when there is no SceneDesc around it. */
     [[nodiscard]] HSD_CObjDesc* camera(std::string_view public_symbol);

@@ -1371,6 +1371,50 @@ TEST_CASE("a scene_data symbol translates its models, cameras, lights and fogs")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_scene_models(void* table, char* message,
+                                                 std::size_t size);
+extern "C" int melee_host_test_check_single_model_table(void* table,
+                                                       char* message,
+                                                       std::size_t size);
+
+TEST_CASE("model tables translate as DynamicModelDesc, suffixed or named")
+{
+    // A table of two models, one with an animation table, named both with the
+    // _scene_models suffix and as IfAll.dat's tdsce, and, as the magnifier's
+    // lupe, a table of one that the model record comes right before.
+    // scene_data_check.c reads them back.
+    ArchiveBuilder builder(0x140);
+    builder.pointer(0x000, 0x010);
+    builder.pointer(0x004, 0x020);
+    builder.pointer(0x010, 0x080);
+    builder.pointer(0x014, 0x030);
+    builder.pointer(0x020, 0x0C0);
+    builder.pointer(0x030, 0x040);
+    builder.pointer(0x100, 0x020);
+    builder.public_symbol(0x000, "ScTest_scene_models");
+    builder.public_symbol(0x000, "tdsce");
+    builder.public_symbol(0x100, "lupe");
+    std::vector<std::byte> bytes = builder.build();
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const table =
+        HSD_ArchiveGetPublicAddress(&archive, "ScTest_scene_models");
+    void* const named = HSD_ArchiveGetPublicAddress(&archive, "tdsce");
+    void* const lupe = HSD_ArchiveGetPublicAddress(&archive, "lupe");
+    REQUIRE(table != nullptr);
+    REQUIRE(named != nullptr);
+    REQUIRE(lupe != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_scene_models(table, message,
+                                               sizeof(message)) == 1);
+    REQUIRE(melee_host_test_check_scene_models(named, message,
+                                               sizeof(message)) == 1);
+    REQUIRE(melee_host_test_check_single_model_table(lupe, message,
+                                                     sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 extern "C" int melee_host_test_check_fighter_fox_data(void* translated,
                                                      char* message,
                                                      std::size_t size);
@@ -1652,6 +1696,13 @@ TEST_CASE("symbol kinds follow the name's suffix, longest first")
             MELEE_HOST_HSD_SYMBOL_FIGATREE);
     REQUIRE(melee_host_hsd_symbol_kind("ScTitle_scene_data") ==
             MELEE_HOST_HSD_SYMBOL_SCENE_DATA);
+    REQUIRE(melee_host_hsd_symbol_kind("DmgNum_scene_models") ==
+            MELEE_HOST_HSD_SYMBOL_SCENE_MODELS);
+    // The HUD's models, which IfAll.dat names without a suffix.
+    REQUIRE(melee_host_hsd_symbol_kind("Stc_scemdls") ==
+            MELEE_HOST_HSD_SYMBOL_SCENE_MODELS);
+    REQUIRE(melee_host_hsd_symbol_kind("lupe") ==
+            MELEE_HOST_HSD_SYMBOL_SCENE_MODELS);
     // Text tables are named by a prefix instead.
     REQUIRE(melee_host_hsd_symbol_kind("SIS_MenuData") ==
             MELEE_HOST_HSD_SYMBOL_SIS_TABLE);

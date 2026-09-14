@@ -485,7 +485,8 @@ Atualizado em 13 de setembro de 2026.
   materializador na primeira vez que e pedido. O arquivo nao diz o tipo de um
   simbolo; o jogo sabe pelo nome que pede, e o host le o mesmo do sufixo
   (`_joint`, `_animjoint`, `_matanim_joint`, `_shapeanim_joint`, `_camera`,
-  `_scene_lights`, `_fog`, `_sobjdesc`, `_figatree`, `_scene_data`). Sufixo
+  `_scene_lights`, `_fog`, `_sobjdesc`, `_figatree`, `_scene_data`,
+  `_scene_models`). Sufixo
   sem traducao e
   recusado com relatorio, em vez de devolvido como ponteiro para bytes
   big-endian. O mesmo simbolo pedido duas vezes devolve o mesmo descritor.
@@ -1509,6 +1510,28 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 192/192 e ctest 15/15;
   `host-sanitize` com 192/192, ctest 15/15, rota VS em 20,4 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] `_scene_models` na API de arquivo: uma tabela de `DynamicModelDesc*`
+  terminada por NULL, com os modelos montados como os do `_scene_data`.
+  `IfAll.dat` nomeia sem sufixo mais quatro tabelas do HUD, reconhecidas pelo
+  nome inteiro: `Stc_scemdls` (`ifstock.c`), `Stc_rarwmdls` (`if_2FD9.c`),
+  `tdsce` (`iftime.c`) e `lupe` (`ifmagnify.c`). `lupe` parecia um modelo
+  solto no levantamento, mas `ifMagnify_802FC3C0` o le por
+  `*(DynamicModelDesc**)`: e uma tabela de um, com o registro do modelo logo
+  antes dela. No disco os 26 simbolos traduzem e carregam (268 JObjs); em
+  `IfAll.dat`, 10 com 84. Teste unitario com tabela de dois modelos, os nomes
+  sem sufixo e a tabela de um (`port/tests/scene_data_check.c`).
+- [x] `lbBgFlashColAnimData` (`LbBf.dat`): as animacoes de cor do flash de
+  fundo, que `lb_0219.c` passa a `lb_800144C8` no formato das dos itens;
+  traduzido pelo mesmo codigo.
+- [x] Com `GS_VS` na tabela so localmente, `fn_8016E730` termina e a entrada
+  para em `gm_Scene_Vs_OnEnter` -> `ifStatus_802F665C` ->
+  `ifStatus_802F5EC0` (`ifstatus.c:712`): `ifStatus_802F6194` recebe um JObj
+  convertido em GObj e anda por `next_gx` e `next`, que no console caem onde
+  o JObj guarda `child` e `next`. No host a largura de ponteiro os separa, e
+  `next_gx` le o `parent` da raiz, nulo.
+- [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
+  `host-sanitize` com 193/193, ctest 15/15, rota VS em 20,6 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 
@@ -1517,9 +1540,8 @@ Atualizado em 13 de setembro de 2026.
 - [ ] Cancelamento, streaming e prioridade completa da API DVD.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas. A API de
   arquivo ja atende joints, animacoes, cameras, luzes, fog, sprites e
-  `_scene_data`; faltam `_scene_models` e os modelos do HUD sem sufixo,
-  imagens e paletas soltas, dados de estagio e `ftData*` dos outros
-  personagens.
+  `_scene_data` e `_scene_models`; faltam imagens e paletas soltas, dados de
+  estagio e `ftData*` dos outros personagens.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
   loop de frame (roteiro em `docs/fight_flow_port.md`). Titulo, menu, CSS e SSS
   ja rodam pelo codigo do jogo e produzem a selecao; falta a cena de luta

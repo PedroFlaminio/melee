@@ -35,6 +35,8 @@ typedef enum MeleeHostHsdSymbolKind {
     MELEE_HOST_HSD_SYMBOL_FIGATREE,
     /* SceneDesc: models, cameras, lights and fogs. */
     MELEE_HOST_HSD_SYMBOL_SCENE_DATA,
+    /* A NULL-terminated table of DynamicModelDesc pointers. */
+    MELEE_HOST_HSD_SYMBOL_SCENE_MODELS,
     /* A symbol whose name carries no kind, recognised by its whole name. */
     MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE,
     /* A text table, recognised by the SIS_ its name starts with. */

@@ -11,6 +11,10 @@
 
 int melee_host_test_check_scene_data(void* translated, char* message,
                                      size_t size);
+int melee_host_test_check_scene_models(void* table, char* message,
+                                       size_t size);
+int melee_host_test_check_single_model_table(void* table, char* message,
+                                             size_t size);
 
 #define CHECK(condition)                                                      \
     do {                                                                      \
@@ -54,5 +58,31 @@ int melee_host_test_check_scene_data(void* translated, char* message,
     CHECK(scene->fogs != NULL && scene->fogs[0].desc != NULL);
     CHECK(scene->fogs[0].desc->start == 10.0f);
     CHECK(scene->fogs[0].anims == NULL);
+    return 1;
+}
+
+/* Model tables, read as the HUD reads them: two models, the first with an
+ * animation table, and a table of one. */
+int melee_host_test_check_scene_models(void* table, char* message,
+                                       size_t size)
+{
+    DynamicModelDesc** const models = table;
+
+    CHECK(models != NULL && models[0] != NULL && models[1] != NULL);
+    CHECK(models[2] == NULL);
+    CHECK(models[0]->joint != NULL && models[0]->anims != NULL);
+    CHECK(models[0]->anims[0] != NULL && models[0]->anims[1] == NULL);
+    CHECK(models[0]->matanims == NULL && models[0]->shapeanims == NULL);
+    CHECK(models[1]->joint != NULL && models[1]->anims == NULL);
+    return 1;
+}
+
+int melee_host_test_check_single_model_table(void* table, char* message,
+                                             size_t size)
+{
+    DynamicModelDesc** const models = table;
+
+    CHECK(models != NULL && models[0] != NULL && models[1] == NULL);
+    CHECK(models[0]->joint != NULL && models[0]->anims == NULL);
     return 1;
 }

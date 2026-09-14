@@ -96,6 +96,24 @@ private:
     std::size_t size_ = 0;
 };
 
+/* Builds a model's joint tree, as a scene does, counts the JObjs and frees
+ * them.  False when the loader built nothing. */
+bool load_model(const melee::assets::MaterializedDynamicModel* model,
+                mh_u32* objects)
+{
+    if (model->joint == nullptr) {
+        return true;
+    }
+    const u32 before = hsdJObj.parent.parent.head.nb_exist;
+    HSD_JObj* const jobj = HSD_JObjLoadJoint(model->joint);
+    if (jobj == nullptr) {
+        return false;
+    }
+    *objects += hsdJObj.parent.parent.head.nb_exist - before;
+    HSD_JObjRemoveAll(jobj);
+    return true;
+}
+
 void load(HSD_Archive* archive, MeleeHostArchiveProbeSymbol* result)
 {
     void* const descriptor =
@@ -185,17 +203,10 @@ void load(HSD_Archive* archive, MeleeHostArchiveProbeSymbol* result)
         for (auto** model = scene->models; model != nullptr && *model != nullptr;
              ++model)
         {
-            if ((*model)->joint == nullptr) {
-                continue;
-            }
-            const u32 before = hsdJObj.parent.parent.head.nb_exist;
-            HSD_JObj* const jobj = HSD_JObjLoadJoint((*model)->joint);
-            if (jobj == nullptr) {
+            if (!load_model(*model, &objects)) {
                 result->error = "HSD_JObjLoadJoint built no object";
                 return;
             }
-            objects += hsdJObj.parent.parent.head.nb_exist - before;
-            HSD_JObjRemoveAll(jobj);
         }
         if (scene->cameras != nullptr && scene->cameras[0].desc != nullptr) {
             HSD_CObj* const cobj = HSD_CObjLoadDesc(scene->cameras[0].desc);
@@ -225,6 +236,23 @@ void load(HSD_Archive* archive, MeleeHostArchiveProbeSymbol* result)
             }
             objects += 1;
             hsdDelete(fog);
+        }
+        result->objects = objects;
+        result->loaded = 1;
+        return;
+    }
+    case MELEE_HOST_HSD_SYMBOL_SCENE_MODELS: {
+        result->load_attempted = 1;
+        mh_u32 objects = 0;
+        for (auto** model =
+                 static_cast<melee::assets::MaterializedDynamicModel**>(
+                     descriptor);
+             *model != nullptr; ++model)
+        {
+            if (!load_model(*model, &objects)) {
+                result->error = "HSD_JObjLoadJoint built no object";
+                return;
+            }
         }
         result->objects = objects;
         result->loaded = 1;

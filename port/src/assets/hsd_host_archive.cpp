@@ -90,8 +90,9 @@ struct SuffixKind {
 };
 
 /* Longest first where one suffix ends another. */
-constexpr std::array<SuffixKind, 10> kSuffixes{ {
+constexpr std::array<SuffixKind, 11> kSuffixes{ {
     { "_scene_data", MELEE_HOST_HSD_SYMBOL_SCENE_DATA },
+    { "_scene_models", MELEE_HOST_HSD_SYMBOL_SCENE_MODELS },
     { "_matanim_joint", MELEE_HOST_HSD_SYMBOL_MAT_ANIM_JOINT },
     { "_shapeanim_joint", MELEE_HOST_HSD_SYMBOL_SHAPE_ANIM_JOINT },
     { "_animjoint", MELEE_HOST_HSD_SYMBOL_ANIM_JOINT },
@@ -201,6 +202,8 @@ void* translate(HsdMaterializedArchive& descriptors,
         return descriptors.figa_tree(symbol);
     case MELEE_HOST_HSD_SYMBOL_SCENE_DATA:
         return descriptors.scene_desc(symbol);
+    case MELEE_HOST_HSD_SYMBOL_SCENE_MODELS:
+        return descriptors.scene_models(symbol);
     case MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE:
         return descriptors.rumble_table(symbol);
     case MELEE_HOST_HSD_SYMBOL_SIS_TABLE:
@@ -234,6 +237,13 @@ extern "C" MeleeHostHsdSymbolKind melee_host_hsd_symbol_kind(const char* symbol)
     /* Symbols the game names without a kind suffix. */
     if (name == "lbRumbleData") {
         return MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE;
+    }
+    /* The HUD's model tables (ifstock.c, if_2FD9.c, iftime.c and
+     * ifmagnify.c), which IfAll.dat names without a kind suffix. */
+    if (name == "Stc_scemdls" || name == "Stc_rarwmdls" || name == "tdsce" ||
+        name == "lupe")
+    {
+        return MELEE_HOST_HSD_SYMBOL_SCENE_MODELS;
     }
     /* sislib.c's text archives: SIS_MenuData, SIS_ToyData_E and the rest. */
     constexpr std::string_view kSisPrefix = "SIS_";
@@ -272,6 +282,8 @@ melee_host_hsd_symbol_kind_name(MeleeHostHsdSymbolKind kind)
         return "figatree";
     case MELEE_HOST_HSD_SYMBOL_SCENE_DATA:
         return "scene_data";
+    case MELEE_HOST_HSD_SYMBOL_SCENE_MODELS:
+        return "scene_models";
     case MELEE_HOST_HSD_SYMBOL_RUMBLE_TABLE:
         return "rumble_table";
     case MELEE_HOST_HSD_SYMBOL_SIS_TABLE:

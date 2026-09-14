@@ -275,14 +275,20 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   um `_scene_data` (`SceneDesc`). A API de arquivo passou a atender o tipo;
   câmeras e fogs são vetores sem terminador, contados enquanto a entrada tem
   descritor e até a próxima fronteira.
-- Próximo bloqueio: o HUD. `ifAll_802F390C` carrega `ScInfDmg_scene_data`
-  (já atendido) e segue para `ifStatus_802F7134` (`if_2F6E.c:143`), que pede
-  `ScInfCnt_scene_models` a `IfAll.dat`. Os `_scene_models` são tabelas de
-  `DynamicModelDesc*` terminadas por NULL; o HUD ainda pede `DmgNum` e `DmgMrk`
-  (`_scene_models`), `ScInfTim_scene_models`, `ScInfPnm_scene_models` e, sem
-  sufixo, `Stc_scemdls`, `Stc_rarwmdls` e `tdsce` (tabelas do mesmo formato) e
-  `lupe` (um `DynamicModelDesc` só). Levantado nos arquivos do disco: os 18
-  `_scene_models` e as tabelas sem sufixo seguem o formato.
+- Bloqueio seguinte, resolvido: o HUD. `ifAll_802F390C` carrega
+  `ScInfDmg_scene_data` e os modelos de `IfAll.dat`: os `_scene_models`
+  (`ScInfCnt`, `DmgNum`, `DmgMrk`, `ScInfTim`, `ScInfPnm`, `ScInfStc`) e, sem
+  sufixo, `Stc_scemdls`, `Stc_rarwmdls`, `tdsce` e `lupe`, todos tabelas de
+  `DynamicModelDesc*` terminadas por NULL (`lupe` é uma tabela de um, que
+  `ifmagnify.c` lê por `*(DynamicModelDesc**)`). Depois, `lbBgFlash_Init` pede
+  `lbBgFlashColAnimData` a `LbBf.dat`, as animações de cor no formato das dos
+  itens.
+- Próximo bloqueio: `fn_8016E730` termina. Em `gm_Scene_Vs_OnEnter`,
+  `ifStatus_802F665C` → `ifStatus_802F5EC0` (`ifstatus.c:712`) acha os dígitos
+  de dano com `ifStatus_802F6194`, que recebe um JObj convertido em GObj e
+  anda por `next_gx` e `next`: no console esses campos caem onde o JObj guarda
+  `child` e `next`, e no host a largura de ponteiro os separa. A correção é
+  andar pelo próprio JObj sob `MELEE_HOST`.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

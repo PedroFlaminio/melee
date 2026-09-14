@@ -1077,6 +1077,13 @@ static Fighter_804D653C_t* item_color_anims(MeleeHostHsdReader* reader,
     return melee_host_hsd_reader_failed(reader) ? NULL : table;
 }
 
+/* LbBf.dat's lbBgFlashColAnimData: the background flash's color animations,
+ * which lb_0219.c hands to lb_800144C8 in the same layout. */
+static void* bg_flash_color_anims(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    return item_color_anims(reader, root);
+}
+
 static void* item_public_data(MeleeHostHsdReader* reader, mh_u32 root)
 {
     mh_u32 tables[6];
@@ -2360,6 +2367,8 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
 void melee_host_game_register_data_translators(void)
 {
     (void) melee_host_hsd_register_translator("ftDataFox", fighter_data_fox);
+    (void) melee_host_hsd_register_translator("lbBgFlashColAnimData",
+                                              bg_flash_color_anims);
     (void) melee_host_hsd_register_translator("ftLoadCommonData",
                                               fighter_common_tables);
     (void) melee_host_hsd_register_translator("map_head", stage_map_head);

@@ -3076,4 +3076,12 @@ HsdMaterializedArchive::scene_desc(std::string_view public_symbol)
     return host;
 }
 
+MaterializedDynamicModel**
+HsdMaterializedArchive::scene_models(std::string_view public_symbol)
+{
+    return pointer_table(archive_.public_root(public_symbol),
+                         &HsdMaterializedArchive::dynamic_model,
+                         "HSD scene model table");
+}
+
 } // namespace melee::assets
