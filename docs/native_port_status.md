@@ -1853,6 +1853,21 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 198/198, ctest 15/15 e o teste da luta em
   56,7 s; `host-sanitize` com 198/198, ctest 15/15, o teste da luta em
   260,3 s, nenhum erro do ASan e os mesmos 24 pontos do UBSan.
+- [x] A faixa preta e a sombra projetada dos lutadores. `lbShadow_8000ED54`
+  cria, por lutador, um `HSD_Shadow` de 256x256 com camera ortografica e
+  `intensity` 0xC0. `HSD_ShadowStartRender` desenha no viewport da sombra um
+  retangulo de fundo com cor de material 255 e depois, com scissor de 2 a 254,
+  o lutador com cor 0xC0, sem textura. `HSD_ShadowEndRender` copia com
+  `GXCopyTex` para `image_ptr`, no formato `GX_CTF_R4` (0x20, 4 bits por
+  texel), uma textura alocada por `HSD_MemAlloc` sem zerar. No host,
+  `GXCopyTex` so conta a copia e guarda o destino, e a textura fica com o que
+  havia na memoria. No relatorio do frame 640 elas sao as texturas 6 e 7, I4
+  de 256x256, uma por lutador.
+- [x] Confirmado por experimento local, sem commit: com `GXCopyTex` enchendo o
+  destino de branco, a faixa some nos frames 560 e 640. Branco tambem apaga a
+  sombra, entao isso nao e a correcao. A correcao e o host rasterizar o que o
+  passo de sombra desenhou desde o inicio dele e gravar a copia no formato
+  pedido.
 
 ## Em andamento
 

@@ -365,10 +365,15 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   posição, e o HSD carrega a inversa transposta, sem translação, logo depois
   da posição de todo PObj iluminado. Com as matrizes de normal à parte, como
   no GX, os dois Fox aparecem no tamanho certo sobre o estágio.
-- Próximo bloqueio: uma faixa preta grande sobre a parte de baixo e a direita
-  do estágio, sem causa medida. A sombra projetada dos lutadores, que usa a
-  textura copiada do passo ortográfico de 256x256, é a suspeita, porque o
-  host não produz pixels nas cópias de EFB. Depois: ver os lutadores
+- Medido: a faixa preta é a sombra projetada dos lutadores. O passo de sombra
+  copia o que desenhou para uma textura de 4 bits com `GXCopyTex`, que o host
+  só registra, e a textura fica com o conteúdo de uma alocação não zerada.
+  Encher a cópia de branco, num experimento local, apagou a faixa.
+- Próximo bloqueio: produzir as cópias de EFB no host. `GXCopyTex` precisa
+  rasterizar o que foi desenhado no alvo da cópia desde o começo do passo e
+  gravar no formato pedido. Para a sombra, isso é fundo branco e silhueta em
+  cinza, sem textura, em projeção ortográfica, gravados em `GX_CTF_R4`;
+  `lbrefract.c` e `tobj.c` também copiam. Depois: ver os lutadores
   responderem ao stick e aos botões, conferir a SSS (saía quase toda azul
   antes da correção de paleta e não foi olhada depois) e os dados de estágio
   que faltam (`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit`,

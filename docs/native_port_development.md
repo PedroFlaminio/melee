@@ -370,6 +370,12 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   de suspeitar do esqueleto, confira no relatorio do `BMP=` as caixas das
   sequencias de draw e, no gdb, as matrizes dos joints: aqui as duas coisas
   apontaram para lados diferentes, e o erro estava entre elas.
+- Uma textura que o jogo preenche com `GXCopyTex` (sombra, refracao e a
+  copia de `tobj.c`) fica no host com o que havia na memoria, porque a copia
+  de EFB ainda nao produz pixels. O sintoma e uma area preta ou suja onde a
+  textura e aplicada. Para confirmar, encha o destino com uma cor fixa dentro
+  de `GXCopyTex`, sem commit, e veja se a area muda: foi assim que a faixa
+  preta da luta se mostrou a sombra.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
