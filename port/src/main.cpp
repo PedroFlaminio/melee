@@ -2274,6 +2274,10 @@ int main(int argc, char** argv)
                                   << " views, "
                                   << melee_host_gx_captured_texture_count()
                                   << " textures\n";
+                        /* The views and the runs in the game's order, with
+                         * the box each covers, to match a region of the
+                         * image to what drew it. */
+                        report_title_capture();
                     }
                 }
 #endif

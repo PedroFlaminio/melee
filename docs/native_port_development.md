@@ -363,6 +363,13 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   sob `MELEE_HOST`, declare os bits na ordem inversa, como nos scripts de
   comando. O sintoma nao e crash, e uma flag que fica 0: foi o que impedia os
   lutadores de serem desenhados. Zerar pelo escalar nao depende da ordem.
+- O recorder GX guarda cada tipo de matriz onde o GX guarda: posicao e textura
+  na memoria de matrizes, normal (3x3) a parte. Um PObj iluminado carrega
+  posicao e normal no mesmo `GX_PNMTXn`, e juntar as duas faz o vertice perder
+  a translacao da camera. O sintoma e geometria gigante colada na tela. Antes
+  de suspeitar do esqueleto, confira no relatorio do `BMP=` as caixas das
+  sequencias de draw e, no gdb, as matrizes dos joints: aqui as duas coisas
+  apontaram para lados diferentes, e o erro estava entre elas.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

@@ -1033,6 +1033,44 @@ TEST_CASE("a normal texgen transforms the raw normal and normalizes it")
     REQUIRE(vertex.position.x == 5.0F);
 }
 
+TEST_CASE("a normal matrix does not replace the position matrix of its id")
+{
+    // HSD loads a lit PObj's position matrix and then, under the same id, its
+    // inverse transpose, which has no translation.  GX keeps normal matrices
+    // in their own memory; sharing the rows put every lit vertex at the
+    // camera.
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+    f32 position[3][4] = {
+        { 1.0F, 0.0F, 0.0F, 10.0F },
+        { 0.0F, 1.0F, 0.0F, 20.0F },
+        { 0.0F, 0.0F, 1.0F, -300.0F },
+    };
+    f32 normal[3][4] = {
+        { 1.0F, 0.0F, 0.0F, 0.0F },
+        { 0.0F, 1.0F, 0.0F, 0.0F },
+        { 0.0F, 0.0F, 1.0F, 0.0F },
+    };
+    GXSetCurrentMtx(GX_PNMTX0);
+    GXLoadPosMtxImm(position, GX_PNMTX0);
+    GXLoadNrmMtxImm(normal, GX_PNMTX0);
+
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    GXPosition3f32(1.0F, 2.0F, 3.0F);
+    GXPosition3f32(0.0F, 0.0F, 0.0F);
+    GXPosition3f32(0.0F, 1.0F, 0.0F);
+    GXEnd();
+
+    MeleeHostGxCapturedVertex vertex{};
+    REQUIRE(melee_host_gx_captured_vertex_at(0, &vertex));
+    REQUIRE(vertex.position.x == 11.0F);
+    REQUIRE(vertex.position.y == 22.0F);
+    REQUIRE(vertex.position.z == -297.0F);
+    MeleeHostGxAffineTransform loaded{};
+    REQUIRE(melee_host_gx_matrix(GX_PNMTX0, &loaded));
+    REQUIRE(loaded.values[2][3] == -300.0F);
+}
+
 TEST_CASE("a texture matrix index in the stream applies to one vertex")
 {
     melee_host_gx_state_reset();

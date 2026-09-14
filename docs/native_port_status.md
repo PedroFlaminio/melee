@@ -1820,6 +1820,39 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido: `host-debug` com 197/197, ctest 15/15 e o teste da luta em
   56,6 s, o dobro com os lutadores desenhados; `host-sanitize` com 197/197,
   ctest 15/15, o teste da luta em 260,0 s e nenhum erro do ASan.
+- [x] O relatorio de captura (`report_title_capture`) passou a sair a cada
+  `FRAME:BMP=` de `--run-modes`, com as views e as sequencias de draw na
+  ordem do jogo e a caixa de cada uma na tela. No frame 640 ele separou quatro
+  views: duas ortograficas de 256x256 (uma sem triangulos, outra com 936), a
+  camera principal com 24.665 triangulos e outra perspectiva com 44. As
+  sequencias dos lutadores (225 a 249, depois do estagio) cobriam caixas de
+  dezenas de milhares ate mais de um milhao de pixels.
+- [x] O esqueleto estava certo. Medido sob gdb no frame 400 do modo: o joint
+  raiz do Fox em (-92,7; 15,3; 0), escala 0,96 (`model_scaling`) e girado 90
+  graus pela direcao; o neto em y 23,27, que e 15,3 + 8,3 x 0,96.
+- [x] Os planos gigantes eram vertices sem a translacao da camera. O recorder
+  GX do host gravava `GXLoadNrmMtxImm` nas mesmas linhas da memoria de
+  matrizes de posicao. `SetupEnvelopeModelMtx` e `SetupRigidModelMtx`
+  (`pobj.c`) carregam a matriz de posicao e, quando o joint tem
+  `JOBJ_LIGHTING`, a inversa transposta no mesmo `GX_PNMTXn`; como
+  `HSD_MtxInverseTranspose` zera a coluna de translacao, cada vertice
+  iluminado ficava junto da camera. No GX a matriz de normal fica em memoria
+  propria, 3x3. O host passou a guarda-la a parte (`normal_matrix_memory`), e
+  nada a le ainda, porque a captura tira a normal da inversa transposta da
+  matriz de posicao. O unico teste que carregava normal passava a mesma matriz
+  nas duas chamadas. Teste unitario novo: uma matriz de normal carregada
+  depois da de posicao, no mesmo id, nao muda a posicao do vertice. O preview
+  do Mario nao mostrava o erro porque usa view identidade, onde a translacao
+  e zero; nao foi conferido por que o estagio nao o mostrava.
+- [x] Imagem: nos frames 640 e 675 os dois Fox aparecem no tamanho certo, de
+  pe sobre o estagio, o P1 a esquerda e o P2 a direita. As sequencias dos
+  lutadores cobrem agora de 72 a 133 pixels. Resta uma faixa preta grande
+  sobre a parte de baixo e a direita do estagio, nos frames 560, 640 e 675,
+  sem causa medida. Quatro sequencias da view 2 desenhadas no comeco do frame
+  (6 a 9) ainda tem caixas maiores que a tela; nao foi conferido o que sao.
+- [x] Medido: `host-debug` com 198/198, ctest 15/15 e o teste da luta em
+  56,7 s; `host-sanitize` com 198/198, ctest 15/15, o teste da luta em
+  260,3 s, nenhum erro do ASan e os mesmos 24 pontos do UBSan.
 
 ## Em andamento
 

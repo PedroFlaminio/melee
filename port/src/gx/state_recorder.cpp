@@ -124,6 +124,13 @@ std::array<std::array<float, 4>, kMatrixRows> matrix_memory{};
 /* Matrix memory starts as zeros, not identity, so a consumer that transforms
  * by it has to know whether the game ever loaded the row it is about to use. */
 std::array<bool, kMatrixRows> matrix_loaded{};
+/* GX keeps normal matrices apart from position and texture matrices: a normal
+ * matrix is 3x3, in its own region of transform memory, addressed by the same
+ * GX_PNMTXn id as the position matrix it goes with.  HSD loads a lit PObj's
+ * inverse transpose there right after its position matrix, and sharing the
+ * rows dropped the view translation from every lit vertex.  Nothing reads them
+ * back yet: the capture derives normals from the position matrix. */
+std::array<std::array<float, 3>, kMatrixRows> normal_matrix_memory{};
 
 /* Indirect texturing, as the GX calls leave it.  It is recorded so the state a
  * draw ran with is known, but tev.cpp and the presenter still evaluate every
@@ -331,6 +338,9 @@ void reset_locked()
         row = { 0.0F, 0.0F, 0.0F, 0.0F };
     }
     matrix_loaded.fill(false);
+    for (auto& row : normal_matrix_memory) {
+        row = { 0.0F, 0.0F, 0.0F };
+    }
 }
 
 bool state_initialized = false;
@@ -500,6 +510,20 @@ void store_matrix_rows(std::uint32_t id, MtxPtr matrix, std::size_t rows)
             matrix_memory[id + row][column] = matrix[row][column];
         }
         matrix_loaded[id + row] = true;
+    }
+}
+
+/* A normal matrix keeps its 3x3 part in normal matrix memory, three rows per
+ * id like the position matrix it accompanies, and leaves position rows alone. */
+void store_normal_matrix(std::uint32_t id, MtxPtr matrix)
+{
+    if (id + 3 > kMatrixRows) {
+        return;
+    }
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t column = 0; column < 3; ++column) {
+            normal_matrix_memory[id + row][column] = matrix[row][column];
+        }
     }
 }
 
@@ -746,7 +770,7 @@ void GXLoadNrmMtxImm(f32 mtx[3][4], u32 id)
 {
     const std::lock_guard<std::mutex> guard(state_mutex);
     ensure_initialized_locked();
-    store_matrix_rows(id, mtx, 3);
+    store_normal_matrix(id, mtx);
 }
 
 void GXLoadTexMtxImm(f32 mtx[][4], u32 id, GXTexMtxType type)

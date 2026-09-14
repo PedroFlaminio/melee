@@ -360,14 +360,19 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   de desenho gravando `byte = 1` num union de `u8` com bit-fields
   (`UnkFlagStruct`), e o MWCC e o GCC alocam esses bits em ordem contrária. O
   host declara os bits invertidos.
-- Próximo bloqueio: os lutadores desenham como planos enormes de cor chapada
-  que tomam a tela. Os suspeitos ainda não medidos são a matriz que
-  `ftDrawCommon_8008051C` monta para `HSD_JObjDispAll` e as sombras (a captura
-  passou de 3 para 5 views). Depois: ver os lutadores responderem ao stick e
-  aos botões, conferir a SSS (saía quase toda azul antes da correção de paleta
-  e não foi olhada depois) e os dados de estágio que faltam (`itemdata`,
-  `ALDYakuAll`, `yakumono_param`, `map_plit`, `quake_model_set`). A tela de
-  resultados (`onExitVs`) continua fora.
+- Resolvido: os planos enormes eram vértices sem a translação da câmera. O
+  recorder GX do host guardava a matriz de normal nas linhas da matriz de
+  posição, e o HSD carrega a inversa transposta, sem translação, logo depois
+  da posição de todo PObj iluminado. Com as matrizes de normal à parte, como
+  no GX, os dois Fox aparecem no tamanho certo sobre o estágio.
+- Próximo bloqueio: uma faixa preta grande sobre a parte de baixo e a direita
+  do estágio, sem causa medida. A sombra projetada dos lutadores, que usa a
+  textura copiada do passo ortográfico de 256x256, é a suspeita, porque o
+  host não produz pixels nas cópias de EFB. Depois: ver os lutadores
+  responderem ao stick e aos botões, conferir a SSS (saía quase toda azul
+  antes da correção de paleta e não foi olhada depois) e os dados de estágio
+  que faltam (`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit`,
+  `quake_model_set`). A tela de resultados (`onExitVs`) continua fora.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:
