@@ -485,7 +485,8 @@ Atualizado em 13 de setembro de 2026.
   materializador na primeira vez que e pedido. O arquivo nao diz o tipo de um
   simbolo; o jogo sabe pelo nome que pede, e o host le o mesmo do sufixo
   (`_joint`, `_animjoint`, `_matanim_joint`, `_shapeanim_joint`, `_camera`,
-  `_scene_lights`, `_fog`, `_sobjdesc`, `_figatree`). Sufixo sem traducao e
+  `_scene_lights`, `_fog`, `_sobjdesc`, `_figatree`, `_scene_data`). Sufixo
+  sem traducao e
   recusado com relatorio, em vez de devolvido como ponteiro para bytes
   big-endian. O mesmo simbolo pedido duas vezes devolve o mesmo descritor.
 - [x] A identidade do arquivo e o buffer, nao o `HSD_Archive`: `ftdata.c` faz o
@@ -1483,6 +1484,31 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 191/191 e ctest 15/15;
   `host-sanitize` com 191/191, ctest 15/15, rota VS em 21,0 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] `_scene_data` na API de arquivo: o `SceneDesc` inteiro em layout host
+  (`MaterializedSceneDesc`, com o layout de `sc/types.h`). Modelos, cada um com
+  joint e as tres tabelas de animacao terminadas por NULL; listas de luz como
+  `_scene_lights`; cameras com a tabela de `HSD_CameraAnim`; fogs com a tabela
+  de animacoes, das quais o jogo so le o `HSD_AObjDesc` inicial. Cameras e fogs
+  sao vetores sem terminador: em `GmPause.dat` a unica entrada de fog e seguida
+  pelo proprio `SceneDesc`. O host conta entradas enquanto elas tem descritor
+  relocado e ate a proxima fronteira, e sempre reserva uma entrada, para que
+  um vetor sem camera leia descritor NULL.
+  - `--sweep-archives` e `--load-archive` carregam o tipo como a cena faz:
+    todos os joints de modelo, a primeira camera e o primeiro fog e as luzes.
+    No disco: os 43 `_scene_data` traduzem e carregam (1.495 objetos);
+    `ScGamPause_scene_data` com 16 e `ScInfDmg_scene_data` com 17. As quatro
+    recusas da varredura sao as de antes (`map_head` de `GrIz` e `GrNLa` e as
+    luzes de `TyLight.dat`).
+  - Um teste unitario monta a cena com o formato de `GmPause.dat` e
+    `IfAll.dat` e confere pelo `SceneDesc` do jogo
+    (`port/tests/scene_data_check.c`).
+- [x] Com `GS_VS` na tabela so localmente, a entrada passa pelo menu de pausa
+  (`fn_801A1134`), pelo som da torcida e pela cena do HUD e para em
+  `ifAll_802F390C` -> `ifStatus_802F7134` (`if_2F6E.c:143`):
+  `ScInfCnt_scene_models` nao tem traducao.
+- [x] Medido sem a entrada: `host-debug` com 192/192 e ctest 15/15;
+  `host-sanitize` com 192/192, ctest 15/15, rota VS em 20,4 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 
@@ -1490,12 +1516,10 @@ Atualizado em 13 de setembro de 2026.
 - [ ] Resource manager runtime consumindo o manifesto extraido.
 - [ ] Cancelamento, streaming e prioridade completa da API DVD.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas. A API de
-  arquivo ja atende joints, animacoes, cameras, luzes, fog e sprites; faltam
-  `_scene_data` (a tabela de fogs de `SceneDesc` nao e o array terminado por
-  NULL que o schema supunha: seguir as entradas cai em valores nao relocados;
-  em `GmPause.dat` a unica entrada de fog e seguida pelo proprio `SceneDesc`,
-  e as cameras tambem nao tem terminador), imagens e paletas soltas, dados de
-  estagio, `ftData*` dos outros personagens e `SIS_*`.
+  arquivo ja atende joints, animacoes, cameras, luzes, fog, sprites e
+  `_scene_data`; faltam `_scene_models` e os modelos do HUD sem sufixo,
+  imagens e paletas soltas, dados de estagio e `ftData*` dos outros
+  personagens.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
   loop de frame (roteiro em `docs/fight_flow_port.md`). Titulo, menu, CSS e SSS
   ja rodam pelo codigo do jogo e produzem a selecao; falta a cena de luta

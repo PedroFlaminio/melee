@@ -372,6 +372,18 @@ constexpr std::uint32_t kModelMatAnims = 0x08;
 constexpr std::uint32_t kModelShapeAnims = 0x0C;
 constexpr std::uint32_t kSceneCameraDescSize = 0x08;
 constexpr std::uint32_t kSceneCameraDesc = 0x00;
+/* The light lists are a NULL-terminated table.  The fogs, like the cameras,
+ * are an inline array of a descriptor and an animation table with no
+ * terminator: GmPause.dat follows its one fog with the SceneDesc itself. */
+constexpr std::uint32_t kSceneLights = 0x08;
+constexpr std::uint32_t kSceneFogs = 0x0C;
+constexpr std::uint32_t kSceneEntryAnims = 0x04;
+
+namespace camera_anim_field {
+constexpr std::uint32_t kAObjDesc = 0x00;
+constexpr std::uint32_t kEyeAnim = 0x04;
+constexpr std::uint32_t kInterestAnim = 0x08;
+} // namespace camera_anim_field
 
 /* Display lists are handed to GXCallDisplayList in 32-byte blocks. */
 constexpr std::size_t kDisplayListBlock = 32;
@@ -2909,6 +2921,159 @@ HSD_Joint* HsdMaterializedArchive::scene_model_joint(
         throw HsdArchiveError("HSD scene model has no joint");
     }
     return joint_chain(*root);
+}
+
+template <typename T>
+T** HsdMaterializedArchive::pointer_table(
+    HsdRuntimeNode table, T* (HsdMaterializedArchive::*build)(HsdRuntimeNode),
+    const char* what)
+{
+    std::size_t count = 0;
+    while (reference(table, static_cast<std::uint32_t>(count * 4)).has_value())
+    {
+        if (++count >= kSceneModelLimit) {
+            throw HsdArchiveError(std::string(what) + " has no terminator");
+        }
+    }
+    /* The arena is zeroed, so the slot after the last entry is already the
+     * NULL the game stops at. */
+    auto** const entries = static_cast<T**>(
+        allocate_bytes(sizeof(T*) * (count + 1), alignof(T*)));
+    for (std::size_t index = 0; index < count; ++index) {
+        entries[index] = (this->*build)(
+            *reference(table, static_cast<std::uint32_t>(index * 4)));
+    }
+    return entries;
+}
+
+MaterializedDynamicModel*
+HsdMaterializedArchive::dynamic_model(HsdRuntimeNode node)
+{
+    auto* const host = allocate<MaterializedDynamicModel>();
+    if (const auto joint = reference(node, kModelJoint)) {
+        host->joint = joint_chain(*joint);
+    }
+    if (const auto anims = reference(node, kModelAnims)) {
+        host->anims = pointer_table(*anims,
+                                    &HsdMaterializedArchive::anim_joint_chain,
+                                    "HSD model animation table");
+    }
+    if (const auto anims = reference(node, kModelMatAnims)) {
+        host->matanims = pointer_table(
+            *anims, &HsdMaterializedArchive::mat_anim_joint_chain,
+            "HSD model material animation table");
+    }
+    if (const auto anims = reference(node, kModelShapeAnims)) {
+        host->shapeanims = pointer_table(
+            *anims, &HsdMaterializedArchive::shape_anim_joint_chain,
+            "HSD model shape animation table");
+    }
+    return host;
+}
+
+HSD_CameraAnim* HsdMaterializedArchive::camera_anim(HsdRuntimeNode node)
+{
+    auto* const host = allocate<HSD_CameraAnim>();
+    if (const auto aobj = reference(node, camera_anim_field::kAObjDesc)) {
+        host->aobjdesc = aobj_desc(*aobj);
+    }
+    if (const auto eye = reference(node, camera_anim_field::kEyeAnim)) {
+        host->eye_anim = world_anim(*eye);
+    }
+    if (const auto interest =
+            reference(node, camera_anim_field::kInterestAnim))
+    {
+        host->interest_anim = world_anim(*interest);
+    }
+    return host;
+}
+
+/* HSD_Fog_8037DE7C takes only the AObjDesc a fog animation starts with, so
+ * nothing after it is read. */
+HSD_CameraAnim* HsdMaterializedArchive::fog_anim(HsdRuntimeNode node)
+{
+    auto* const host = allocate<HSD_CameraAnim>();
+    if (const auto aobj = reference(node, camera_anim_field::kAObjDesc)) {
+        host->aobjdesc = aobj_desc(*aobj);
+    }
+    return host;
+}
+
+/* The entries of a camera or fog array: while an entry names a descriptor,
+ * and no further than the next address a relocation targets. */
+std::size_t HsdMaterializedArchive::scene_entry_count(HsdRuntimeNode array)
+{
+    const std::uint32_t room =
+        translator_extent(array.data_offset) / kSceneCameraDescSize;
+    std::size_t count = 0;
+    while (count < room &&
+           archive_.has_reference_at(
+               array, static_cast<std::uint32_t>(count * kSceneCameraDescSize) +
+                          kSceneCameraDesc))
+    {
+        ++count;
+    }
+    return count;
+}
+
+MaterializedSceneDesc*
+HsdMaterializedArchive::scene_desc(std::string_view public_symbol)
+{
+    const HsdRuntimeNode scene = archive_.public_root(public_symbol);
+    auto* const host = allocate<MaterializedSceneDesc>();
+
+    if (const auto models = reference(scene, kSceneModels)) {
+        host->models = pointer_table(*models,
+                                     &HsdMaterializedArchive::dynamic_model,
+                                     "HSD scene model table");
+    }
+    if (const auto cameras = reference(scene, kSceneCameras)) {
+        const std::size_t count = scene_entry_count(*cameras);
+        /* At least one entry, so a scene that names an array with no camera
+         * in it reads a NULL descriptor. */
+        auto* const entries = static_cast<MaterializedSceneCamera*>(
+            allocate_bytes(sizeof(MaterializedSceneCamera) *
+                               std::max<std::size_t>(count, 1),
+                           alignof(MaterializedSceneCamera)));
+        for (std::size_t index = 0; index < count; ++index) {
+            const HsdRuntimeNode entry{
+                cameras->data_offset +
+                static_cast<std::uint32_t>(index * kSceneCameraDescSize)
+            };
+            entries[index].desc =
+                camera_desc(*reference(entry, kSceneCameraDesc));
+            if (const auto anims = reference(entry, kSceneEntryAnims)) {
+                entries[index].anims = pointer_table(
+                    *anims, &HsdMaterializedArchive::camera_anim,
+                    "HSD camera animation table");
+            }
+        }
+        host->cameras = entries;
+    }
+    if (const auto lights = reference(scene, kSceneLights)) {
+        host->lights = light_list_table(*lights);
+    }
+    if (const auto fogs = reference(scene, kSceneFogs)) {
+        const std::size_t count = scene_entry_count(*fogs);
+        auto* const entries = static_cast<MaterializedSceneFog*>(
+            allocate_bytes(sizeof(MaterializedSceneFog) *
+                               std::max<std::size_t>(count, 1),
+                           alignof(MaterializedSceneFog)));
+        for (std::size_t index = 0; index < count; ++index) {
+            const HsdRuntimeNode entry{
+                fogs->data_offset +
+                static_cast<std::uint32_t>(index * kSceneCameraDescSize)
+            };
+            entries[index].desc = fog_desc(*reference(entry, kSceneCameraDesc));
+            if (const auto anims = reference(entry, kSceneEntryAnims)) {
+                entries[index].anims = pointer_table(
+                    *anims, &HsdMaterializedArchive::fog_anim,
+                    "HSD fog animation table");
+            }
+        }
+        host->fogs = entries;
+    }
+    return host;
 }
 
 } // namespace melee::assets

@@ -107,6 +107,33 @@ struct MaterializedEffectTable {
     MaterializedEffectDesc effects[1];
 };
 
+/* SceneDesc and the records it names, laid out as src/melee/sc/types.h
+ * declares them.  The game types a fog's animations as HSD_CameraAnim and
+ * reads only the AObjDesc they start with. */
+struct MaterializedDynamicModel {
+    HSD_Joint* joint;
+    HSD_AnimJoint** anims;
+    HSD_MatAnimJoint** matanims;
+    HSD_ShapeAnimJoint** shapeanims;
+};
+
+struct MaterializedSceneCamera {
+    HSD_CObjDesc* desc;
+    HSD_CameraAnim** anims;
+};
+
+struct MaterializedSceneFog {
+    HSD_FogDesc* desc;
+    HSD_CameraAnim** anims;
+};
+
+struct MaterializedSceneDesc {
+    MaterializedDynamicModel** models;
+    MaterializedSceneCamera* cameras;
+    MaterializedLightList** lights;
+    MaterializedSceneFog* fogs;
+};
+
 /*
  * Rebuilds HSD descriptors in host layout so the original object loaders can
  * walk them unchanged.
@@ -180,6 +207,11 @@ public:
                                                std::size_t model_index);
     [[nodiscard]] std::size_t
     scene_model_count(std::string_view public_symbol) const;
+
+    /* A `*_scene_data` symbol whole: the model table, the cameras, the light
+     * lists and the fogs, each with its animation tables. */
+    [[nodiscard]] MaterializedSceneDesc*
+    scene_desc(std::string_view public_symbol);
 
     /* A camera named on its own, which is how a menu or the title keeps one
      * when there is no SceneDesc around it. */
@@ -319,6 +351,15 @@ private:
     HSD_LightAnim* light_anim_chain(HsdRuntimeNode node);
     HSD_WObjAnim* world_anim(HsdRuntimeNode node);
     HSD_FogAdjDesc* fog_adj_desc(HsdRuntimeNode node);
+    MaterializedDynamicModel* dynamic_model(HsdRuntimeNode node);
+    HSD_CameraAnim* camera_anim(HsdRuntimeNode node);
+    HSD_CameraAnim* fog_anim(HsdRuntimeNode node);
+    [[nodiscard]] std::size_t scene_entry_count(HsdRuntimeNode array);
+    /* A NULL-terminated table of pointers, each entry built by `build`. */
+    template <typename T>
+    T** pointer_table(HsdRuntimeNode table,
+                      T* (HsdMaterializedArchive::*build)(HsdRuntimeNode),
+                      const char* what);
     [[nodiscard]] std::optional<HsdRuntimeNode> scene_model_anim_entry(
         std::string_view public_symbol, std::size_t model_index,
         std::uint32_t table_offset, std::size_t anim_index);

@@ -439,6 +439,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/stage_data_check.c
         tests/fighter_data_check.c
         tests/fighter_fox_data_check.c
+        tests/scene_data_check.c
         tests/test_main.cpp
     )
     target_link_libraries(melee-host-tests PRIVATE melee_game_core)
@@ -454,6 +455,7 @@ if(MELEE_HOST_BUILD_TESTS)
             tests/stage_data_check.c
             tests/fighter_data_check.c
             tests/fighter_fox_data_check.c
+            tests/scene_data_check.c
             PROPERTIES COMPILE_OPTIONS
                 "-Wno-pedantic;-Wno-conversion;-Wno-shadow;-Wno-sign-conversion;-Wno-sign-compare;-Wno-deprecated-non-prototype;-Wno-unused-parameter;-Wno-missing-field-initializers"
         )

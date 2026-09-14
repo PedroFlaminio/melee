@@ -278,7 +278,7 @@ std::vector<std::byte> make_title_like_archive()
     archive.public_symbol(kFog, "test_fog");
     archive.public_symbol(kSprite, "test_sobjdesc");
     archive.public_symbol(kJoint, "test_joint");
-    archive.public_symbol(kCamera, "test_scene_data");
+    archive.public_symbol(kCamera, "test_scene_widget");
     archive.extern_symbol(kJoint + 0x08, "shared_joint");
     return archive.build();
 }
@@ -497,10 +497,10 @@ TEST_CASE("a symbol the host has no translation for is refused, not guessed")
     REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
     locate_externs_as_null(&archive);
 
-    REQUIRE(HSD_ArchiveGetPublicAddress(&archive, "test_scene_data") ==
+    REQUIRE(HSD_ArchiveGetPublicAddress(&archive, "test_scene_widget") ==
             nullptr);
     REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
-                .find("test_scene_data") != std::string_view::npos);
+                .find("test_scene_widget") != std::string_view::npos);
     REQUIRE(HSD_ArchiveGetPublicAddress(&archive, "missing_joint") == nullptr);
 
     HSD_Archive stranger{};
@@ -1323,6 +1323,54 @@ TEST_CASE("the fighter common data translates its 23 tables")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_scene_data(void* translated,
+                                               char* message,
+                                               std::size_t size);
+
+TEST_CASE("a scene_data symbol translates its models, cameras, lights and fogs")
+{
+    // As in GmPause.dat and IfAll.dat: a model table, a camera array with an
+    // animation table and no terminator, light lists with animations, and a
+    // fog array that the SceneDesc itself follows.  scene_data_check.c reads
+    // it back through the game's SceneDesc.
+    ArchiveBuilder builder(0x200);
+    // Models: one, with a joint and a material animation table.
+    builder.pointer(0x000, 0x010);
+    builder.pointer(0x010, 0x100);
+    builder.pointer(0x018, 0x020);
+    builder.pointer(0x020, 0x140);
+    // Cameras: one entry, bounded by its animation table.
+    builder.pointer(0x030, 0x150);
+    builder.pointer(0x034, 0x038);
+    builder.pointer(0x038, 0x040);
+    builder.u16(0x150 + 0x06, PROJ_PERSPECTIVE);
+    builder.f32(0x150 + 0x28, 1.5F);
+    // Lights: one list with an animation table.
+    builder.pointer(0x050, 0x058);
+    builder.pointer(0x058, 0x190);
+    builder.pointer(0x05C, 0x060);
+    builder.pointer(0x060, 0x068);
+    // Fogs: one entry, and then the SceneDesc.
+    builder.pointer(0x080, 0x1C0);
+    builder.f32(0x1C0 + 0x08, 10.0F);
+    builder.pointer(0x088, 0x000);
+    builder.pointer(0x08C, 0x030);
+    builder.pointer(0x090, 0x050);
+    builder.pointer(0x094, 0x080);
+    builder.public_symbol(0x088, "ScTest_scene_data");
+    std::vector<std::byte> bytes = builder.build();
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const scene =
+        HSD_ArchiveGetPublicAddress(&archive, "ScTest_scene_data");
+    REQUIRE(scene != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_scene_data(scene, message,
+                                             sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 extern "C" int melee_host_test_check_fighter_fox_data(void* translated,
                                                      char* message,
                                                      std::size_t size);
@@ -1603,7 +1651,7 @@ TEST_CASE("symbol kinds follow the name's suffix, longest first")
                 "PlyMario5K_Share_ACTION_Wait1_figatree") ==
             MELEE_HOST_HSD_SYMBOL_FIGATREE);
     REQUIRE(melee_host_hsd_symbol_kind("ScTitle_scene_data") ==
-            MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
+            MELEE_HOST_HSD_SYMBOL_SCENE_DATA);
     // Text tables are named by a prefix instead.
     REQUIRE(melee_host_hsd_symbol_kind("SIS_MenuData") ==
             MELEE_HOST_HSD_SYMBOL_SIS_TABLE);

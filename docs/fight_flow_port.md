@@ -270,10 +270,19 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   inicial. Para isso também foi preciso montar a fila de ARAM (`lbarq.c`) no
   boot e manter, no `map_head`, o joint de cada entrada de pares, pelo qual
   `Ground_801C34AC` registra os pontos de partida dos jogadores.
-- Próximo bloqueio: `fn_8016E730` → `fn_801A1134` (`gmpause.c:86`), que carrega
-  `ScGamPause_scene_data` de `GmPause.dat`, o modelo do menu de pausa. É um
-  `_scene_data` (`SceneDesc`), tipo que a API de arquivo ainda não atende; sem
-  ele `scene` fica nulo e a leitura de `scene->models[0]` cai.
+- Bloqueio seguinte, resolvido: `fn_8016E730` → `fn_801A1134` (`gmpause.c:86`)
+  carrega `ScGamPause_scene_data` de `GmPause.dat`, o modelo do menu de pausa,
+  um `_scene_data` (`SceneDesc`). A API de arquivo passou a atender o tipo;
+  câmeras e fogs são vetores sem terminador, contados enquanto a entrada tem
+  descritor e até a próxima fronteira.
+- Próximo bloqueio: o HUD. `ifAll_802F390C` carrega `ScInfDmg_scene_data`
+  (já atendido) e segue para `ifStatus_802F7134` (`if_2F6E.c:143`), que pede
+  `ScInfCnt_scene_models` a `IfAll.dat`. Os `_scene_models` são tabelas de
+  `DynamicModelDesc*` terminadas por NULL; o HUD ainda pede `DmgNum` e `DmgMrk`
+  (`_scene_models`), `ScInfTim_scene_models`, `ScInfPnm_scene_models` e, sem
+  sufixo, `Stc_scemdls`, `Stc_rarwmdls` e `tdsce` (tabelas do mesmo formato) e
+  `lupe` (um `DynamicModelDesc` só). Levantado nos arquivos do disco: os 18
+  `_scene_models` e as tabelas sem sufixo seguem o formato.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

@@ -175,6 +175,61 @@ void load(HSD_Archive* archive, MeleeHostArchiveProbeSymbol* result)
         result->loaded = 1;
         return;
     }
+    case MELEE_HOST_HSD_SYMBOL_SCENE_DATA: {
+        /* What a scene's setup builds: every model's joint tree, the first
+         * camera and fog, and the light lists. */
+        result->load_attempted = 1;
+        const auto* const scene =
+            static_cast<melee::assets::MaterializedSceneDesc*>(descriptor);
+        mh_u32 objects = 0;
+        for (auto** model = scene->models; model != nullptr && *model != nullptr;
+             ++model)
+        {
+            if ((*model)->joint == nullptr) {
+                continue;
+            }
+            const u32 before = hsdJObj.parent.parent.head.nb_exist;
+            HSD_JObj* const jobj = HSD_JObjLoadJoint((*model)->joint);
+            if (jobj == nullptr) {
+                result->error = "HSD_JObjLoadJoint built no object";
+                return;
+            }
+            objects += hsdJObj.parent.parent.head.nb_exist - before;
+            HSD_JObjRemoveAll(jobj);
+        }
+        if (scene->cameras != nullptr && scene->cameras[0].desc != nullptr) {
+            HSD_CObj* const cobj = HSD_CObjLoadDesc(scene->cameras[0].desc);
+            if (cobj == nullptr) {
+                result->error = "HSD_CObjLoadDesc built no object";
+                return;
+            }
+            objects += 1;
+            hsdDelete(cobj);
+        }
+        for (auto** list = scene->lights; list != nullptr && *list != nullptr;
+             ++list)
+        {
+            HSD_LObj* const lobj = HSD_LObjLoadDesc((*list)->desc);
+            if (lobj == nullptr) {
+                result->error = "a light list has no light";
+                return;
+            }
+            objects += 1;
+            HSD_LObjRemoveAll(lobj);
+        }
+        if (scene->fogs != nullptr && scene->fogs[0].desc != nullptr) {
+            HSD_Fog* const fog = HSD_FogLoadDesc(scene->fogs[0].desc);
+            if (fog == nullptr) {
+                result->error = "HSD_FogLoadDesc built no object";
+                return;
+            }
+            objects += 1;
+            hsdDelete(fog);
+        }
+        result->objects = objects;
+        result->loaded = 1;
+        return;
+    }
     case MELEE_HOST_HSD_SYMBOL_ANIM_JOINT:
     case MELEE_HOST_HSD_SYMBOL_MAT_ANIM_JOINT:
     case MELEE_HOST_HSD_SYMBOL_SHAPE_ANIM_JOINT:
