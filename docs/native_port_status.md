@@ -542,7 +542,8 @@ Atualizado em 13 de setembro de 2026.
   da ARAM no lugar de `0x80000000`; os textos de assert ficam intactos, porque
   `HSD_ASSERT` os grava no DOL. `lbheap.c` guardava o fim de um heap em `s32`.
   Os callbacks de devcom de `lbfile.c` e `lbmemory.c` recebem `HSD_DevComArg`,
-  e `lbArchiveRelocate` recusa no host em vez de relocar. Verificado: as quatro
+  e `lbArchiveRelocate` recusava no host em vez de relocar (hoje parseia de
+  novo a copia; ver a entrada de `ftDataFox`). Verificado: as quatro
   unidades, compiladas com `cc -m32 -O2 -DMUST_MATCH` antes e depois a partir
   do mesmo caminho, geram objetos identicos byte a byte.
 - [x] `OSRoundUp32B` e `OSRoundDown32B` arredondavam por `u32`, e
@@ -1430,6 +1431,58 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 190/190 e ctest 15/15;
   `host-sanitize` com 190/190, ctest 15/15, rota VS em 19,7 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
+- [x] `ftDataFox` traduzido de `PlFx.dat` por um tradutor C em
+  `port/src/game/game_data_translators.c`, registrado pelo nome com a funcao
+  dos atributos proprios do Fox (os de cada personagem mudam de layout):
+  - So escalares, palavra a palavra: `ftCo_DatAttrs` (0x184 bytes, o ultimo
+    em byte), `ftFox_DatAttrs` (0xD4 bytes, com o `ReflectDesc` terminando em
+    byte), `x34`, `x38`, a camera (`x3C`), `itPickup` (`x40`), `x50`, as
+    bordas de `x44` (seis `s16` e quatro floats) e `x54`, que no host e
+    `int*`, porque no disco e um ponteiro relocado que `ftCo_09F7.c` le assim.
+  - Tabelas de acao (`xC` e `x14`): `Fighter_WaitAnimData` de 0x18 bytes, com
+    nome, offset e tamanho da animacao, script convertido e flags, contadas
+    pelo espaco ate a proxima fronteira. O endereco da animacao (`x14`) vira
+    `uintptr_t` no host; `ftData_80085FD4_ret`, que le as mesmas entradas, ganha
+    o mesmo layout, com os dois bits de flag no topo da palavra, e `ftdata.c`
+    carrega esses enderecos em `FT_ANIM_ADDR` (`u32` sem `MELEE_HOST`).
+  - Partes (`x8`): `vis_table` em linhas de quatro lookups por modelo, cada um
+    uma contagem e `TempS` com indices em bytes, e as linhas de indices `u16`
+    de TObj. `x1C` sao conjuntos de partes com bytes e tabela de animacoes;
+    `x20` tem joints entre inteiros pequenos, mantidos como estao; `x24` sao
+    pares de espera ate a entrada -1, alargados para o `WaitStruct` do host.
+  - Dinamica (`x2C`): ossos de 0x18 bytes com registros de 0x3C bytes de
+    escalares; dinamica que nomeia `FigaTree` e recusada ate um personagem
+    precisar. Hurtboxes, IK e SFX (`FtSFX.x1C` vira ponteiro no host, como no
+    disco). Os itens do personagem sao `Article`; o quinto slot do Fox e uma
+    lista de inteiros sem ponteiro e fica em bytes.
+  - Um teste unitario monta um `PlFx` pequeno e confere pelos tipos do jogo
+    (`port/tests/fighter_fox_data_check.c`).
+- [x] Animacoes de lutador: `ftData_80085A14` grava em cada acao o endereco da
+  animacao em ARAM e `ftData_80085E50` a copia com `lbArq_80014BD0`. O boot do
+  host passa a montar os 10 nos de `lbarq.c` (`lbArq_80014D2C`). Sob
+  `MELEE_HOST` o no de uma requisicao e achado pelo offset do `ARQRequest`
+  dentro dele (o console o guarda no campo `owner`, de 32 bits), a lista pelo
+  indice do estado, e a espera sincrona da passos no escalonador
+  (`lb_800195D0`), como a leitura de disco. `lbArchiveRelocate` parseia de novo
+  a copia de uma animacao que outro lutador ja carregou.
+- [x] `map_head`: cada entrada de pares comeca pelo joint do modelo, que
+  `Ground_801C34AC` compara por endereco com o joint do modelo para guardar em
+  `stage_info.x280` os JObjs que os pares nomeiam, entre eles os pontos de
+  partida dos jogadores. O tradutor tratava a palavra como padding; sem os
+  pontos, `Ground_801C2D24` nao escrevia a posicao e o lutador nascia com a
+  posicao lida da pilha (ECB com NaN, assert de `mpcoll.c:701`). A palavra
+  agora vira o mesmo descritor do modelo; 69 de 71 estagios continuam
+  traduzindo.
+- [x] Com `GS_VS` na tabela so localmente, a entrada cria os dois Fox
+  (`fn_8016E2BC` termina) e para em `fn_8016E730` -> `fn_801A1134`
+  (`gmpause.c:86`): `GmPause.dat` nao tem traducao para
+  `ScGamPause_scene_data`, e `scene->models[0]` cai com `scene` nulo.
+- [x] Matching: `ftdata.c`, `ftanim.c`, `ftwaitanim.c`, `fighter.c`,
+  `lbarchive.c` e `lbarq.c` pre-processam identicos sem `MELEE_HOST`, token a
+  token.
+- [x] Medido sem a entrada: `host-debug` com 191/191 e ctest 15/15;
+  `host-sanitize` com 191/191, ctest 15/15, rota VS em 21,0 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 
@@ -1439,8 +1492,10 @@ Atualizado em 13 de setembro de 2026.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas. A API de
   arquivo ja atende joints, animacoes, cameras, luzes, fog e sprites; faltam
   `_scene_data` (a tabela de fogs de `SceneDesc` nao e o array terminado por
-  NULL que o schema supunha: seguir as entradas cai em valores nao relocados),
-  imagens e paletas soltas, dados de estagio, `ftData*` e `SIS_*`.
+  NULL que o schema supunha: seguir as entradas cai em valores nao relocados;
+  em `GmPause.dat` a unica entrada de fog e seguida pelo proprio `SceneDesc`,
+  e as cameras tambem nao tem terminador), imagens e paletas soltas, dados de
+  estagio, `ftData*` dos outros personagens e `SIS_*`.
 - [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
   loop de frame (roteiro em `docs/fight_flow_port.md`). Titulo, menu, CSS e SSS
   ja rodam pelo codigo do jogo e produzem a selecao; falta a cena de luta
@@ -1569,9 +1624,10 @@ Atualizado em 13 de setembro de 2026.
 - `HSD_ArchiveLocateExtern` com endereco nao nulo e recusado: ligar o extern
   exigiria escrever um ponteiro host num descritor que so existe quando o
   simbolo e pedido. O codigo compilado so chama com NULL.
-- `lbArchiveRelocate`, que `ftdata.c` usa para animacoes mantidas em ARAM,
-  ainda reloca no lugar com aritmetica de 32 bits e precisa de um caminho host
-  antes de `ftdata.c` entrar no build.
+- `ftdata.c` separa a animacao guardada em ARAM da guardada em memoria pelo
+  endereco abaixo de `0x80000000`. No host o endereco de memoria vem do
+  alocador do host, que em x86-64 fica acima desse limite; um host que aloque
+  abaixo de 2 GB confundiria os dois.
 - O materializador ignora o ponteiro de parametros de uma luz infinita e a
   posicao de uma luz ambiente, porque `LObjLoad` nao os le; os arquivos do
   disco trazem o primeiro relocado.
@@ -1583,9 +1639,9 @@ Atualizado em 13 de setembro de 2026.
   drive, reset e cartao nao existem. Uma leitura que falha marca o erro
   estatico do devcom, que nao chama o callback, e o jogo espera para sempre; a
   flag e `static` e o host ainda nao a enxerga.
-- O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue),
-  `lbArq_80014D2C` e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao e
-  selecionado.
+- O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue)
+  e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao
+  e selecionado.
 - Nenhum efeito sonoro pode tocar: o host nao monta descritores de amostra, os
   fluxos de comando do `.sem` continuam big-endian e os nucleos de reverb e
   chorus param se o mixer os chamar. O carregador de SFX de `synth.c` precisa

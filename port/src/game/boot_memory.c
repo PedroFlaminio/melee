@@ -24,6 +24,7 @@
 #include <melee/lb/lbdvd.h>
 #include <melee/lb/lb_0195.h>
 #include <melee/lb/lbarchive.h>
+#include <melee/lb/lbarq.h>
 #include <melee/lb/lbaudio_ax.h>
 #include <melee/lb/lbcardgame.h>
 #include <melee/lb/lbcardnew.h>
@@ -164,7 +165,10 @@ MeleeHostStatus melee_host_boot_memory_init(size_t arena_bytes)
     lbMemory_8001564C();
     lbHeap_80015F3C();
     lbDvd_80018F68();
-    /* lbArq_80014D2C is not run.  The memory card layer: lb_8001C5BC resets
+    /* The ten request nodes of the synchronous ARAM reads that fighters load
+     * their animations with (ftData_80085CD8). */
+    lbArq_80014D2C();
+    /* The memory card layer: lb_8001C5BC resets
      * the card command queue and the card task state, lb_8001D21C probes slot
      * A and points the card table at the save data, and lbSnap_8001E290 probes
      * both slots.  The host reports both empty. */

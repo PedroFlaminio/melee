@@ -11,6 +11,10 @@
 #include <melee_host/hsd_archive.h>
 
 #include <melee/ft/fighter.h>
+#include <melee/ft/dobjlist.h>
+#include <melee/ft/ftwaitanim.h>
+#include <melee/ft/kinds/ftCommon/types.h>
+#include <melee/ft/kinds/ftFox/types.h>
 #include <melee/ft/types.h>
 #include <melee/gm/gmevent.h>
 #include <melee/gr/types.h>
@@ -1114,7 +1118,10 @@ static void* item_public_data(MeleeHostHsdReader* reader, mh_u32 root)
  * their descriptors with the models' lights by address:
  * - each model's joint, NULL-terminated animation tables, camera, lights, fog,
  *   GrJoint list, animation flag bytes (verbatim) and s16 list;
- * - unk0, entries of s16 pairs that Ground_801C5940 walks;
+ * - unk0, entries of a model's joint and s16 pairs.  Ground_801C34AC finds a
+ *   model's entry by the address of its joint descriptor and keeps the JObjs
+ *   the pairs name, the players' start points among them; Ground_801C5940
+ *   walks the pairs;
  * - the splines Ground_801C247C hands out;
  * - the light overrides: a descriptor and three flags from the most
  *   significant bit.  The entries also name materials and other records, which
@@ -1136,12 +1143,18 @@ typedef struct HostLightOverrideEntry {
 } HostLightOverrideEntry;
 
 typedef struct HostStagePairs {
-    u8 x0_pad[0x4];
+    struct HSD_Joint* joint;
     struct {
         s16 a, b;
     }* unk4;
     s32 unk8;
 } HostStagePairs;
+
+/* Ground_801C5940 declares the joint as four bytes of padding; the pointer
+ * after it lands where Ground_801C34AC's does. */
+_Static_assert(offsetof(HostStagePairs, unk4) ==
+                   offsetof(struct { u8 x0_pad[0x4]; void* unk4; }, unk4),
+               "both ground.c views of a pair entry agree on the host");
 
 enum {
     STAGE_TABLE_MAX = 0x400,
@@ -1329,9 +1342,12 @@ static void* stage_map_head(MeleeHostHsdReader* reader, mh_u32 root)
             const mh_u32 entry = target + (mh_u32) i * 0xC;
             const s32 pairs = (s32) melee_host_hsd_reader_u32(reader, entry + 0x8);
             bool listed;
+            bool joined;
             const mh_u32 list = target_of(reader, entry + 0x4, &listed);
-            /* x0 holds a joint address ground.c declares as padding and never
-             * reads. */
+            const mh_u32 joint = target_of(reader, entry + 0x0, &joined);
+            /* The model's joint, the same descriptor as the model's unk0. */
+            entries[i].joint =
+                joined ? melee_host_hsd_reader_joint(reader, joint) : NULL;
             entries[i].unk8 = pairs;
             entries[i].unk4 = NULL;
             if (stage_count_ok(reader, pairs, listed,
@@ -1762,8 +1778,588 @@ static void* fighter_common_tables(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : tables;
 }
 
+/* ftData<Name> (Pl<Xx>.dat): a fighter's own data, which ftData_8008572C
+ * loads into gFtDataList, translated field by field (struct ftData):
+ * - scalar blocks: the common attributes (ftCo_DatAttrs, whose last field is
+ *   a byte), x34, the x38 rows, the camera box, itPickup, the ledge values of
+ *   x44 (six s16, then floats), the Vec2 of x50 and the int list of x54;
+ * - the action tables (xC and x14): name, animation offset and size in the
+ *   animation archive, converted command script and flags; x10 and x18, the
+ *   byte pairs per action, stay as they are;
+ * - the parts (x8): the per-costume visibility lookups down to their byte
+ *   lists, and the per-costume u16 texture animation indices;
+ * - x1C, per-part animation sets (a byte list of parts and animation joints);
+ *   x20, whose joint table keeps small integers beside its joint;
+ * - x24 and x28, WaitStruct pairs up to the -1 entry, widened to the host
+ *   WaitStruct, whose union holds two pointers: getAnimID steps by that
+ *   size, reads u.i and returns u.p.x as an enum, whose low half is u.i.x;
+ * - the dynamics (bones, their DynamicsDesc and the 0x3C-byte records
+ *   lb_80011710 copies), the hurtbox inits, the character's items (item
+ *   articles), the sounds and the IK record;
+ * - x5C, the metal joint.
+ * The special attributes (x4) differ for every character; the translator
+ * registered for each character lays them out.  Dynamics that name animation
+ * trees are refused until a character needs them. */
+_Static_assert(sizeof(ftCo_DatAttrs) == 0x184 &&
+                   offsetof(ftCo_DatAttrs, weight_independent_throws_mask) ==
+                       0x180,
+               "ftCo_DatAttrs keeps its PowerPC layout");
+_Static_assert(sizeof(ftHurtboxInit) == 0x28 && sizeof(ftData_x34) == 0x8 &&
+                   sizeof(struct ftData_x38) == 0x14 &&
+                   sizeof(struct UnkFloat6_Camera) == 0x18 &&
+                   sizeof(itPickup) == 0x30 && sizeof(ftData_x44_t) == 0x1C,
+               "the fighter scalar records keep their PowerPC layout");
+_Static_assert(sizeof(struct lb_00F9_UnkDesc1Inner) == 0x3C,
+               "the dynamics records keep their PowerPC layout");
+/* ftData_80085FD4 hands out action entries as ftData_80085FD4_ret. */
+_Static_assert(sizeof(struct ftData_80085FD4_ret) ==
+                       sizeof(Fighter_WaitAnimData) &&
+                   offsetof(struct ftData_80085FD4_ret, x8) ==
+                       offsetof(Fighter_WaitAnimData, x8) &&
+                   offsetof(struct ftData_80085FD4_ret, x14) ==
+                       offsetof(Fighter_WaitAnimData, x14),
+               "ftData_80085FD4_ret reads Fighter_WaitAnimData on the host");
+_Static_assert(sizeof(struct ftFox_DatAttrs) == 0xD4 &&
+                   offsetof(struct ftFox_DatAttrs,
+                            xB0_FOX_REFLECTOR_REFLECTION) == 0xB0,
+               "ftFox_DatAttrs keeps its PowerPC layout");
+
+enum {
+    FT_ACTION_SIZE = 0x18,
+    FT_VIS_ENTRY_SIZE = 0x8,
+    FT_BONE_DYNAMICS_SIZE = 0x18,
+    FT_DYNAMICS_RECORD_SIZE = 0x3C,
+    FT_HURTBOX_SIZE = 0x28,
+    FT_TABLE_MAX = 0x800,
+};
+
+static bool fighter_count_ok(MeleeHostHsdReader* reader, s32 count,
+                             const char* what)
+{
+    if (count < 0 || count > FT_TABLE_MAX) {
+        melee_host_hsd_reader_fail(reader, what);
+        return false;
+    }
+    return true;
+}
+
+static ftCo_DatAttrs* fighter_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftCo_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftCo_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x000, 0x180);
+    copy_bytes(reader, at, attrs, 0x180, 0x184);
+    return attrs;
+}
+
+/* Fox's special attributes: scalars, then a ReflectDesc whose last field is
+ * a byte. */
+static void* fighter_fox_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftFox_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftFox_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, 0xD0);
+    copy_bytes(reader, at, attrs, 0xD0, 0xD4);
+    return attrs;
+}
+
+static Fighter_WaitAnimData* fighter_actions(MeleeHostHsdReader* reader,
+                                             mh_u32 at)
+{
+    const mh_u32 count = melee_host_hsd_reader_extent(reader, at) /
+                         FT_ACTION_SIZE;
+    Fighter_WaitAnimData* actions;
+    mh_u32 i;
+
+    if (count == 0 || count > FT_TABLE_MAX) {
+        melee_host_hsd_reader_fail(reader, "a fighter action table is empty");
+        return NULL;
+    }
+    actions = melee_host_hsd_reader_allocate(
+        reader, sizeof(*actions) * count, alignof(Fighter_WaitAnimData));
+    if (actions == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        const mh_u32 entry = at + i * FT_ACTION_SIZE;
+        bool present;
+        mh_u32 target;
+
+        target = target_of(reader, entry + 0x00, &present);
+        actions[i].x0 =
+            present ? melee_host_hsd_reader_payload(reader, target, 1) : NULL;
+        actions[i].x4 = (s32) melee_host_hsd_reader_u32(reader, entry + 0x04);
+        actions[i].x8 = (s32) melee_host_hsd_reader_u32(reader, entry + 0x08);
+        target = target_of(reader, entry + 0x0C, &present);
+        actions[i].xC = present
+                            ? melee_host_hsd_reader_command_stream(reader,
+                                                                   target)
+                            : NULL;
+        actions[i].x10_animCurrFlags =
+            (s32) melee_host_hsd_reader_u32(reader, entry + 0x10);
+        actions[i].x14 = melee_host_hsd_reader_u32(reader, entry + 0x14);
+        if (melee_host_hsd_reader_failed(reader)) {
+            return NULL;
+        }
+    }
+    return actions;
+}
+
+/* One visibility lookup per model: a count of TempS and the TempS, each a
+ * count and a list of DObj indices. */
+static FtPartsVisLookup* fighter_vis_lookup(MeleeHostHsdReader* reader,
+                                            mh_u32 at, u32 model_num)
+{
+    FtPartsVisLookup* const lookups = melee_host_hsd_reader_allocate(
+        reader, sizeof(*lookups) * model_num, alignof(FtPartsVisLookup));
+    u32 i;
+
+    if (lookups == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < model_num; i++) {
+        const mh_u32 entry = at + i * FT_VIS_ENTRY_SIZE;
+        const s32 count = (s32) melee_host_hsd_reader_u32(reader, entry);
+        bool present;
+        const mh_u32 list = target_of(reader, entry + 4, &present);
+        s32 j;
+
+        lookups[i].x0 = count;
+        lookups[i].x4 = NULL;
+        if (!fighter_count_ok(reader, count,
+                              "a fighter visibility lookup has a bad count") ||
+            !present || count == 0)
+        {
+            continue;
+        }
+        lookups[i].x4 = melee_host_hsd_reader_allocate(
+            reader, sizeof(TempS) * (size_t) count, alignof(TempS));
+        if (lookups[i].x4 == NULL) {
+            return NULL;
+        }
+        for (j = 0; j < count; j++) {
+            const mh_u32 temp = list + (mh_u32) j * FT_VIS_ENTRY_SIZE;
+            bool listed;
+            const mh_u32 bytes = target_of(reader, temp + 4, &listed);
+            lookups[i].x4[j].x0 = (int) melee_host_hsd_reader_u32(reader, temp);
+            lookups[i].x4[j].x4 =
+                listed ? melee_host_hsd_reader_payload(reader, bytes, 1) : NULL;
+        }
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : lookups;
+}
+
+static struct ftData_x8* fighter_parts(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftData_x8* const parts = melee_host_hsd_reader_allocate(
+        reader, sizeof(*parts), alignof(struct ftData_x8));
+    const u32 model_num = melee_host_hsd_reader_u32(reader, at + 0x0);
+    const u32 tobjs = melee_host_hsd_reader_u32(reader, at + 0x8);
+    bool present;
+    mh_u32 target;
+
+    if (parts == NULL) {
+        return NULL;
+    }
+    if (model_num > 11 || tobjs > FT_TABLE_MAX) {
+        melee_host_hsd_reader_fail(reader, "fighter parts have bad counts");
+        return NULL;
+    }
+    parts->x0.model_num = model_num;
+    target = target_of(reader, at + 0x4, &present);
+    if (present) {
+        const mh_u32 rows = melee_host_hsd_reader_extent(reader, target) / 16;
+        void* (*const table)[4] = melee_host_hsd_reader_allocate(
+            reader, sizeof(void* [4]) * rows, alignof(void*));
+        mh_u32 row;
+        if (table == NULL) {
+            return NULL;
+        }
+        for (row = 0; row < rows; row++) {
+            mh_u32 column;
+            for (column = 0; column < 4; column++) {
+                bool listed;
+                const mh_u32 lookup =
+                    target_of(reader, target + row * 16 + column * 4, &listed);
+                table[row][column] =
+                    listed ? fighter_vis_lookup(reader, lookup, model_num)
+                           : NULL;
+            }
+        }
+        parts->x0.vis_table = table;
+    }
+    parts->x8.x8 = tobjs;
+    target = target_of(reader, at + 0xC, &present);
+    if (present) {
+        const mh_u32 slots = melee_host_hsd_reader_extent(reader, target) / 4;
+        u16** const rows = melee_host_hsd_reader_allocate(
+            reader, sizeof(u16*) * slots, alignof(u16*));
+        mh_u32 slot;
+        if (rows == NULL) {
+            return NULL;
+        }
+        for (slot = 0; slot < slots; slot++) {
+            bool listed;
+            const mh_u32 list = target_of(reader, target + slot * 4, &listed);
+            rows[slot] = NULL;
+            if (listed && tobjs != 0) {
+                u32 k;
+                rows[slot] = melee_host_hsd_reader_allocate(
+                    reader, sizeof(u16) * tobjs, alignof(u16));
+                if (rows[slot] == NULL) {
+                    return NULL;
+                }
+                for (k = 0; k < tobjs; k++) {
+                    rows[slot][k] =
+                        melee_host_hsd_reader_u16(reader, list + k * 2);
+                }
+            }
+        }
+        parts->x8.xC = rows;
+    }
+    parts->x10 = melee_host_hsd_reader_u8(reader, at + 0x10);
+    parts->x11 = melee_host_hsd_reader_u8(reader, at + 0x11);
+    parts->x12 = melee_host_hsd_reader_u8(reader, at + 0x12);
+    parts->x13 = melee_host_hsd_reader_u8(reader, at + 0x13);
+    parts->x14 = melee_host_hsd_reader_u8(reader, at + 0x14);
+    return melee_host_hsd_reader_failed(reader) ? NULL : parts;
+}
+
+static void* fighter_part_anim_set(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftData_x1C* const set = melee_host_hsd_reader_allocate(
+        reader, sizeof(*set), alignof(ftData_x1C));
+    bool present;
+    mh_u32 target;
+
+    if (set == NULL) {
+        return NULL;
+    }
+    set->x0 = melee_host_hsd_reader_u16(reader, at + 0x0);
+    set->x2 = melee_host_hsd_reader_u16(reader, at + 0x2);
+    target = target_of(reader, at + 0x4, &present);
+    set->x4 = present ? melee_host_hsd_reader_payload(reader, target, 1) : NULL;
+    target = target_of(reader, at + 0x8, &present);
+    set->x8 = present ? (HSD_AnimJoint**) per_entry_table(
+                            reader, target, melee_host_hsd_reader_anim_joint)
+                      : NULL;
+    return set;
+}
+
+/* x20: a joint table in which only some slots are joints; ftCo_Guard.c reads
+ * slot 2, and the others hold small integers, kept as they are. */
+static ftData_x20* fighter_guard_joints(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftData_x20* const data = melee_host_hsd_reader_allocate(
+        reader, sizeof(*data), alignof(ftData_x20));
+    bool present;
+    const mh_u32 table = target_of(reader, at + 0x0, &present);
+
+    if (data == NULL) {
+        return NULL;
+    }
+    data->x8 = melee_host_hsd_reader_f32(reader, at + 0x4);
+    data->x0 = NULL;
+    if (present) {
+        const mh_u32 slots = melee_host_hsd_reader_extent(reader, table) / 4;
+        HSD_Joint** const joints = melee_host_hsd_reader_allocate(
+            reader, sizeof(HSD_Joint*) * slots, alignof(HSD_Joint*));
+        mh_u32 i;
+        if (joints == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < slots; i++) {
+            const mh_u32 slot = table + i * 4;
+            if (melee_host_hsd_reader_has_pointer(reader, slot)) {
+                bool listed;
+                const mh_u32 joint = target_of(reader, slot, &listed);
+                joints[i] = melee_host_hsd_reader_joint(reader, joint);
+            } else {
+                joints[i] = (HSD_Joint*) (intptr_t) (s32)
+                    melee_host_hsd_reader_u32(reader, slot);
+            }
+        }
+        data->x0 = joints;
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : data;
+}
+
+static WaitStruct* fighter_wait_pairs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    const mh_u32 limit = melee_host_hsd_reader_extent(reader, at) / 8;
+    mh_u32 count = 0;
+    WaitStruct* pairs;
+    mh_u32 i;
+
+    while (count < limit &&
+           (s32) melee_host_hsd_reader_u32(reader, at + count * 8) != -1)
+    {
+        count++;
+    }
+    if (count == limit) {
+        melee_host_hsd_reader_fail(reader,
+                                   "a fighter wait table has no end entry");
+        return NULL;
+    }
+    pairs = melee_host_hsd_reader_allocate(
+        reader, sizeof(WaitStruct) * (count + 1), alignof(WaitStruct));
+    if (pairs == NULL) {
+        return NULL;
+    }
+    for (i = 0; i <= count; i++) {
+        pairs[i].u.i.x = (int) melee_host_hsd_reader_u32(reader, at + i * 8);
+        pairs[i].u.i.y = (int) melee_host_hsd_reader_u32(reader, at + i * 8 + 4);
+    }
+    return pairs;
+}
+
+static struct ftDynamics* fighter_dynamics(MeleeHostHsdReader* reader,
+                                           mh_u32 at)
+{
+    struct ftDynamics* const dynamics = melee_host_hsd_reader_allocate(
+        reader, sizeof(*dynamics), alignof(struct ftDynamics));
+    const s32 count = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    bool present;
+    mh_u32 target;
+
+    if (dynamics == NULL) {
+        return NULL;
+    }
+    if (count < 0 || count > Ft_Dynamics_NumMax) {
+        melee_host_hsd_reader_fail(reader, "fighter dynamics have a bad count");
+        return NULL;
+    }
+    dynamics->dynamicsNum = count;
+    target = target_of(reader, at + 0x4, &present);
+    if (present && count != 0) {
+        ArticleDynamicBones* const bones = melee_host_hsd_reader_allocate(
+            reader, sizeof(*bones), alignof(ArticleDynamicBones));
+        s32 i;
+        if (bones == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            const mh_u32 entry = target + (mh_u32) i * FT_BONE_DYNAMICS_SIZE;
+            const u32 records = melee_host_hsd_reader_u32(reader, entry + 0x8);
+            bool listed;
+            const mh_u32 data = target_of(reader, entry + 0x4, &listed);
+            BoneDynamicsDesc* const bone = &bones->array[i];
+            bone->bone_id = (enum_t) melee_host_hsd_reader_u32(reader, entry);
+            if (records > FT_TABLE_MAX) {
+                melee_host_hsd_reader_fail(reader,
+                                           "fighter dynamics list too many "
+                                           "records");
+                return NULL;
+            }
+            bone->dyn_desc.data =
+                listed && records != 0
+                    ? scalar_block(reader, data,
+                                   records * FT_DYNAMICS_RECORD_SIZE)
+                    : NULL;
+            bone->dyn_desc.count = records;
+            bone->dyn_desc.pos.x = melee_host_hsd_reader_f32(reader, entry + 0xC);
+            bone->dyn_desc.pos.y =
+                melee_host_hsd_reader_f32(reader, entry + 0x10);
+            bone->dyn_desc.pos.z =
+                melee_host_hsd_reader_f32(reader, entry + 0x14);
+        }
+        dynamics->ftDynamicBones = bones;
+    }
+    dynamics->x4 = (int) melee_host_hsd_reader_u32(reader, at + 0x8);
+    target = target_of(reader, at + 0xC, &present);
+    dynamics->x8 = present ? scalar_extent(reader, target) : NULL;
+    (void) target_of(reader, at + 0x10, &present);
+    if (present) {
+        melee_host_hsd_reader_fail(reader,
+                                   "fighter dynamics that name animation trees "
+                                   "are not translated yet");
+        return NULL;
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : dynamics;
+}
+
+static ftData_x30* fighter_hurtboxes(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftData_x30* const hurtboxes = melee_host_hsd_reader_allocate(
+        reader, sizeof(*hurtboxes), alignof(ftData_x30));
+    const s32 count = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    bool present;
+    const mh_u32 inits = target_of(reader, at + 0x4, &present);
+
+    if (hurtboxes == NULL ||
+        !fighter_count_ok(reader, count, "fighter hurtboxes have a bad count"))
+    {
+        return NULL;
+    }
+    hurtboxes->count = count;
+    hurtboxes->inits =
+        present && count != 0
+            ? scalar_block(reader, inits, (mh_u32) count * FT_HURTBOX_SIZE)
+            : NULL;
+    return hurtboxes;
+}
+
+static ftData_x44_t* fighter_ledge(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftData_x44_t* const ledge = melee_host_hsd_reader_allocate(
+        reader, sizeof(*ledge), alignof(ftData_x44_t));
+
+    if (ledge == NULL) {
+        return NULL;
+    }
+    ledge->unk0 = read_s16(reader, at + 0x0);
+    ledge->unk2 = read_s16(reader, at + 0x2);
+    ledge->unk4 = read_s16(reader, at + 0x4);
+    ledge->unk6 = read_s16(reader, at + 0x6);
+    ledge->unk8 = read_s16(reader, at + 0x8);
+    ledge->unkA = read_s16(reader, at + 0xA);
+    copy_words(reader, at, ledge, 0xC, sizeof(ftData_x44_t));
+    return ledge;
+}
+
+/* A character's item list names item articles, whose first field, the common
+ * attributes, is always relocated.  Not every slot is one: Fox's fifth slot
+ * names int pairs ending in -1, which nothing reads, and keeps its bytes. */
+static void* fighter_item_article(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    if (!melee_host_hsd_reader_has_pointer(reader, at)) {
+        return melee_host_hsd_reader_payload(reader, at, 1);
+    }
+    return item_article(reader, at);
+}
+
+static FtSFXArr* fighter_sound_list(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    FtSFXArr* const list = melee_host_hsd_reader_allocate(
+        reader, sizeof(*list), alignof(FtSFXArr));
+    const s32 count = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    bool present;
+    const mh_u32 ids = target_of(reader, at + 0x4, &present);
+
+    if (list == NULL ||
+        !fighter_count_ok(reader, count, "a fighter sound list has a bad count"))
+    {
+        return NULL;
+    }
+    list->num = count;
+    list->sfx_ids = present && count != 0
+                        ? scalar_block(reader, ids, (mh_u32) count * 4)
+                        : NULL;
+    return list;
+}
+
+static FtSFX* fighter_sounds(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    FtSFX* const sounds = melee_host_hsd_reader_allocate(
+        reader, sizeof(*sounds), alignof(FtSFX));
+    bool present;
+    mh_u32 target;
+
+    if (sounds == NULL) {
+        return NULL;
+    }
+    target = target_of(reader, at + 0x00, &present);
+    sounds->smash = present ? fighter_sound_list(reader, target) : NULL;
+    sounds->x4 = (int) melee_host_hsd_reader_u32(reader, at + 0x04);
+    sounds->x8 = (int) melee_host_hsd_reader_u32(reader, at + 0x08);
+    sounds->xC = (int) melee_host_hsd_reader_u32(reader, at + 0x0C);
+    sounds->x10 = (int) melee_host_hsd_reader_u32(reader, at + 0x10);
+    sounds->x14 = (int) melee_host_hsd_reader_u32(reader, at + 0x14);
+    sounds->x18 = (int) melee_host_hsd_reader_u32(reader, at + 0x18);
+    target = target_of(reader, at + 0x1C, &present);
+    sounds->x1C = present ? fighter_sound_list(reader, target) : NULL;
+    target = target_of(reader, at + 0x20, &present);
+    sounds->x20 = present ? fighter_sound_list(reader, target) : NULL;
+    sounds->x24 = (int) melee_host_hsd_reader_u32(reader, at + 0x24);
+    sounds->x28 = (int) melee_host_hsd_reader_u32(reader, at + 0x28);
+    sounds->x2C = (int) melee_host_hsd_reader_u32(reader, at + 0x2C);
+    sounds->x30 = (int) melee_host_hsd_reader_u32(reader, at + 0x30);
+    sounds->x34 = (int) melee_host_hsd_reader_u32(reader, at + 0x34);
+    return melee_host_hsd_reader_failed(reader) ? NULL : sounds;
+}
+
+static struct ftData_x58_t* fighter_ik(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftData_x58_t* const ik = melee_host_hsd_reader_allocate(
+        reader, sizeof(*ik), alignof(struct ftData_x58_t));
+
+    if (ik == NULL) {
+        return NULL;
+    }
+    ik->x0 = melee_host_hsd_reader_u8(reader, at + 0x00);
+    ik->x1 = melee_host_hsd_reader_u8(reader, at + 0x01);
+    ik->x4 = melee_host_hsd_reader_f32(reader, at + 0x04);
+    ik->x8 = melee_host_hsd_reader_u8(reader, at + 0x08);
+    ik->x9 = melee_host_hsd_reader_u8(reader, at + 0x09);
+    ik->xC = melee_host_hsd_reader_f32(reader, at + 0x0C);
+    ik->x10 = melee_host_hsd_reader_u8(reader, at + 0x10);
+    ik->x11 = melee_host_hsd_reader_u8(reader, at + 0x11);
+    ik->x18 = melee_host_hsd_reader_f32(reader, at + 0x18);
+    return ik;
+}
+
+static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
+                          void* (*special_attrs)(MeleeHostHsdReader*, mh_u32))
+{
+    struct ftData* const data = melee_host_hsd_reader_allocate(
+        reader, sizeof(*data), alignof(struct ftData));
+    bool present;
+    mh_u32 target;
+
+    if (data == NULL) {
+        return NULL;
+    }
+    item_memo.count = 0;
+#define FT_FIELD(offset)                                                      \
+    (target = target_of(reader, root + (offset), &present), present)
+    if (FT_FIELD(0x00)) data->x0 = fighter_attrs(reader, target);
+    if (FT_FIELD(0x04)) data->ext_attr = special_attrs(reader, target);
+    if (FT_FIELD(0x08)) data->x8 = fighter_parts(reader, target);
+    if (FT_FIELD(0x0C)) data->xC = fighter_actions(reader, target);
+    if (FT_FIELD(0x10)) data->x10 = melee_host_hsd_reader_payload(reader, target, 1);
+    if (FT_FIELD(0x14)) data->x14 = fighter_actions(reader, target);
+    if (FT_FIELD(0x18)) data->x18 = melee_host_hsd_reader_payload(reader, target, 1);
+    if (FT_FIELD(0x1C))
+        data->x1C = (ftData_x1C**) per_entry_table(reader, target,
+                                                   fighter_part_anim_set);
+    if (FT_FIELD(0x20)) data->x20 = fighter_guard_joints(reader, target);
+    if (FT_FIELD(0x24)) data->x24 = fighter_wait_pairs(reader, target);
+    if (FT_FIELD(0x28)) data->x28 = fighter_wait_pairs(reader, target);
+    if (FT_FIELD(0x2C)) data->x2C = fighter_dynamics(reader, target);
+    if (FT_FIELD(0x30)) data->x30 = fighter_hurtboxes(reader, target);
+    if (FT_FIELD(0x34)) data->x34 = scalar_block(reader, target, sizeof(ftData_x34));
+    if (FT_FIELD(0x38)) data->x38 = scalar_extent(reader, target);
+    if (FT_FIELD(0x3C))
+        data->x3C = scalar_block(reader, target, sizeof(struct UnkFloat6_Camera));
+    if (FT_FIELD(0x40)) data->x40 = scalar_block(reader, target, sizeof(itPickup));
+    if (FT_FIELD(0x44)) data->x44 = fighter_ledge(reader, target);
+    if (FT_FIELD(0x48))
+        data->x48_items = per_entry_table(reader, target, fighter_item_article);
+    if (FT_FIELD(0x4C)) data->x4C_sfx = fighter_sounds(reader, target);
+    if (FT_FIELD(0x50)) data->x50 = scalar_block(reader, target, sizeof(Vec2));
+    if (FT_FIELD(0x54)) data->x54 = scalar_extent(reader, target);
+    if (FT_FIELD(0x58)) data->x58 = fighter_ik(reader, target);
+    if (FT_FIELD(0x5C)) data->x5C = melee_host_hsd_reader_joint(reader, target);
+#undef FT_FIELD
+    return melee_host_hsd_reader_failed(reader) ? NULL : data;
+}
+
+static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    return fighter_data(reader, root, fighter_fox_attrs);
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("ftDataFox", fighter_data_fox);
     (void) melee_host_hsd_register_translator("ftLoadCommonData",
                                               fighter_common_tables);
     (void) melee_host_hsd_register_translator("map_head", stage_map_head);

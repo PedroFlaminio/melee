@@ -24,7 +24,7 @@ typedef struct CheckLightOverrideEntry {
 } CheckLightOverrideEntry;
 
 typedef struct CheckStagePairs {
-    u8 x0_pad[0x4];
+    void* joint;
     struct {
         s16 a, b;
     }* unk4;
@@ -50,12 +50,13 @@ int melee_host_test_check_stage_map_head(void* translated, char* message,
 
     CHECK(dat != NULL);
 
-    /* One model: an animation table that is only its terminator, the left-out
-     * x14, one ambient light, two GrJoints, flag bytes and three s16. */
+    /* One model: its joint, an animation table that is only its terminator,
+     * the left-out x14, one ambient light, two GrJoints, flag bytes and three
+     * s16. */
     CHECK(dat->unkC == 1);
     model = dat->unk8;
     CHECK(model != NULL);
-    CHECK(model->unk0 == NULL);
+    CHECK(model->unk0 != NULL);
     CHECK(model->unk4 != NULL && model->unk4[0] == NULL);
     CHECK(model->unk8 == NULL && model->unkC == NULL);
     CHECK(model->x10 == NULL);
@@ -77,6 +78,8 @@ int melee_host_test_check_stage_map_head(void* translated, char* message,
     CHECK(dat->unk4 == 1);
     pairs = dat->unk0;
     CHECK(pairs != NULL && pairs[0].unk8 == 2);
+    /* Ground_801C34AC finds the entry by the model's joint descriptor. */
+    CHECK(pairs[0].joint == model->unk0);
     CHECK(pairs[0].unk4 != NULL);
     CHECK(pairs[0].unk4[0].a == 1 && pairs[0].unk4[0].b == 0x94);
     CHECK(pairs[0].unk4[1].a == 2 && pairs[0].unk4[1].b == 0x95);

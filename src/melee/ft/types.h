@@ -666,7 +666,12 @@ struct FtSFX {
     int x10;
     int x14;
     int x18;
+#ifdef MELEE_HOST
+    /* A relocated pointer on disk, which ftCo_Damage.c keeps as UNK_T. */
+    FtSFXArr* x1C;
+#else
     int x1C;
+#endif
     FtSFXArr* x20;
     int x24;
     int x28;
@@ -865,7 +870,13 @@ typedef struct Fighter_WaitAnimData {
     s32 x8;
     CmdUnion* xC;
     s32 x10_animCurrFlags;
+#ifdef MELEE_HOST
+    /* The animation's address: in ARAM below 0x80000000, or in memory, which
+     * on the host does not fit in u32 (ftData_80085A14). */
+    uintptr_t x14;
+#else
     u32 x14;
+#endif
 } Fighter_WaitAnimData;
 
 struct ftData {
@@ -899,7 +910,12 @@ struct ftData {
                                 ///< ftPr_Init_8013C360
     /* +4C */ FtSFX* x4C_sfx;
     /* +50 */ Vec2* x50;
+#ifdef MELEE_HOST
+    /* A relocated pointer on disk, which ftCo_09F7.c reads as int*. */
+    /* +54 */ int* x54;
+#else
     /* +54 */ int x54;
+#endif
     /* +58 */ struct ftData_x58_t* x58;
     /* +5C */ HSD_Joint* x5C;
 };
@@ -1961,6 +1977,21 @@ typedef struct ftData_UnkModelStruct {
     HSD_JObj* (*getter[Ft_Kind_Max])(HSD_GObj*);
 } ftData_UnkModelStruct;
 
+#ifdef MELEE_HOST
+/* A Fighter_WaitAnimData read through another type.  On the host it keeps
+ * that struct's layout, and the two flag bits sit at the top of its flags
+ * word, where MWCC puts the first two bits of the byte at +10. */
+struct ftData_80085FD4_ret {
+    /* +0 */ const char* x0;
+    /* +4 */ s32 x4;
+    /* +8 */ s32 x8;
+    /* +C */ UNK_T xC;
+    u32 : 30;
+    /* +10:1 */ u32 x10_b1 : 1;
+    /* +10:0 */ u32 x10_b0 : 1;
+    /* +14 */ uintptr_t x14;
+};
+#else
 struct ftData_80085FD4_ret {
     /* +0 */ const char* x0;
     /* +4 */ UNK_T x4;
@@ -1970,6 +2001,7 @@ struct ftData_80085FD4_ret {
     /* +10:1 */ u8 x10_b1 : 1;
     /* +14 */ u32 x14;
 };
+#endif
 
 struct ArticleDynamicBones {
     BoneDynamicsDesc array[Ft_Dynamics_NumMax];

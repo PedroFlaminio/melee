@@ -6,6 +6,11 @@
 #include <dolphin/os.h>
 #include <sysdolphin/baselib/debug.h>
 
+#ifdef MELEE_HOST
+#include "lb_0195.h"
+#include <stddef.h>
+#endif
+
 typedef enum lbArqState {
     LB_ARQ_STATE_FREE = 0,
     LB_ARQ_STATE_PENDING = 1,
@@ -49,19 +54,32 @@ static lbArqState lbArq_80014ABC(lbArqNode* arg0)
 static void lbArq_80014AC4(lbArqHandle* handle)
 {
     lbArqGlobal* global = &lbArq_804316C0;
+#ifdef MELEE_HOST
+    /* The console reads the node back from the request's owner word, which
+     * cannot hold a host pointer; the request lives inside its node. */
+    lbArqNode* node =
+        (lbArqNode*) ((char*) handle - offsetof(lbArqNode, arq));
+#else
     lbArqNode* node = handle->node;
+#endif
     lbArqNode** prev;
     lbArqNode** tail;
+#ifndef MELEE_HOST
     uintptr_t offset;
+#endif
     BOOL intr;
 
     intr = OSDisableInterrupts();
 
     /* Remove from current list (indexed by state) */
+#ifdef MELEE_HOST
+    prev = &global->list[node->state];
+#else
     offset = node->state * 4;
     offset += 0x1E0;
     offset += (uintptr_t) global;
     prev = (lbArqNode**) offset;
+#endif
     while (*prev != node) {
         prev = &(*prev)->next;
     }
@@ -143,6 +161,11 @@ void lbArq_80014BD0(unsigned int source, void* dest, size_t length,
     if (rp->callback == NULL) {
         OSRestoreInterrupts(intr);
         while (lbArq_80014ABC(rp) != LB_ARQ_STATE_DONE) {
+#ifdef MELEE_HOST
+            /* The console's transfer ends by interrupt while this spins; the
+             * host's ends when the scheduler steps, as a disc read does. */
+            lb_800195D0();
+#endif
         }
         intr = OSDisableInterrupts();
         tail = &global->list[rp->state];

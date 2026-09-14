@@ -1137,13 +1137,15 @@ extern "C" int melee_host_test_check_stage_map_head(void* translated,
 
 TEST_CASE("a stage's map_head translates with its lights shared by address")
 {
-    // One model with an animation table that is only its terminator, a light
-    // list naming an ambient light, GrJoints, flag bytes and s16 values; a
-    // table of s16 pairs; light overrides counted twice, as on the disc, whose
-    // first entry names the model's light; a table nothing reads; and a
-    // material.  stage_data_check.c reads it back through the game's types.
+    // One model with its joint, an animation table that is only its
+    // terminator, a light list naming an ambient light, GrJoints, flag bytes
+    // and s16 values; a table of s16 pairs naming the model's joint; light
+    // overrides counted twice, as on the disc, whose first entry names the
+    // model's light; a table nothing reads; and a material.
+    // stage_data_check.c reads it back through the game's types.
     ArchiveBuilder builder(0x200);
-    // The model.
+    // The model, whose joint is a bare descriptor.
+    builder.pointer(0x000, 0x180);
     builder.pointer(0x004, 0x040);
     builder.pointer(0x014, 0x050);
     builder.pointer(0x018, 0x060);
@@ -1170,8 +1172,8 @@ TEST_CASE("a stage's map_head translates with its lights shared by address")
     builder.u8(0x0AD, 0x80);
     builder.u8(0x0AE, 0xC0);
     builder.u8(0x0AF, 0xFF);
-    // s16 pairs.
-    builder.pointer(0x0C0, 0x000);
+    // s16 pairs for the model's joint.
+    builder.pointer(0x0C0, 0x180);
     builder.pointer(0x0C4, 0x0D0);
     builder.u32(0x0C8, 2);
     builder.u16(0x0D0, 1);
@@ -1318,6 +1320,137 @@ TEST_CASE("the fighter common data translates its 23 tables")
     char message[256] = {};
     REQUIRE(melee_host_test_check_fighter_common_data(data, message,
                                                       sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
+extern "C" int melee_host_test_check_fighter_fox_data(void* translated,
+                                                     char* message,
+                                                     std::size_t size);
+
+TEST_CASE("Fox's fighter data translates its records and tables")
+{
+    // A small PlFx.dat: the ftData record and one small instance of what each
+    // translated field names.  fighter_fox_data_check.c reads the result
+    // through the game's types.
+    const auto command = [](std::uint32_t opcode, std::uint32_t value) {
+        return (opcode << 26U) | value;
+    };
+    ArchiveBuilder builder(0x600);
+    // The record: attributes, Fox's attributes, parts, two action tables,
+    // guard joints, wait pairs, dynamics, hurtboxes, ledge, items, sounds, a
+    // word list and the IK record.
+    builder.pointer(0x00, 0x100);
+    builder.pointer(0x04, 0x290);
+    builder.pointer(0x08, 0x510);
+    builder.pointer(0x0C, 0x370);
+    builder.pointer(0x14, 0x3B0);
+    builder.pointer(0x20, 0x558);
+    builder.pointer(0x24, 0x3C8);
+    builder.pointer(0x2C, 0x3D8);
+    builder.pointer(0x30, 0x448);
+    builder.pointer(0x44, 0x478);
+    builder.pointer(0x48, 0x494);
+    builder.pointer(0x4C, 0x4A4);
+    builder.pointer(0x54, 0x4EC);
+    builder.pointer(0x58, 0x4F4);
+    // ftCo_DatAttrs and ftFox_DatAttrs: words, then a byte at the end.
+    builder.f32(0x100, 1.5F);
+    builder.u8(0x100 + 0x180, 0x81);
+    builder.f32(0x290, 2.5F);
+    builder.u8(0x290 + 0xD0, 1);
+    // Two actions, a named one with a script and an empty one; one more in
+    // the second table.
+    builder.pointer(0x370, 0x3A0);
+    builder.u32(0x374, 0x100);
+    builder.u32(0x378, 0x40);
+    builder.pointer(0x37C, 0x3A8);
+    builder.u32(0x380, 7);
+    builder.u8(0x3A0, 'W');
+    builder.u8(0x3A1, 'a');
+    builder.u8(0x3A2, 'i');
+    builder.u8(0x3A3, 't');
+    builder.u32(0x3A8, command(1, 5));
+    builder.u32(0x3B4, 0x20);
+    builder.u32(0x3B8, 0x10);
+    // Wait pairs: one, then the -1 entry.
+    builder.u32(0x3C8, 1);
+    builder.u32(0x3CC, 2);
+    builder.u32(0x3D0, 0xFFFFFFFFU);
+    // Dynamics: one bone with one record, then a scalar list.
+    builder.u32(0x3D8, 1);
+    builder.pointer(0x3DC, 0x3EC);
+    builder.u32(0x3E0, 3);
+    builder.pointer(0x3E4, 0x440);
+    builder.u32(0x3EC, 7);
+    builder.pointer(0x3F0, 0x404);
+    builder.u32(0x3F4, 1);
+    builder.f32(0x3F8, 1.0F);
+    builder.f32(0x3FC, 2.0F);
+    builder.f32(0x400, 3.0F);
+    builder.f32(0x404, 0.5F);
+    builder.f32(0x440, 9.0F);
+    builder.f32(0x444, 10.0F);
+    // One hurtbox.
+    builder.u32(0x448, 1);
+    builder.pointer(0x44C, 0x450);
+    builder.u32(0x450, 5);
+    builder.f32(0x450 + 0x24, 2.0F);
+    // Ledge: s16 values, then words.
+    builder.u16(0x478, 0xFFFD);
+    builder.f32(0x478 + 0xC, 4.5F);
+    // Items: a slot naming int pairs, which hold no pointer, and an empty
+    // slot.
+    builder.pointer(0x494, 0x49C);
+    builder.u32(0x49C, 3);
+    builder.u32(0x4A0, 0xFFFFFFFFU);
+    // Sounds: the smash list, a word and the x20 list; no x1C.
+    builder.pointer(0x4A4, 0x4DC);
+    builder.u32(0x4A8, 11);
+    builder.pointer(0x4A4 + 0x20, 0x4DC);
+    builder.u32(0x4DC, 2);
+    builder.pointer(0x4E0, 0x4E4);
+    builder.u32(0x4E4, 100);
+    builder.u32(0x4E8, 101);
+    // x54 words and the IK record.
+    builder.u32(0x4EC, 9);
+    builder.u32(0x4F0, 8);
+    builder.u8(0x4F4, 1);
+    builder.f32(0x4F8, 2.5F);
+    builder.f32(0x4F4 + 0x18, 6.0F);
+    // Parts: one model, one visibility row naming a lookup of one TempS, and
+    // one row of two TObj indices.
+    builder.u32(0x510, 1);
+    builder.pointer(0x514, 0x528);
+    builder.u32(0x518, 2);
+    builder.pointer(0x51C, 0x550);
+    builder.u8(0x520, 3);
+    builder.u8(0x524, 9);
+    builder.pointer(0x528, 0x538);
+    builder.u32(0x538, 1);
+    builder.pointer(0x53C, 0x540);
+    builder.u32(0x540, 2);
+    builder.pointer(0x544, 0x548);
+    builder.u8(0x548, 4);
+    builder.u8(0x549, 5);
+    builder.pointer(0x550, 0x554);
+    builder.u16(0x554, 7);
+    builder.u16(0x556, 8);
+    // Guard joints: a small integer, nothing, a bare joint and nothing.
+    builder.pointer(0x558, 0x560);
+    builder.f32(0x55C, 1.25F);
+    builder.u32(0x560, 5);
+    builder.pointer(0x568, 0x570);
+    builder.public_symbol(0x000, "ftDataFox");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const data = HSD_ArchiveGetPublicAddress(&archive, "ftDataFox");
+    REQUIRE(data != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_fighter_fox_data(data, message,
+                                                   sizeof(message)) == 1);
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 

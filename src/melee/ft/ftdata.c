@@ -1698,14 +1698,22 @@ void ftData_80085B10(Fighter* fp)
     ftData_80085A14(kind);
 }
 
+#ifdef MELEE_HOST
+/* An animation's address: an ARAM offset below 0x80000000, or a memory
+ * address, which on the host is wider than u32. */
+#define FT_ANIM_ADDR uintptr_t
+#else
+#define FT_ANIM_ADDR u32
+#endif
+
 void ftData_80085B98(Fighter* fp, int arg1, int arg2)
 {
-    u32 temp_r30;
+    FT_ANIM_ADDR temp_r30;
     int i;
     u32 temp_r0;
     struct Fighter_WaitAnimData* temp_r3;
 
-    temp_r30 = (u32) ftData_UnkIntPairs[fp->kind].data;
+    temp_r30 = (FT_ANIM_ADDR) ftData_UnkIntPairs[fp->kind].data;
     fp->x59C = HSD_ObjAlloc(&fighter_x59C_alloc_data);
     fp->x5A0 = HSD_ObjAlloc(&fighter_x59C_alloc_data);
     fp->x5A4 = 0;
@@ -1739,17 +1747,17 @@ void ftData_80085CD8(Fighter* fp, Fighter* arg1, int msid)
     s32 temp_ret_2;
     struct Fighter_x59C_t* temp_r4;
     struct Fighter_WaitAnimData* temp_r3;
-    u32 temp_r3_2;
-    u32 temp_r4_2;
+    FT_ANIM_ADDR temp_r3_2;
+    FT_ANIM_ADDR temp_r4_2;
 
     if (msid < arg1->x58C) {
         temp_r3 = (struct Fighter_WaitAnimData*) ftData_80085FD4(arg1, msid);
         temp_r3_2 = temp_r3->x14;
-        if (temp_r3_2 != (u32) fp->x5A4) {
+        if (temp_r3_2 != (FT_ANIM_ADDR) fp->x5A4) {
             if (temp_r3_2 != 0) {
                 temp_r3_3 = ftData_80086060(fp);
                 if ((temp_r3_3 != NULL) &&
-                    (temp_r3->x14 == (u32) temp_r3_3->x5A4))
+                    (temp_r3->x14 == (FT_ANIM_ADDR) temp_r3_3->x5A4))
                 {
                     memcpy(fp->x59C, temp_r3_3->x59C, temp_r3->x8);
                     temp_r4 = fp->x59C;
@@ -1792,17 +1800,17 @@ FigaTree* ftData_80085E50(Fighter* arg0, int msid)
     int temp_ret_2;
     struct Fighter_x59C_t* temp_r4;
     struct ftData_80085FD4_ret* temp_r3;
-    u32 temp_r3_2;
-    u32 temp_r4_2;
+    FT_ANIM_ADDR temp_r3_2;
+    FT_ANIM_ADDR temp_r4_2;
 
     if (msid < arg0->x58C) {
         temp_r3 = ftData_80085FD4(arg0, msid);
         temp_r3_2 = temp_r3->x14;
-        if (temp_r3_2 != (u32) arg0->x5A8) {
+        if (temp_r3_2 != (FT_ANIM_ADDR) arg0->x5A8) {
             if (temp_r3_2 != 0) {
                 temp_r3_3 = ftData_80086060(arg0);
                 if ((temp_r3_3 != NULL) &&
-                    (temp_r3->x14 == (u32) temp_r3_3->x5A4))
+                    (temp_r3->x14 == (FT_ANIM_ADDR) temp_r3_3->x5A4))
                 {
                     memcpy(arg0->x59C, temp_r3_3->x59C, temp_r3->x8);
                     temp_r4 = arg0->x59C;

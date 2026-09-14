@@ -264,10 +264,16 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   passa pelo resto de `Fighter_800679B0` e pela inicialização dos jogadores e
   para em `Fighter_Create` → `ftData_8008572C`, que pede `ftDataFox` a
   `PlFx.dat`: os dados próprios do personagem.
-- Próximo bloqueio: `ftData*`, os dados de cada lutador (atributos, tabela de
-  ações com os scripts de comando, que já rodam no host, hitboxes e modelos).
-  É o primeiro de 26 personagens jogáveis; a luta Fox vs. Fox só precisa de
-  `PlFx.dat`.
+- Executado o tradutor de `ftDataFox` (detalhes em
+  `docs/native_port_status.md`). Com `GS_VS` na tabela (só local), os dois Fox
+  são criados: `fn_8016E2BC` termina, com dados, fantasia, animações e posição
+  inicial. Para isso também foi preciso montar a fila de ARAM (`lbarq.c`) no
+  boot e manter, no `map_head`, o joint de cada entrada de pares, pelo qual
+  `Ground_801C34AC` registra os pontos de partida dos jogadores.
+- Próximo bloqueio: `fn_8016E730` → `fn_801A1134` (`gmpause.c:86`), que carrega
+  `ScGamPause_scene_data` de `GmPause.dat`, o modelo do menu de pausa. É um
+  `_scene_data` (`SceneDesc`), tipo que a API de arquivo ainda não atende; sem
+  ele `scene` fica nulo e a leitura de `scene->models[0]` cai.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:
@@ -299,9 +305,11 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
     `ftCo_09F7.c` o lê como `int*`. No host o campo precisa de tipo ponteiro:
     como `int`, o endereço seria cortado e `x58` ficaria no offset errado.
   - Depois de `ftData_8008572C`, `Fighter_Create` carrega a fantasia
-    (`ftData_80085820`) e as animações, que `ftdata.c` reloca com
-    `lbArchiveRelocate` em 32 bits no lugar (já registrado nas limitações do
-    status).
+    (`ftData_80085820`) e as animações. `ftData_80085A14` grava em `x14` de
+    cada ação o endereço da animação dentro de `PlFxAJ.dat`, que fica em ARAM,
+    e `ftData_80085E50` copia a animação pedida com uma leitura síncrona de
+    ARAM (`lbArq_80014BD0`) antes de parseá-la. Quando outro lutador já tem a
+    mesma animação, a cópia vem dele e passa por `lbArchiveRelocate`.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

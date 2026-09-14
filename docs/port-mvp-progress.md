@@ -16,15 +16,15 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, dados de jogador, itens, estágio, câmera e dados comuns de lutador e para nos dados do Fox (`ftDataFox`, `PlFx.dat`) | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial) e para no menu de pausa (`ScGamPause_scene_data`, `GmPause.dat`) | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 15/15 testes aprovados; 190/190 testes
+- `ctest --preset host-debug`: 15/15 testes aprovados; 191/191 testes
   unitários.
-- `ctest --preset host-sanitize -V`: 15/15 e 190/190, sem erro do ASan; a rota
-  VS leva 19,7 s. O UBSan só relata chamadas por ponteiro de função de outro
+- `ctest --preset host-sanitize -V`: 15/15 e 191/191, sem erro do ASan; a rota
+  VS leva 21,0 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -38,12 +38,13 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Próximo marco
 
-Criar os dois lutadores da luta Fox vs. Fox em Hyrule Temple e seguir a
-entrada da cena de luta (`GS_VS`) até o primeiro frame. A entrada já passa pelos
-efeitos, itens, estágio, câmera e dados comuns de lutador; o próximo dado é
-`ftDataFox` (`PlFx.dat`), com atributos, tabela de ações e scripts de comando
-(que já rodam no host), hitboxes e modelos. Do estágio faltam `coll_data` e os
-outros dados que o jogo hoje substitui por faixas padrão. Hyrule Temple segue
+Seguir a entrada da cena de luta (`GS_VS`) até o primeiro frame da luta Fox
+vs. Fox em Hyrule Temple. Os dois lutadores já são criados; o próximo dado é
+`ScGamPause_scene_data` (`GmPause.dat`), um `_scene_data` que a API de arquivo
+ainda não atende e que o HUD também pede (`ScInfDmg_scene_data`, `IfAll.dat`).
+Nele, câmeras e fogs são vetores sem terminador, contados pelo espaço até a
+próxima fronteira. Do estágio faltam `coll_data` e os outros dados que o jogo
+hoje substitui por faixas padrão. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
 salvos.
@@ -77,3 +78,4 @@ salvos.
 | 2026-09-14 | 53% | `map_head` traduzido (69 de 71 estágios): modelos com câmera, luzes e fog, pares, splines, overrides de luz com o mesmo `HSD_LightDesc*` das luzes dos modelos (a contagem no disco é o dobro da tabela, e o jogo lê além dela) e os materiais dos modelos. A entrada da luta passa pelo estágio e pela câmera e para nos dados comuns de lutador (`ftLoadCommonData`, `PlCo.dat`). |
 | 2026-09-14 | 55% | `ftLoadCommonData` traduzido: as 23 tabelas comuns de lutador (`ftCommonData`, partes por tipo, scripts de cor, tremor, modificadores, `CrowdConfig` e as tabelas da IA de CPU), com teste. A entrada da luta passa pela inicialização dos jogadores e para em `Fighter_Create`, nos dados do Fox (`ftDataFox`, `PlFx.dat`). |
 | 2026-09-14 | 55% | Levantamento de `ftData*`: os 24 campos de `ftDataFox`, tabelas de ação cujos 10.091 scripts (58 arquivos de personagem) obedecem à conversão de comandos fora das cópias do Kirby, atributos próprios por personagem, itens, dinâmica e hurtboxes, e `x54`, declarado `int` mas ponteiro no disco. Plano em `fight_flow_port.md`. |
+| 2026-09-14 | 58% | `ftDataFox` traduzido (atributos, ações, partes, dinâmica, hurtboxes, itens, SFX e IK), com teste. Endereços de animação em largura de ponteiro; fila de ARAM (`lbarq.c`) montada no boot, com a espera síncrona dando passos no escalonador; e, no `map_head`, o joint de cada entrada de pares, sem o qual os lutadores nasciam na posição lida da pilha. A entrada da luta cria os dois Fox e para no menu de pausa (`ScGamPause_scene_data`, `GmPause.dat`). |
