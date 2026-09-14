@@ -147,6 +147,31 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   verbatim, como a animação e as display lists, e traduza os grupos de
   textura. Os três pontos a portar juntos são a tabela de efeitos, os bancos
   e o interpretador de comandos de `particle.c`, que lê esses streams.
+- O que já foi levantado para esse loader:
+  - A tabela (`effCommonDataTable` em `data+0` de `EfCoData.dat`) começa com
+    dois ponteiros, banco de comandos e banco de texturas, que `efAsync_OnLoad`
+    passa a `psInitDataBankLocate`. A partir de `+0x8` vem um vetor de
+    `EF_EffectDesc` (`f32` de duração e um `StaticModelDesc`, 0x14 bytes no
+    console), que `efLib_Create` indexa por `gfx_id % 1000` sem limite; o
+    tamanho do vetor não está gravado e precisa ser deduzido, por exemplo pelo
+    primeiro alvo de relocação depois da tabela.
+  - `HSD_PSCmdList` não tem ponteiros: um cabeçalho de 0x3C bytes (u16, u32 e
+    floats) seguido dos bytes de comando embutidos. No host o cabeçalho pode
+    ser convertido e os bytes copiados como estão; o fim de cada lista vem do
+    início da seguinte ou do fim do banco.
+  - `HSD_PSTexGroup` tem escalares (`num`, `fmt`, `tlutfmt`, `width`,
+    `height`, `palnum`, `palflag`) e um vetor de ponteiros para imagens e
+    paletas em `+0x18`, que no host dobra de largura. Os texels e as paletas
+    ficam verbatim, porque os decodificadores GX já os leem big-endian.
+  - `psInitDataBankLoad` guarda a contagem de texturas com
+    `((s32*) psFormGroupArray)[bank]`, o que no host escreve na metade de um
+    ponteiro; o caminho do host precisa de onde guardar essa contagem.
+  - O interpretador monta operandos de 16 bits byte a byte, em big-endian, mas
+    `psReadFloat` copia os quatro bytes para `hsd_804D78D0` e o lê como `f32`,
+    o que no host inverte a ordem: precisa de correção sob `MELEE_HOST`.
+  - Os efeitos passam `formBank` e `ref` nulos; as formas (`formTable`) e as
+    leituras `*(u32*)`/`*(f32*)` delas em `psdisp.c` só importam quando um
+    banco de formas existir.
 - A matemática paired-single, o subset de estado GX e a camada VI que essa
   camada consome já estão prontos e testados. O laço de frame já tem as duas
   metades que precisava: `HSD_GObj_RunProcs` para a simulação e o retrace de
