@@ -244,6 +244,19 @@ public:
      * the native order host_command_layout.h lays out.  Converting it again
      * returns the same words. */
     [[nodiscard]] void* translator_command_stream(std::uint32_t data_offset);
+    /* The joint tree and the animations at `data_offset`, built as a joint or
+     * animation symbol is and shared with every other reference to it. */
+    [[nodiscard]] HSD_Joint* translator_joint(std::uint32_t data_offset);
+    [[nodiscard]] HSD_AnimJoint*
+    translator_anim_joint(std::uint32_t data_offset);
+    [[nodiscard]] HSD_MatAnimJoint*
+    translator_mat_anim_joint(std::uint32_t data_offset);
+    [[nodiscard]] HSD_ShapeAnimJoint*
+    translator_shape_anim_joint(std::uint32_t data_offset);
+    /* The bytes from `data_offset` to the next address a relocation targets or
+     * a public symbol names: the most that a block recording no length of its
+     * own can hold. */
+    [[nodiscard]] std::uint32_t translator_extent(std::uint32_t data_offset);
 
 private:
     void index_stream_boundaries();
@@ -280,6 +293,7 @@ private:
     HSD_MObjDesc* mobj_desc(HsdRuntimeNode node);
     HSD_TObjDesc* tobj_chain(HsdRuntimeNode node);
     HSD_RObjDesc* robj_chain(HsdRuntimeNode node);
+    HSD_RvalueList* rvalue_list(HsdRuntimeNode node);
     HSD_CObjDesc* camera_desc(HsdRuntimeNode node);
     HSD_FogDesc* fog_desc(HsdRuntimeNode node);
     HSD_Spline* spline_desc(HsdRuntimeNode node);

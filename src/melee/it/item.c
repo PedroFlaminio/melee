@@ -1,5 +1,10 @@
 #include "item.h"
 
+#ifdef MELEE_HOST
+#include <dolphin/os.h>
+#include <melee_host/boot.h>
+#endif
+
 #include <melee/lb/forward.h>
 
 #include <math.h>
@@ -559,6 +564,21 @@ void Item_80267978(HSD_GObj* gobj)
                 686, 0, "not found zako model data! check ground dat file!\n");
         }
     }
+#ifdef MELEE_HOST
+    /* The host does not translate an item's special attributes or dynamics
+     * yet (port/src/game/game_data_translators.c). */
+    if (item_data->xC4_article_data != NULL &&
+        ((void*) item_data->xC4_article_data->x4_specialAttributes ==
+             (void*) &melee_host_item_data_left_out ||
+         (void*) item_data->xC4_article_data->x14_dynamics ==
+             (void*) &melee_host_item_data_left_out))
+    {
+        OSPanic(__FILE__, __LINE__,
+                "item kind %d: its special attributes or dynamics are not "
+                "translated on the host yet",
+                item_data->kind);
+    }
+#endif
     item_data->xBC_itemStateContainer = item_data->xB8_itemLogicTable->states;
 }
 

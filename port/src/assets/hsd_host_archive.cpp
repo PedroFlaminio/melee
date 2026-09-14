@@ -614,6 +614,52 @@ melee_host_hsd_reader_command_stream(MeleeHostHsdReader* reader, mh_u32 offset)
         });
 }
 
+extern "C" void* melee_host_hsd_reader_joint(MeleeHostHsdReader* reader,
+                                             mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_joint(offset);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_anim_joint(MeleeHostHsdReader* reader,
+                                                  mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_anim_joint(offset);
+        });
+}
+
+extern "C" void*
+melee_host_hsd_reader_mat_anim_joint(MeleeHostHsdReader* reader, mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_mat_anim_joint(offset);
+        });
+}
+
+extern "C" void*
+melee_host_hsd_reader_shape_anim_joint(MeleeHostHsdReader* reader,
+                                       mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_shape_anim_joint(offset);
+        });
+}
+
+extern "C" mh_u32 melee_host_hsd_reader_extent(MeleeHostHsdReader* reader,
+                                               mh_u32 offset)
+{
+    return reader_step<mh_u32>(
+        reader, 0, [offset](HsdMaterializedArchive& d) -> mh_u32 {
+            return d.translator_extent(offset);
+        });
+}
+
 extern "C" void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader,
                                                 size_t size, size_t alignment)
 {

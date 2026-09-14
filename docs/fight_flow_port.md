@@ -222,6 +222,20 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   parada vale: 154 trechos convertidos, nenhum ponteiro fora de sub-rotina ou
   goto, e todos terminam em reset, return ou goto antes da fronteira. O
   próximo passo é o tradutor de `itPublicData`.
+- Executado o tradutor de `itPublicData` (detalhes em
+  `docs/native_port_status.md`), com as restrições RObj de bytecode que os
+  modelos de item usam. Atributos próprios de cada tipo de item e dinâmica
+  ficam de fora e param com nome quando um item que os tenha é criado. Com
+  `GS_VS` na tabela (só local), a entrada passa pelos itens
+  (`Item_80266F70`, `Item_80266FCC`, `it_8026D018`) e pelo áudio e cai em
+  `Ground_801C1E94` (chamado por `Ground_801C0800`), que lê o `map_head` do
+  estágio (`UnkStageDat`, via `grDatFiles_GetArchive()->unk4`), ainda sem
+  tradução.
+- Próximo bloqueio: os dados de estágio, começando por `map_head`. Ele aponta
+  os modelos com câmera, luzes e fog (`UnkStageDat_x8_t`), splines, sombras e
+  a tabela de luzes que `LightOverrideEntry` compara por ponteiro com as
+  `LightList` dos modelos; por isso o tradutor precisa entregar o mesmo
+  `HSD_LightDesc*` nas duas estruturas.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

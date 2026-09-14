@@ -114,6 +114,10 @@ void melee_host_title_scene_request_exit(void);
  * boot memory setup runs it before anything is loaded. */
 void melee_host_game_register_data_translators(void);
 
+/* What an item's special attributes or dynamics point at when the host left
+ * them out of itPublicData; Item_80267978 stops by name on it. */
+extern char melee_host_item_data_left_out;
+
 /* Whether the host's mode table (port/src/game/game_tables.c) has this
  * GameModeKind. */
 bool melee_host_game_mode_available(mh_u32 mode);

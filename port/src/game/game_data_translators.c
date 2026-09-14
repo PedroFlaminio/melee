@@ -12,6 +12,10 @@
 
 #include <melee/gm/gmevent.h>
 #include <melee/gr/types.h>
+#include <melee/it/forward.h>
+#include <melee/it/it_3F14.h>
+#include <melee/it/types.h>
+#include <melee/lb/types.h>
 #include <melee/pl/types.h>
 #include <melee/ty/types.h>
 
@@ -718,8 +722,393 @@ static void* trophy_display_rows(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : table;
 }
 
+/* itPublicData (ItCo.usd): the common item data it_8027870C copies into six
+ * globals: the shared ItemCommonData, the Article tables of the common items,
+ * the character items and the Pokemon (indexed by kind from It_Kind_Capsule,
+ * It_Kind_Kuriboh and It_PKind_Start), it_804D6D40_t and the item color
+ * animations.
+ *
+ * An Article's common attributes, hurtboxes, states and model are translated;
+ * a state's animations come from the host's materializer and its script is
+ * converted for the host command layouts.  Objects several articles share on
+ * disk stay shared.  Two parts are left out on purpose: the special
+ * attributes, whose layout differs for every item kind, and the dynamics,
+ * which item.c reads as ItemDynamics and itcoll.c as ItCollDynamics over the
+ * same bytes, two views pointer-wide fields cannot both keep.  Such a field
+ * points at melee_host_item_data_left_out, and Item_80267978 stops by name
+ * when an item that has one is created. */
+char melee_host_item_data_left_out;
+
+_Static_assert(sizeof(ItemCommonData) == 0x160 &&
+                   offsetof(ItemCommonData, x48_byte) == 0x48 &&
+                   offsetof(ItemCommonData, filler_1a) == 0xE4 &&
+                   offsetof(ItemCommonData, filler_1a_2) == 0xEC,
+               "ItemCommonData keeps its PowerPC offsets");
+_Static_assert(sizeof(ItemAttr) == 0x84 && offsetof(ItemAttr, x3) == 0x2 &&
+                   offsetof(ItemAttr, x4_throw_speed_mul) == 0x4,
+               "ItemAttr keeps its PowerPC offsets after its flags");
+_Static_assert(sizeof(ItHurtBoneDesc) == 0x20,
+               "ItHurtBoneDesc keeps its PowerPC layout");
+_Static_assert(sizeof(it_804D6D40_t) == 0x1C,
+               "it_804D6D40_t keeps its PowerPC layout");
+
+enum {
+    ITEM_MEMO_MAX = 0x800,
+    ITEM_HURTBOXES_MAX = 0x100,
+    ITEM_STATE_SIZE = 0x10,
+    ITEM_COLOR_ANIM_SIZE = 0x8,
+};
+
+/* What this translation has built, by disk offset. */
+static struct {
+    mh_u32 offsets[ITEM_MEMO_MAX];
+    void* objects[ITEM_MEMO_MAX];
+    mh_u32 count;
+} item_memo;
+
+static void* item_memo_find(mh_u32 offset)
+{
+    mh_u32 i;
+
+    for (i = 0; i < item_memo.count; i++) {
+        if (item_memo.offsets[i] == offset) {
+            return item_memo.objects[i];
+        }
+    }
+    return NULL;
+}
+
+static void item_memo_add(MeleeHostHsdReader* reader, mh_u32 offset,
+                          void* object)
+{
+    if (item_memo.count == ITEM_MEMO_MAX) {
+        melee_host_hsd_reader_fail(reader,
+                                   "the item data holds more objects than the "
+                                   "host expects");
+        return;
+    }
+    item_memo.offsets[item_memo.count] = offset;
+    item_memo.objects[item_memo.count] = object;
+    item_memo.count += 1;
+}
+
+/* Words from `begin` to `end` of the record at `source`, converted into the
+ * same offsets of `dest`. */
+static void copy_words(MeleeHostHsdReader* reader, mh_u32 source, void* dest,
+                       mh_u32 begin, mh_u32 end)
+{
+    mh_u32 at;
+
+    for (at = begin; at < end; at += 4) {
+        const mh_u32 word = melee_host_hsd_reader_u32(reader, source + at);
+        memcpy((unsigned char*) dest + at, &word, sizeof(word));
+    }
+}
+
+static void copy_bytes(MeleeHostHsdReader* reader, mh_u32 source, void* dest,
+                       mh_u32 begin, mh_u32 end)
+{
+    mh_u32 at;
+
+    for (at = begin; at < end; at++) {
+        ((unsigned char*) dest)[at] =
+            melee_host_hsd_reader_u8(reader, source + at);
+    }
+}
+
+static ItemCommonData* item_common_data(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ItemCommonData* const data = melee_host_hsd_reader_allocate(
+        reader, sizeof(ItemCommonData), alignof(ItemCommonData));
+
+    if (data == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, data, 0x0, 0x48);
+    data->x48_byte = melee_host_hsd_reader_u8(reader, at + 0x48);
+    copy_words(reader, at, data, 0x4C, 0xE4);
+    copy_bytes(reader, at, data, 0xE4, 0xE8);
+    copy_words(reader, at, data, 0xE8, 0xEC);
+    copy_bytes(reader, at, data, 0xEC, 0xF0);
+    copy_words(reader, at, data, 0xF0, sizeof(ItemCommonData));
+    return data;
+}
+
+static ItemAttr* item_attr(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ItemAttr* attr = item_memo_find(at);
+    mh_u8 flags0;
+    mh_u8 flags1;
+
+    if (attr != NULL) {
+        return attr;
+    }
+    attr = melee_host_hsd_reader_allocate(reader, sizeof(*attr),
+                                          alignof(ItemAttr));
+    if (attr == NULL) {
+        return NULL;
+    }
+    /* MWCC allocates the flag bits from the most significant bit. */
+    flags0 = melee_host_hsd_reader_u8(reader, at + 0x0);
+    flags1 = melee_host_hsd_reader_u8(reader, at + 0x1);
+    attr->x0_is_heavy = (flags0 >> 7) & 1;
+    attr->x0_78 = (flags0 >> 3) & 0xF;
+    attr->x0_hold_kind = flags0 & 7;
+    attr->x1_1 = (flags1 >> 6) & 3;
+    attr->x1_3 = (flags1 >> 5) & 1;
+    attr->x1_4 = (flags1 >> 4) & 1;
+    attr->x1_5 = (flags1 >> 3) & 1;
+    attr->x1_67_cam_kind = (flags1 >> 1) & 3;
+    attr->x1_8 = flags1 & 1;
+    attr->x3 = melee_host_hsd_reader_u8(reader, at + 0x2);
+    copy_words(reader, at, attr, 0x4, sizeof(ItemAttr));
+    item_memo_add(reader, at, attr);
+    return attr;
+}
+
+static ItHurtBoneList* item_hurtbones(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ItHurtBoneList* list = item_memo_find(at);
+    const s32 count = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    bool present;
+    const mh_u32 descs = target_of(reader, at + 0x4, &present);
+    s32 i;
+
+    if (list != NULL) {
+        return list;
+    }
+    if (count < 0 || count > ITEM_HURTBOXES_MAX || (count != 0 && !present)) {
+        melee_host_hsd_reader_fail(reader,
+                                   "an item's hurtboxes are listed wrongly");
+        return NULL;
+    }
+    list = melee_host_hsd_reader_allocate(reader, sizeof(*list),
+                                          alignof(ItHurtBoneList));
+    if (list == NULL) {
+        return NULL;
+    }
+    list->count = count;
+    list->descs = NULL;
+    if (count != 0) {
+        list->descs = melee_host_hsd_reader_allocate(
+            reader, sizeof(ItHurtBoneDesc) * (size_t) count,
+            alignof(ItHurtBoneDesc));
+        if (list->descs == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            copy_words(reader, descs + (mh_u32) i * 0x20, &list->descs[i], 0,
+                       sizeof(ItHurtBoneDesc));
+        }
+    }
+    item_memo_add(reader, at, list);
+    return list;
+}
+
+/* An item's states: animations, and the script the state runs.  The array
+ * records no length; it runs to the next address anything points at, which
+ * on the disc is where the next object starts. */
+static struct ItemStateDesc* item_states(MeleeHostHsdReader* reader,
+                                         mh_u32 at)
+{
+    struct ItemStateDesc* states = item_memo_find(at);
+    const mh_u32 count =
+        melee_host_hsd_reader_extent(reader, at) / ITEM_STATE_SIZE;
+    mh_u32 i;
+
+    if (states != NULL) {
+        return states;
+    }
+    if (count == 0) {
+        melee_host_hsd_reader_fail(reader, "an item has no room for a state");
+        return NULL;
+    }
+    states = melee_host_hsd_reader_allocate(
+        reader, sizeof(*states) * count, alignof(struct ItemStateDesc));
+    if (states == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        const mh_u32 desc = at + i * ITEM_STATE_SIZE;
+        bool present;
+        mh_u32 target;
+
+        target = target_of(reader, desc + 0x0, &present);
+        states[i].x0_anim_joint =
+            present ? melee_host_hsd_reader_anim_joint(reader, target) : NULL;
+        target = target_of(reader, desc + 0x4, &present);
+        states[i].x4_matanim_joint =
+            present ? melee_host_hsd_reader_mat_anim_joint(reader, target)
+                    : NULL;
+        target = target_of(reader, desc + 0x8, &present);
+        states[i].x8_parameters =
+            present ? melee_host_hsd_reader_shape_anim_joint(reader, target)
+                    : NULL;
+        target = target_of(reader, desc + 0xC, &present);
+        states[i].xC_script =
+            present ? melee_host_hsd_reader_command_stream(reader, target)
+                    : NULL;
+        if (melee_host_hsd_reader_failed(reader)) {
+            return NULL;
+        }
+    }
+    item_memo_add(reader, at, states);
+    return states;
+}
+
+static ItemModelDesc* item_model(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ItemModelDesc* model = item_memo_find(at);
+    bool present;
+    mh_u32 joint;
+
+    if (model != NULL) {
+        return model;
+    }
+    model = melee_host_hsd_reader_allocate(reader, sizeof(*model),
+                                           alignof(ItemModelDesc));
+    if (model == NULL) {
+        return NULL;
+    }
+    joint = target_of(reader, at + 0x0, &present);
+    model->x0_joint = present ? melee_host_hsd_reader_joint(reader, joint)
+                              : NULL;
+    model->x4_bone_count = melee_host_hsd_reader_u32(reader, at + 0x4);
+    model->x8_bone_attach_id =
+        (s32) melee_host_hsd_reader_u32(reader, at + 0x8);
+    model->xC_bit_field = melee_host_hsd_reader_u8(reader, at + 0xC);
+    item_memo_add(reader, at, model);
+    return model;
+}
+
+static Article* item_article(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    Article* article = item_memo_find(at);
+    bool present;
+    mh_u32 target;
+
+    if (article != NULL) {
+        return article;
+    }
+    article = melee_host_hsd_reader_allocate(reader, sizeof(*article),
+                                             alignof(Article));
+    if (article == NULL) {
+        return NULL;
+    }
+    target = target_of(reader, at + 0x00, &present);
+    article->x0_common_attr = present ? item_attr(reader, target) : NULL;
+    (void) target_of(reader, at + 0x04, &present);
+    article->x4_specialAttributes =
+        present ? &melee_host_item_data_left_out : NULL;
+    target = target_of(reader, at + 0x08, &present);
+    article->x8_hurtbones = present ? item_hurtbones(reader, target) : NULL;
+    target = target_of(reader, at + 0x0C, &present);
+    article->xC_itemStates =
+        present ? (ItemStateArray*) item_states(reader, target) : NULL;
+    target = target_of(reader, at + 0x10, &present);
+    article->x10_modelDesc = present ? item_model(reader, target) : NULL;
+    (void) target_of(reader, at + 0x14, &present);
+    article->x14_dynamics =
+        present ? (ItemDynamics*) (void*) &melee_host_item_data_left_out
+                : NULL;
+    item_memo_add(reader, at, article);
+    return melee_host_hsd_reader_failed(reader) ? NULL : article;
+}
+
+static Article** item_article_table(MeleeHostHsdReader* reader, mh_u32 at,
+                                    mh_u32 count)
+{
+    Article** const table = melee_host_hsd_reader_allocate(
+        reader, sizeof(Article*) * count, alignof(Article*));
+    mh_u32 i;
+
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        bool present;
+        const mh_u32 target = target_of(reader, at + i * 4, &present);
+        table[i] = present ? item_article(reader, target) : NULL;
+        if (melee_host_hsd_reader_failed(reader)) {
+            return NULL;
+        }
+    }
+    return table;
+}
+
+/* The color animations lb_800144C8 starts on an item: a script and the
+ * priority a newer animation has to reach, indexed by animation number. */
+static Fighter_804D653C_t* item_color_anims(MeleeHostHsdReader* reader,
+                                           mh_u32 at)
+{
+    const mh_u32 count =
+        melee_host_hsd_reader_extent(reader, at) / ITEM_COLOR_ANIM_SIZE;
+    Fighter_804D653C_t* table;
+    mh_u32 i;
+
+    if (count == 0) {
+        melee_host_hsd_reader_fail(reader, "the item color animations are "
+                                           "empty");
+        return NULL;
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table) * count,
+                                           alignof(Fighter_804D653C_t));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        const mh_u32 entry = at + i * ITEM_COLOR_ANIM_SIZE;
+        bool present;
+        const mh_u32 script = target_of(reader, entry + 0x0, &present);
+        table[i].unk =
+            present ? melee_host_hsd_reader_command_stream(reader, script)
+                    : NULL;
+        table[i].unk4 = melee_host_hsd_reader_u8(reader, entry + 0x4);
+        table[i].unk5 = melee_host_hsd_reader_u8(reader, entry + 0x5);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
+static void* item_public_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    mh_u32 tables[6];
+    it_804D6D20_t* data;
+    it_804D6D40_t* extra;
+    mh_u32 i;
+
+    item_memo.count = 0;
+    for (i = 0; i < 6; i++) {
+        bool present;
+        tables[i] = target_of(reader, root + i * 4, &present);
+        if (!present) {
+            melee_host_hsd_reader_fail(reader,
+                                       "itPublicData lacks one of its tables");
+            return NULL;
+        }
+    }
+    data = melee_host_hsd_reader_allocate(reader, sizeof(*data),
+                                          alignof(it_804D6D20_t));
+    extra = melee_host_hsd_reader_allocate(reader, sizeof(*extra),
+                                           alignof(it_804D6D40_t));
+    if (data == NULL || extra == NULL) {
+        return NULL;
+    }
+    data->x0 = item_common_data(reader, tables[0]);
+    data->x4 = item_article_table(reader, tables[1], It_Kind_Kuriboh);
+    data->x8 = item_article_table(reader, tables[2],
+                                  It_PKind_Start - It_Kind_Kuriboh);
+    data->xC = item_article_table(reader, tables[3],
+                                  It_Kind_Old_Kuri - It_PKind_Start);
+    copy_words(reader, tables[4], extra, 0, sizeof(it_804D6D40_t));
+    data->x10 = extra;
+    data->x14 = item_color_anims(reader, tables[5]);
+    return melee_host_hsd_reader_failed(reader) ? NULL : data;
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("itPublicData",
+                                              item_public_data);
     (void) melee_host_hsd_register_translator("tyInitModelTbl",
                                               trophy_init_models);
     (void) melee_host_hsd_register_translator("tyInitModelDTbl",

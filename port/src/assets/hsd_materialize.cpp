@@ -1173,7 +1173,22 @@ HSD_RObjDesc* HsdMaterializedArchive::robj_chain(HsdRuntimeNode node)
             /* The descriptor holds a console function address. */
             unsupported("an expression reference constraint");
         case REFTYPE_BYTECODE:
-            unsupported("a bytecode reference constraint");
+            if (const auto expression =
+                    reference(*current, robj_field::kUnion))
+            {
+                auto* const desc = allocate<HSD_ByteCodeExpDesc>();
+                /* HSD_ByteCodeEval reads the bytecode a byte at a time and
+                 * builds its operands from the most significant byte, so the
+                 * bytes stay as they are. */
+                if (const auto code = reference(*expression, 0x0)) {
+                    desc->bytecode = static_cast<u8*>(payload(*code, 1));
+                }
+                if (const auto list = reference(*expression, 0x4)) {
+                    desc->rvalue = rvalue_list(*list);
+                }
+                host->u.bcexp = desc;
+            }
+            break;
         default:
             unsupported("an unknown reference constraint type");
         }
@@ -1187,6 +1202,34 @@ HSD_RObjDesc* HsdMaterializedArchive::robj_chain(HsdRuntimeNode node)
         current = reference(*current, robj_field::kNext);
     }
     return head;
+}
+
+/* The joints an expression reads: flags and a joint per entry, ended by a NULL
+ * joint, which loadRvalue walks to and HSD_RvalueResolveRefs resolves through
+ * the ID table by joint address. */
+HSD_RvalueList* HsdMaterializedArchive::rvalue_list(HsdRuntimeNode node)
+{
+    constexpr std::uint32_t kEntrySize = 8;
+    constexpr std::uint32_t kMaxEntries = 0x100;
+    std::uint32_t count = 0;
+    while (reference({ node.data_offset + count * kEntrySize }, 0x4)) {
+        if (++count == kMaxEntries) {
+            throw HsdArchiveError("HSD rvalue list at data+0x" +
+                                  hex_string(node.data_offset) +
+                                  " has no end");
+        }
+    }
+    auto* const list = static_cast<HSD_RvalueList*>(allocate_bytes(
+        sizeof(HSD_RvalueList) * (count + 1), alignof(HSD_RvalueList)));
+    for (std::uint32_t index = 0; index < count; ++index) {
+        const HsdRuntimeNode entry{ node.data_offset + index * kEntrySize };
+        list[index].flags = archive_.read_u32(entry, 0x0);
+        list[index].joint = joint_chain(*reference(entry, 0x4));
+    }
+    list[count].flags = archive_.read_u32(
+        { node.data_offset + count * kEntrySize }, 0x0);
+    list[count].joint = nullptr;
+    return list;
 }
 
 HSD_WObjDesc* HsdMaterializedArchive::world_desc(HsdRuntimeNode node)
@@ -1688,6 +1731,46 @@ void* HsdMaterializedArchive::translator_command_stream(
     std::uint32_t data_offset)
 {
     return command_stream({ data_offset });
+}
+
+HSD_Joint* HsdMaterializedArchive::translator_joint(std::uint32_t data_offset)
+{
+    return joint_chain({ data_offset });
+}
+
+HSD_AnimJoint*
+HsdMaterializedArchive::translator_anim_joint(std::uint32_t data_offset)
+{
+    return anim_joint_chain({ data_offset });
+}
+
+HSD_MatAnimJoint*
+HsdMaterializedArchive::translator_mat_anim_joint(std::uint32_t data_offset)
+{
+    return mat_anim_joint_chain({ data_offset });
+}
+
+HSD_ShapeAnimJoint*
+HsdMaterializedArchive::translator_shape_anim_joint(std::uint32_t data_offset)
+{
+    return shape_anim_joint_chain({ data_offset });
+}
+
+std::uint32_t
+HsdMaterializedArchive::translator_extent(std::uint32_t data_offset)
+{
+    index_stream_boundaries();
+    if (data_offset >= payload_size_) {
+        throw HsdArchiveError("HSD block at data+0x" +
+                              hex_string(data_offset) +
+                              " is outside the data section");
+    }
+    const auto next = std::upper_bound(stream_boundaries_.begin(),
+                                       stream_boundaries_.end(), data_offset);
+    const std::uint32_t limit = next == stream_boundaries_.end()
+                                    ? static_cast<std::uint32_t>(payload_size_)
+                                    : *next;
+    return limit - data_offset;
 }
 
 void HsdMaterializedArchive::index_stream_boundaries()

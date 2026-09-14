@@ -1308,6 +1308,52 @@ Atualizado em 13 de setembro de 2026.
   gerador); `host-sanitize`, compilado com clang, com 187/187, ctest 15/15, os
   255 campos batendo tambem ali, rota VS em 19,8 s, nenhum erro do ASan e, do
   UBSan, os mesmos quatro relatos.
+- [x] `itPublicData` traduzido (`port/src/game/game_data_translators.c`):
+  - `ItemCommonData` (0x160 bytes, palavra a palavra, com os bytes de
+    `x48_byte`, `filler_1a` e `filler_1a_2`), as tabelas de `Article` dos 43
+    itens comuns, dos 118 de personagem (8 presentes em `ItCo`) e dos 47
+    Pokemon, `it_804D6D40_t` e a tabela de 7 animacoes de cor, cujos scripts
+    sao convertidos.
+  - Cada `Article`: `ItemAttr` com os bits de flag desempacotados a partir do
+    bit mais significativo e a cauda escalar palavra a palavra; hurtboxes;
+    estados contados ate a proxima fronteira, com animacoes pelo materializador
+    e script convertido; modelo com o joint. Objetos que o disco compartilha
+    continuam compartilhados.
+  - Os 9 campos de estado da Beam Sword e da Fire Flower que pareciam
+    ponteiros sem relocacao sao as cadeias dos 6 externos do arquivo
+    (`ItmCommonSword_TopN_*` e `ItmCommonFFlower_TopN_ACTION_*`), que
+    `lbArchive_InitializeDAT` resolve para NULL; o tradutor os le como NULL.
+  - Ficam de fora de proposito os atributos proprios de cada item (layout
+    diferente por tipo; 11 blocos tem ponteiros) e a dinamica (so em 3 itens
+    comuns; `item.c` le `ItemDynamics` e `itcoll.c` le `ItCollDynamics` sobre
+    os mesmos bytes, o que ponteiros de 8 bytes nao conciliam). Os dois campos
+    apontam para `melee_host_item_data_left_out`, e `Item_80267978` para com
+    nome ao criar um item que tenha um deles.
+  - Um teste unitario monta um `ItCo` pequeno e confere, pelos tipos do jogo
+    (`port/tests/item_data_check.c`), bytes e palavras de `ItemCommonData`, os
+    bits de `ItemAttr`, `Article` compartilhado, a marca, hurtbox, estados com
+    script convertido, modelo, `it_804D6D40_t` e a tabela de cor apontando o
+    mesmo script.
+- [x] Restricoes RObj de bytecode (`REFTYPE_BYTECODE`) no materializador: o
+  bytecode fica verbatim, porque `HSD_ByteCodeEval` le um byte por vez e monta
+  operandos a partir do mais significativo, e a lista de rvalues vira
+  `HSD_RvalueList` em layout host, com os joints pelo materializador. As de
+  expressao (`REFTYPE_EXP`) seguem recusadas.
+- [x] O leitor C ganhou `melee_host_hsd_reader_joint`, `_anim_joint`,
+  `_mat_anim_joint`, `_shape_anim_joint` e `_extent` (bytes ate a proxima
+  fronteira).
+- [x] No disco: `--load-archive` traduz `itPublicData`; a varredura vai a
+  `game_data` 186/186 (`ItCo.usd` e `ItCo.dat`), joints 725/725, com as
+  mesmas duas recusas de `TyLight.dat`.
+- [x] Matching: `item.c` pre-processa identico sem `MELEE_HOST`.
+- [x] Com `GS_VS` na tabela so localmente, a entrada passa pelos itens
+  (`Item_80266F70`, `Item_80266FCC`, `it_8026D018`) e pelo audio e cai com
+  SIGSEGV em `Ground_801C1E94` (`ground.c:1099`, chamado por
+  `Ground_801C0800`), que le `grDatFiles_GetArchive()->unk4`: o `map_head` do
+  estagio, ainda sem traducao.
+- [x] Medido sem a entrada: `host-debug` com 188/188 e ctest 15/15;
+  `host-sanitize` com 188/188, ctest 15/15, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 
@@ -1410,8 +1456,9 @@ Atualizado em 13 de setembro de 2026.
   nao sabe traduzir: joints de particula, animacao de luz que segue um joint
   pela chave da tabela de IDs (as duas tabelas de luz de `TyLight.dat`),
   descritor de render de material (`HSD_MObjDesc.renderdesc`, cuja forma so o
-  setup customizado conhece) e restricoes RObj de expressao e de bytecode, que
-  guardam endereco de funcao do console. Os joints de spline ja traduzem.
+  setup customizado conhece) e restricoes RObj de expressao, que guardam
+  endereco de funcao do console. Os joints de spline e as restricoes de
+  bytecode ja traduzem.
 - Os descritores materializados sao validados campo a campo, mas os payloads
   GX entregues aos loaders originais sao ponteiros crus. Um array de vertice
   nao tem tamanho conhecido pelo descritor, entao so a base e verificada: a

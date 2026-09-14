@@ -116,6 +116,19 @@ void* melee_host_hsd_reader_payload(MeleeHostHsdReader* reader, mh_u32 offset,
  * same words. */
 void* melee_host_hsd_reader_command_stream(MeleeHostHsdReader* reader,
                                            mh_u32 offset);
+/* The HSD_Joint, HSD_AnimJoint, HSD_MatAnimJoint or HSD_ShapeAnimJoint tree at
+ * `offset`, built as the joint and animation symbols are and shared with every
+ * other reference to the same address. */
+void* melee_host_hsd_reader_joint(MeleeHostHsdReader* reader, mh_u32 offset);
+void* melee_host_hsd_reader_anim_joint(MeleeHostHsdReader* reader,
+                                       mh_u32 offset);
+void* melee_host_hsd_reader_mat_anim_joint(MeleeHostHsdReader* reader,
+                                           mh_u32 offset);
+void* melee_host_hsd_reader_shape_anim_joint(MeleeHostHsdReader* reader,
+                                             mh_u32 offset);
+/* The bytes from `offset` to the next address a relocation targets or a public
+ * symbol names: the most that a block recording no length can hold. */
+mh_u32 melee_host_hsd_reader_extent(MeleeHostHsdReader* reader, mh_u32 offset);
 void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader, size_t size,
                                      size_t alignment);
 void melee_host_hsd_reader_fail(MeleeHostHsdReader* reader,

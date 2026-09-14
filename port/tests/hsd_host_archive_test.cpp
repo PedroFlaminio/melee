@@ -1047,6 +1047,90 @@ TEST_CASE("a command stream converts in place and runs the generic commands")
             MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_item_public_data(void* translated,
+                                                     char* message,
+                                                     std::size_t size);
+
+TEST_CASE("the common item data translates, leaving out per-kind layouts")
+{
+    // A small ItCo.usd: the record, ItemCommonData, the article tables of the
+    // common items (43), the character items (118) and the Pokemon (47),
+    // it_804D6D40_t and the color animations.  Two common entries share an
+    // article, and a character article shares its attributes and states.
+    // item_data_check.c reads the result through the game's types.
+    const auto command = [](std::uint32_t opcode, std::uint32_t value) {
+        return (opcode << 26U) | value;
+    };
+    ArchiveBuilder builder(0x800);
+    builder.pointer(0x000, 0x020);
+    builder.pointer(0x004, 0x180);
+    builder.pointer(0x008, 0x22C);
+    builder.pointer(0x00C, 0x404);
+    builder.pointer(0x010, 0x4C0);
+    builder.pointer(0x014, 0x4E0);
+    // ItemCommonData.
+    builder.u32(0x020, 7);
+    builder.u8(0x068, 0x5A);
+    builder.u8(0x104, 1);
+    builder.u8(0x105, 2);
+    builder.u8(0x106, 3);
+    builder.u8(0x107, 4);
+    builder.f32(0x17C, 2.5F);
+    // Article tables.
+    builder.pointer(0x180, 0x500);
+    builder.pointer(0x184, 0x500);
+    builder.pointer(0x22C + 117 * 4, 0x540);
+    // it_804D6D40_t.
+    builder.u32(0x4C0, 3);
+    builder.f32(0x4C4, 1.5F);
+    // Color animations: none, then the state's script at priority 30.
+    builder.pointer(0x4E8, 0x6C0);
+    builder.u8(0x4EC, 30);
+    builder.u8(0x4ED, 2);
+    // A common article.
+    builder.pointer(0x500, 0x580);
+    builder.pointer(0x504, 0x608);
+    builder.pointer(0x508, 0x610);
+    builder.pointer(0x50C, 0x640);
+    builder.pointer(0x510, 0x660);
+    // A character article with dynamics.
+    builder.pointer(0x540, 0x580);
+    builder.pointer(0x54C, 0x640);
+    builder.pointer(0x554, 0x670);
+    // ItemAttr: flag bytes 0x8B and 0x6D, then the scale.
+    builder.u8(0x580, 0x8B);
+    builder.u8(0x581, 0x6D);
+    builder.f32(0x5E0, 1.25F);
+    builder.u32(0x608, 0xDEADBEEFU);
+    // Hurtboxes.
+    builder.u32(0x610, 1);
+    builder.pointer(0x614, 0x620);
+    builder.u32(0x620, 4);
+    builder.f32(0x624, 1.0F);
+    builder.f32(0x63C, 2.0F);
+    // Two states up to the model: a script, then nothing.
+    builder.pointer(0x64C, 0x6C0);
+    // Model.
+    builder.u32(0x664, 5);
+    builder.u32(0x668, 0xFFFFFFFFU);
+    builder.u8(0x66C, 0x80);
+    builder.u32(0x670, 1);
+    // The script.
+    builder.u32(0x6C0, command(1, 5));
+    builder.public_symbol(0x000, "itPublicData");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const data = HSD_ArchiveGetPublicAddress(&archive, "itPublicData");
+    REQUIRE(data != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_item_public_data(data, message,
+                                                   sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed
