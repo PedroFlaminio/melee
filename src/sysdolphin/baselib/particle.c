@@ -47,7 +47,7 @@ typedef struct {
 /* 4D78E8 */ u32 hsd_804D78E8 = 0;
 /* 4D78EC */ u32 hsd_804D78EC = 0;
 /* 4D78F0 */ HSD_CObj* psCamera = NULL;
-/* 4D78F4 */ u32 hsd_804D78F4 = 0;
+/* 4D78F4 */ PS_ADDRESS hsd_804D78F4 = 0;
 static HSD_JObj* hsd_804D08E8[8];
 /* 4D0908 */ HSD_Particle* hsd_804D0908[16];
 /* 4D0948 */ u32* hsd_804D0948[65];

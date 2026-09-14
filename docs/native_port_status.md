@@ -1557,6 +1557,90 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
   `host-sanitize` com 193/193, ctest 15/15, rota VS em 19,7 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] Nos procs dos frames seguintes, duas estruturas guardavam enderecos em
+  32 bits:
+  - As listas de geradores de particula guardam o gerador anterior
+    (`hsd_804D78F8`, em `generator.c`) e a cabeca da lista de `HSD_SList`
+    (`hsd_804D78F4`, em `particle.c`) em variaveis `u32`; ao remover um
+    gerador, `hsd_8039D3AC` escrevia pelo endereco cortado. Sob `MELEE_HOST`
+    as duas usam `PS_ADDRESS` (`uintptr_t`, `u32` sem o define), declarado em
+    `particle.h`.
+  - `ifStatus_PercentOnDeathAnimationThink` le o `IfDamageState` por outra
+    struct (`UnkX`), com fillers nos offsets do console; os dois ponteiros do
+    inicio de `IfDamageState` movem os campos no host, e `x54_jobj` lia bytes
+    errados. Sob `MELEE_HOST` os fillers vem dos offsets de `IfDamageState`, com
+    `STATIC_ASSERT` de que `x10_flags`, `x34_vec` e `x54_jobj` caem em `flags`,
+    `velocity_x` e `jobjs`.
+  - A rota VS sob ASan (`host-sanitize` com `GS_VS` so localmente) achou mais
+    duas structs locais lidas sobre statics em sequencia, o mesmo caso de
+    `Camera_ApplyQuake`: `lbRefract_800222A4` copia `imagedesc0` por uma
+    visao que comeca em `texture_mtx` (estouro de global de 24 bytes), e
+    `ftmaterial.c` le os templates de TEV e de constante por
+    `struct ft_MObjInfo`, que comeca em `ftMObj`. Sob `MELEE_HOST` o codigo
+    nomeia `imagedesc0`, `ftMaterial_803C69D0` e `ftMaterial_803C6A44`.
+  - Na mesma rota o ASan achou a escrita que corrompia o heap:
+    `mpIsland_8005A728` aloca cada segmento de chao, teto e parede com
+    `HSD_MemAlloc(0x2C)`, o `mp_UnkStruct0` do console ate antes de `ptr`. No
+    host `next` e `ptr` tem 8 bytes e `x28` ja cai depois de 0x2C; o jogo
+    escrevia 2 bytes alem de cada bloco. Sob `MELEE_HOST` os tres pontos
+    alocam `sizeof(mp_UnkStruct0)`.
+  - `ft_800852B0`, que zera os caches de dados de lutador, chega a
+    `ftData_Table_Unk0`, `ftData_UnkIntPairs` e `ft_8045993C` pela distancia
+    a `CostumeListsForeachCharacter` (+0x108 e +5940) e a `gFtDataList`
+    (+0x84) nas secoes de dados do console, conferida em `symbols.txt`. No
+    host isso escrevia 8 bytes alem de `CostumeListsForeachCharacter`. Sob
+    `MELEE_HOST` a funcao nomeia os tres.
+  - A luz de cada lutador (`ftCo_8009F578`) usa um `HSD_LightDesc` estatico
+    cuja posicao aponta cinco floats no lugar de um `HSD_WObjDesc` (nome nulo,
+    posicao e RObj nulo, 20 bytes no console). No host o registro tem dois
+    ponteiros de 8 bytes, e `WObjLoad` lia o nome dos dois primeiros floats e o
+    RObj depois do vetor. Sob `MELEE_HOST` o arquivo declara o
+    `HSD_WObjDesc` (`light_position`).
+  - As listas de simbolos de `lbArchive_LoadSections`, `LoadSymbols`,
+    `80016DBC`, `80017040` e `800171CC` terminam num `0` literal, um `int`.
+    No x86-64 um `int` passado depois do sexto argumento vai numa posicao de 8
+    bytes da pilha com a metade alta indefinida, e `va_arg` o le como ponteiro:
+    sob ASan a fantasia do Fox (`ftData_80085820`) nao achava o fim da lista e
+    lia alem dos argumentos. Das 153 chamadas, 104 passam `0` (duas no meio da
+    lista, em `ftdata.c`), e a maior lista tem 166 argumentos. Sob
+    `MELEE_HOST`, `lbarchive.h` troca as cinco por macros que juntam os
+    argumentos num vetor de `const void*`, onde o `0` vira ponteiro nulo, e
+    `lbarchive.c` percorre o vetor como o laco original. O arquivo define
+    `LB_ARCHIVE_IMPLEMENTATION` para que as proprias definicoes nao passem
+    pelas macros.
+  - Com as listas corrigidas, a rota sob ASan passa por toda a entrada da cena
+    e chega aos procs dos frames. `lbVector_WorldToScreen` declara
+    `projMtx` como `Mtx` (3x4) e o passa a `MTXPerspective` e `MTXOrtho`, que
+    preenchem 4x4; no console a ultima linha cai na variavel seguinte da pilha,
+    no host e estouro. Sob `MELEE_HOST` a matriz e `Mtx44`. O mesmo padrao
+    fica em `gm_1832.c:635` (`MTXOrtho` num `Mtx`), fora da rota de VS.
+  - `ifstatus.c` converte a cor do dano, calculada em float e que chega a 255,
+    direto para `s8`, o que o C deixa indefinido. Sob `MELEE_HOST` a conversao
+    passa por `s32`, como o console faz.
+  - Com os lutadores ja rodando `Fighter_procUpdate`, o primeiro efeito de
+    particula estourou o pool de `HSD_psAppSRT`: `efLib` o cria com
+    `psInitAppSRT(0, 0xA4)`, o tamanho do console, e no host a struct tem 184
+    bytes (`freefunc` cai no offset 168). Sob `MELEE_HOST` o pool usa
+    `sizeof(HSD_psAppSRT)`. Os outros pools com tamanho literal nao precisam
+    de correcao: os de `ftdemo.c` e `fighter.c` sao buffers de bytes de
+    animacao, `Player_AllocData` nao e usado e os tres de `tev.c` so aparecem
+    na tabela de estatisticas de `initialize.c`.
+  - Relatos novos do UBSan nessa rota, sem correcao por ora: deslocamento de
+    `1` por 31 em `int` (`fighter.c:2105`, `ftCo_Attack100.c:301` e `:315`) e
+    o indice 107 de `by_attack_hi[65]` em `plbonus.c:44`, que le os vetores
+    seguintes da mesma struct de `u32`.
+  - A rota da luta acrescenta tres relatos do UBSan da mesma classe dos quatro
+    conhecidos (chamada por ponteiro de funcao de outro tipo):
+    `lbrefract.c:46`, `granime.c:517` e o callback de ARQ em
+    `baselib_support.c:124`.
+  - Sem o define, `particle.c`, `generator.c`, `ifstatus.c`, `lbrefract.c`,
+    `ftmaterial.c`, `mpisland.c`, `ftdata.c`, `ftCo_09F4.c`, `lbarchive.c`,
+    `lbvector.c`, `eflib.c`, `ifall.c` e `gmvs.c` pre-processam identicos,
+    token a token (comparados contra a arvore de HEAD com as linhas de
+    compilacao do `build.ninja`).
+- [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
+  `host-sanitize` com 193/193, ctest 15/15, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 

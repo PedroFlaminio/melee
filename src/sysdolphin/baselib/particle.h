@@ -30,6 +30,13 @@ psGenerateParticle0(HSD_Particle** head, int linkNo, int bank, u32 kind,
 #else
 #define PS_POINTER_ARG s32
 #endif
+#ifdef MELEE_HOST
+/* The generator lists keep addresses in u32 variables (hsd_804D78F4, and
+ * generator.c's hsd_804D78F8); the host keeps them whole. */
+#define PS_ADDRESS uintptr_t
+#else
+#define PS_ADDRESS u32
+#endif
 /* 398F0C */ void hsd_80398F0C(s32, s32, s32, u16, PS_POINTER_ARG, s32, s32,
                                PS_POINTER_ARG, f32, f32, f32, f32, f32, f32,
                                f32, f32, f32);
@@ -50,6 +57,6 @@ psGenerateParticle0(HSD_Particle** head, int linkNo, int bank, u32 kind,
 /* 4D78E8 */ extern u32 hsd_804D78E8;
 /* 4D78EC */ extern u32 hsd_804D78EC;
 /* 4D78F0 */ extern HSD_CObj* psCamera;
-/* 4D78F4 */ extern u32 hsd_804D78F4;
+/* 4D78F4 */ extern PS_ADDRESS hsd_804D78F4;
 
 #endif

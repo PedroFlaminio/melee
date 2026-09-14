@@ -47,6 +47,16 @@ static HSD_TECnst ftMaterial_803C6A44 = {
     HSD_TE_CNST, NULL, NULL, HSD_TE_RGB, HSD_TE_U8, 0xFF, 0xFF, 0, 0,
 };
 
+#ifdef MELEE_HOST
+/* ft_MObjInfo views ftMObj and the two templates after it as one block, which
+ * the host does not lay out in a row, so the host names the templates. */
+#define FT_MOBJ_TEVDESC_TMPL ftMaterial_803C69D0
+#define FT_MOBJ_TEXP_TMPL ftMaterial_803C6A44
+#else
+#define FT_MOBJ_TEVDESC_TMPL info->tevdesc_tmpl
+#define FT_MOBJ_TEXP_TMPL info->texp_tmpl
+#endif
+
 void ftMaterial_800BF260(void)
 {
     hsdInitClassInfo(&ftMObj.parent, &hsdMObj.parent,
@@ -164,7 +174,7 @@ HSD_TExp* ftMaterial_800BF534(Fighter* fp, HSD_MObj* mobj, HSD_TExp* texp,
 
     if (overlay->x7C_flag2 && overlay->x7C_light_enable) {
         if (!(rendermode & RENDER_XLU) && !fp->x2223_b2) {
-            texp->cnst = info->texp_tmpl;
+            texp->cnst = FT_MOBJ_TEXP_TMPL;
             chk = lbGetFreeColorRegister(0, mobj, NULL);
             reg = chk;
             if (reg == -1) {
@@ -174,7 +184,7 @@ HSD_TExp* ftMaterial_800BF534(Fighter* fp, HSD_MObj* mobj, HSD_TExp* texp,
             texp->cnst.val = &overlay->x50_light_color;
             HSD_TExpSetReg(texp);
 
-            sp_tevdesc = info->tevdesc_tmpl;
+            sp_tevdesc = FT_MOBJ_TEVDESC_TMPL;
             sp_tevdesc.stage = HSD_StateAssignTev();
             sp_tevdesc.color = 2;
             sp_tevdesc.u.tevconf.clr_a = GX_CC_ZERO;
@@ -282,7 +292,7 @@ void ftMaterial_800BF6BC(Fighter* fp, HSD_MObj* mobj, HSD_TExp* texp)
             sp168 = overlay->x2C_hex;
         }
         if (chk1 != 0) {
-            sp_cnst1 = info->texp_tmpl;
+            sp_cnst1 = FT_MOBJ_TEXP_TMPL;
             reg1 = lbGetFreeColorRegister(0, mobj, texp);
             if (reg1 == -1) {
                 HSD_ASSERTREPORT(352, 0, "can't find free color register!\n");
@@ -307,7 +317,7 @@ void ftMaterial_800BF6BC(Fighter* fp, HSD_MObj* mobj, HSD_TExp* texp)
                                  "can't find free color ratio register!\n");
             }
             if (fp->x61D != 0xFF) {
-                sp_cnst2 = info->texp_tmpl;
+                sp_cnst2 = FT_MOBJ_TEXP_TMPL;
                 sp_cnst2.reg = (u8) reg2;
                 sp_cnst2.comp = 5;
                 sp_cnst2.idx = 3;
@@ -322,7 +332,7 @@ void ftMaterial_800BF6BC(Fighter* fp, HSD_MObj* mobj, HSD_TExp* texp)
             color.b = sp168.a;
             sp_cnst1.val = &color;
             HSD_TExpSetReg((HSD_TExp*) &sp_cnst1);
-            sp_tevdesc = info->tevdesc_tmpl;
+            sp_tevdesc = FT_MOBJ_TEVDESC_TMPL;
             sp_tevdesc.stage = HSD_StateAssignTev();
             sp_tevdesc.u.tevconf.clr_b = lb_8000CC8C(reg1);
             sp_tevdesc.u.tevconf.clr_c = lb_8000CC8C(reg2);

@@ -1,3 +1,7 @@
+#ifdef MELEE_HOST
+/* This file defines the variadic loaders the header's macros stand in for. */
+#define LB_ARCHIVE_IMPLEMENTATION
+#endif
 #include "lbarchive.h"
 
 #include <stdarg.h>
@@ -327,3 +331,87 @@ int lbArchiveRelocate(HSD_Archive* archive, u8* src, size_t file_size,
 
     return 0;
 }
+
+#ifdef MELEE_HOST
+/* lbArchive_vLoadSections and lbArchive_vLoadSectionsFatal over the array the
+ * header's macros gather. */
+static void lbArchive_HostSections(HSD_Archive* archive,
+                                   const void* const* symbols, bool fatal)
+{
+    const void* const* entry;
+
+    for (entry = symbols; *entry != NULL; entry += 2) {
+        void** const symbol = (void**) *entry;
+        const char* const symbol_name = entry[1];
+
+        *symbol = NULL;
+        *symbol = HSD_ArchiveGetPublicAddress(archive, symbol_name);
+        if (*symbol == NULL) {
+            OSReport("Cannot find symbol %s.\n", symbol_name);
+            if (fatal) {
+                HSD_ASSERT(112, 0);
+            }
+        }
+        /* A list whose last symbol has no name stops at the closing NULL. */
+        if (symbol_name == NULL) {
+            break;
+        }
+    }
+}
+
+void lbArchive_HostLoadSections(HSD_Archive* archive,
+                                const void* const* symbols)
+{
+    lbArchive_HostSections(archive, symbols, false);
+}
+
+HSD_Archive* lbArchive_HostLoadSymbols(const char* filename,
+                                       const void* const* symbols)
+{
+    HSD_Archive* const archive = lbArchive_LoadArchive_inline(filename);
+
+    lbArchive_HostSections(archive, symbols, true);
+    return archive;
+}
+
+HSD_Archive* lbArchive_Host80016DBC(const char* filename,
+                                    const void* const* symbols)
+{
+    HSD_Archive* const archive = lbArchive_LoadArchive_inline(filename);
+
+    lbArchive_HostSections(archive, symbols, false);
+    return archive;
+}
+
+bool lbArchive_Host80017040(HSD_Archive** dst, const char* filename,
+                            const void* const* symbols)
+{
+    HSD_Archive* archive = lbDvd_8001819C(filename);
+    const bool preloaded = archive != NULL;
+
+    if (!preloaded) {
+        archive = lbArchive_LoadArchive_inline(filename);
+    }
+    lbArchive_HostSections(archive, symbols, true);
+    if (dst != NULL) {
+        *dst = archive;
+    }
+    return preloaded;
+}
+
+bool lbArchive_Host800171CC(HSD_Archive** dst, const char* filename,
+                            const void* const* symbols)
+{
+    HSD_Archive* archive = lbDvd_8001819C(filename);
+    const bool preloaded = archive != NULL;
+
+    if (!preloaded) {
+        archive = lbArchive_LoadArchive_inline(filename);
+    }
+    lbArchive_HostSections(archive, symbols, false);
+    if (dst != NULL) {
+        *dst = archive;
+    }
+    return preloaded;
+}
+#endif

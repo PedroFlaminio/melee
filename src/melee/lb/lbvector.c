@@ -368,7 +368,13 @@ Vec3* lbVector_WorldToScreen(HSD_CObj* cobj, const Vec3* pos3d,
 {
     u8 _[16];
 
+#ifdef MELEE_HOST
+    /* MTXPerspective and MTXOrtho fill a 4x4 matrix; the console's 3x4 lets
+     * the last row spill into the next variable on the stack. */
+    Mtx44 projMtx;
+#else
     Mtx projMtx;
+#endif
     float projection[7]; // projection params
     float viewport[6];   // viewport params
     Mtx m;

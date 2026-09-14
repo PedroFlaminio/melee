@@ -16,7 +16,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial), carrega o menu de pausa, o HUD e o flash de fundo, termina a entrada da cena e roda os procs do primeiro frame; para no desenho, ao projetar a caixa de câmera de um lutador com posição fora da faixa (`lbvector.c:383`) | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox (dados, fantasia, animações e posição inicial), carrega o menu de pausa, o HUD e o flash de fundo, termina a entrada da cena e entra no laço de frames; sob ASan os lutadores rodam animação e scripts de comando e param em `Command_04` (`lbcommand.c:57`), no script de `RebirthWait`, lendo um endereço inválido | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
 
 ### Evidências verificadas
@@ -41,9 +41,13 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 Seguir a entrada da cena de luta (`GS_VS`) até o primeiro frame da luta Fox
 vs. Fox em Hyrule Temple. Os dois lutadores são criados e a montagem da cena
 (`fn_8016E730`) termina, com pausa, HUD e flash de fundo; a cena entra no laço
-de frames. O próximo passo é o desenho do primeiro frame, que para ao projetar
-a caixa de câmera de um lutador com posição fora da faixa, e depois os frames
-seguintes. Do estágio faltam `coll_data` e os outros dados que o jogo
+de frames. O próximo passo é o SEGV que o ASan acha nos scripts de comando dos
+lutadores (`Command_04`, `lbcommand.c:57`, no script de `RebirthWait`), e depois
+conferir o que os frames fazem: contar frames, capturar a imagem e ver os
+lutadores responderem à entrada. Sobram os relatos do UBSan de chamada
+por ponteiro de função de outro tipo, que a rota da luta multiplicou, e dois
+casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
+estágio faltam `coll_data` e os outros dados que o jogo
 hoje substitui por faixas padrão. Hyrule Temple segue
 como alvo por estar liberado sem cartão de memória e ter o menor módulo
 (`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
@@ -83,3 +87,4 @@ salvos.
 | 2026-09-14 | 60% | `_scene_models` na API de arquivo e as tabelas do HUD sem sufixo (`Stc_scemdls`, `Stc_rarwmdls`, `tdsce`, `lupe`), com teste; os 26 do disco carregam (268 JObjs). `lbBgFlashColAnimData` traduzido. A montagem da cena de luta (`fn_8016E730`) termina; a entrada para nos dígitos de dano do HUD, onde `ifStatus_802F6194` anda por um JObj com o layout de GObj. |
 | 2026-09-14 | 61% | `ifStatus_802F6194` anda pelo próprio JObj no host (no console `next_gx` e `next` do GObj caem sobre `child` e `next` do JObj). A entrada da cena de luta termina e a cena entra no laço de frames: o primeiro frame roda os procs e para no desenho, ao projetar a caixa de câmera de um lutador com posição fora da faixa (`lbvector.c:383`). |
 | 2026-09-14 | 62% | O NaN do primeiro frame era da câmera: `Camera_ApplyQuake` lia a descrição da câmera pelo layout de statics em sequência do console e gravava NaN na translação de tremor. No host a função lê `cm_803BCB64` direto. O primeiro frame desenha, e a luta segue até os procs de um frame seguinte, onde o sistema de partículas guarda endereços de gerador em `u32`. |
+| 2026-09-14 | 64% | Lote de correções de layout de 32 bits achadas pela rota da luta sob ASan: endereços de gerador de partícula em `u32`, a visão `UnkX` do `IfDamageState`, structs lidas sobre statics em sequência (`lbrefract.c`, `ftmaterial.c`, `ft_800852B0`), segmentos de colisão e o pool de `HSD_psAppSRT` alocados com o tamanho do console, a posição da luz do lutador em floats, a matriz 3x4 de `lbVector_WorldToScreen` e a cor do HUD convertida para `s8`. As listas de símbolos de `lbarchive.c`, terminadas num `0` que o x86-64 passa com a metade alta indefinida, viram vetores de ponteiros. Todos os 13 arquivos pré-processam idênticos sem `MELEE_HOST`. Com `GS_VS` só local, a luta entra no laço de frames; sob ASan os lutadores chegam aos scripts de comando da animação e param em `Command_04` (`lbcommand.c:57`), no `RebirthWait`, com leitura de endereço inválido. |

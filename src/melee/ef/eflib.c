@@ -31,6 +31,10 @@
 #include <sysdolphin/baselib/psappsrt.h>
 #include <sysdolphin/baselib/psdisp.h>
 #include <sysdolphin/baselib/psstructs.h>
+
+#ifdef MELEE_HOST
+#include <sysdolphin/baselib/psstructs.h>
+#endif
 #include <sysdolphin/baselib/state.h>
 // externs
 
@@ -177,7 +181,13 @@ void efLib_Init(void)
 
     HSD_JObjSetSPtclCallback(efLib_Cb_SPtcl);
     HSD_JObjSetDPtclCallback(efLib_Cb_DPtcl);
+#ifdef MELEE_HOST
+    /* 0xA4 is HSD_psAppSRT on the console; its pointers make it longer on the
+     * host, and the pool hands out blocks of this size. */
+    psInitAppSRT(0, sizeof(HSD_psAppSRT));
+#else
     psInitAppSRT(0, 0xA4);
+#endif
     efAsync_QueueInit();
 
     for (i = 0; i < 8; i++) {

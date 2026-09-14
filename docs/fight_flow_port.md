@@ -298,6 +298,40 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `cm_803BCB18`, que no host não vale; a translação de tremor saía NaN e
   contaminava olho e interesse. Corrigido sob `MELEE_HOST`, lendo
   `cm_803BCB64` direto.
+- Com a câmera corrigida o primeiro frame desenha, e os procs dos frames
+  seguintes acharam mais dois pontos que dependem do layout de 32 bits: as
+  listas de geradores de partícula guardam endereços em `u32`
+  (`hsd_804D78F8` e `hsd_804D78F4`), e o HUD lê o `IfDamageState` por outra
+  struct com fillers nos offsets do console (`UnkX`). Os dois corrigidos sob
+  `MELEE_HOST`.
+- Depois deles o jogo abortava no `malloc` da glibc, sinal de heap corrompido
+  antes. A mesma rota sob ASan achou primeiro mais duas visões de statics em
+  sequência (`lbRefract_800222A4` e `ftmaterial.c`), também corrigidas, e
+  depois a escrita que corrompia o heap: os segmentos de colisão de
+  `mpIsland_8005A728` eram alocados com o tamanho do console (0x2C), menor que
+  a struct no host. Corrigido sob `MELEE_HOST` com `sizeof`.
+- As rodadas seguintes do ASan acharam mais dois pontos na criação dos
+  lutadores: `ft_800852B0` zera caches pela distância entre globais no console
+  (`ftData_Table_Unk0`, `ftData_UnkIntPairs`, `ft_8045993C`), e a luz de cada
+  lutador (`ftCo_09F4.c`) usa cinco floats no lugar de um `HSD_WObjDesc`. Os
+  dois corrigidos sob `MELEE_HOST`.
+- Depois, as listas de símbolos dos loaders de `lbarchive.c` terminam num `0`
+  literal, que no x86-64 chega a `va_arg` com a metade alta indefinida quando
+  vai na pilha. No host as macros de `lbarchive.h` juntam os argumentos num
+  vetor de ponteiros, onde o `0` vira nulo.
+- Com isso a rota sob ASan passa por toda a entrada da cena e chega aos procs
+  dos frames, onde achou `lbVector_WorldToScreen` passando uma matriz 3x4 a
+  `MTXPerspective` (que escreve 4x4) e `ifstatus.c` convertendo 255 em float
+  direto para `s8`. Os dois corrigidos sob `MELEE_HOST`.
+- A rodada seguinte já tinha os lutadores em `Fighter_procUpdate` e achou o
+  pool de `HSD_psAppSRT` criado com o tamanho do console (0xA4, 184 bytes no
+  host). Corrigido sob `MELEE_HOST` com `sizeof`.
+- Próximo bloqueio: com esse lote, a rota da luta sob ASan (`GS_VS` só local)
+  roda os procs dos lutadores até `Fighter_8006A360` → `ftCo_RebirthWait_Anim`
+  → `ftCo_8008A7A8` → `ftAnim_8006EBA4` → `ftAction_80073240`, e o
+  `Command_04` de `lbcommand.c:57` lê um endereço inválido (SEGV). Depois
+  dele: medir o que acontece nos frames (contagem, imagem e resposta à
+  entrada) e seguir para `coll_data`.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

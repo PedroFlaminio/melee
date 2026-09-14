@@ -168,21 +168,34 @@ void ft_8008521C(HSD_GObj* gobj)
     fp->self_vel.z = pos.z - fp->cur_pos.z;
 }
 
+#ifdef MELEE_HOST
+/* ft_800852B0 reaches ftData_Table_Unk0, ftData_UnkIntPairs and ft_8045993C by
+ * their distance from CostumeListsForeachCharacter and gFtDataList in the
+ * console's data sections, which the host does not keep. */
+#define FT_RESET_8045993C(list) ft_8045993C
+#define FT_RESET_UNK0 ftData_Table_Unk0
+#define FT_RESET_PAIRS ftData_UnkIntPairs
+#else
+#define FT_RESET_8045993C(list) ((ft_8045993C_t*) &list[Ft_Kind_Max])
+#define FT_RESET_UNK0                                                          \
+    (ftData_UnkCountStruct*) &CostumeListsForeachCharacter[Ft_Kind_Max]
+#define FT_RESET_PAIRS                                                         \
+    (ftData_UnkCountStruct*) ((u8*) CostumeListsForeachCharacter + 5940)
+#endif
+
 static inline void ft_800852B0_Reset_ft_8045993C(ftData** list, int i)
 {
     /// @todo Bitfields seem off
-    ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].pad_x0 = 0;
-    ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].x6_b0 = 0;
-    ((ft_8045993C_t*) &list[Ft_Kind_Max])[i].x6_b1_b2 = 0;
+    FT_RESET_8045993C(list)[i].pad_x0 = 0;
+    FT_RESET_8045993C(list)[i].x6_b0 = 0;
+    FT_RESET_8045993C(list)[i].x6_b1_b2 = 0;
 }
 
 void ft_800852B0(void)
 {
     ftData** list;
-    ftData_UnkCountStruct* unk0 =
-        (ftData_UnkCountStruct*) &CostumeListsForeachCharacter[Ft_Kind_Max];
-    ftData_UnkCountStruct* pairs =
-        (ftData_UnkCountStruct*) ((u8*) CostumeListsForeachCharacter + 5940);
+    ftData_UnkCountStruct* unk0 = FT_RESET_UNK0;
+    ftData_UnkCountStruct* pairs = FT_RESET_PAIRS;
     int i;
     int new_var = 0;
 

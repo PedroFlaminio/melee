@@ -46,6 +46,14 @@ void mpIsland_8005A6F8(void)
     mpIsland_80458E88.x20 = NULL;
 }
 
+#ifdef MELEE_HOST
+/* The console allocates a segment as 0x2C bytes, every field before ptr; the
+ * host's pointers make the record longer. */
+#define MP_SEGMENT_SIZE sizeof(mp_UnkStruct0)
+#else
+#define MP_SEGMENT_SIZE 0x2C
+#endif
+
 static inline void mpIsland_AssertSeg(mp_UnkStruct0* mpisp)
 {
     HSD_ASSERT(62, mpisp);
@@ -82,7 +90,7 @@ void mpIsland_8005A728(void)
         line_idx = map->floor_start;
         z_val = 0.0f;
         while (count != 0) {
-            seg.p = HSD_MemAlloc(0x2C);
+            seg.p = HSD_MemAlloc(MP_SEGMENT_SIZE);
             mpIsland_AssertSeg(seg.p);
             if (prev) {
                 prev->next = seg.p;
@@ -147,7 +155,7 @@ void mpIsland_8005A728(void)
         line_idx = map->ceiling_start;
         z_val = 0.0f;
         while (count != 0) {
-            seg.p = HSD_MemAlloc(0x2C);
+            seg.p = HSD_MemAlloc(MP_SEGMENT_SIZE);
             mpIsland_AssertSeg(seg.p);
             if (prev) {
                 prev->next = seg.p;
@@ -552,7 +560,7 @@ void mpIsland_8005B004(mp_UnkStruct0** arg0, mp_UnkStruct0** arg1, int arg2,
         if ((mpisp = *arg1) != NULL) {
             *arg1 = mpisp->next;
         } else {
-            mpisp = HSD_MemAlloc(0x2C);
+            mpisp = HSD_MemAlloc(MP_SEGMENT_SIZE);
             mpIsland_AssertSeg(mpisp);
         }
 

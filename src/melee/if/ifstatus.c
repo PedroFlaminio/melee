@@ -26,6 +26,15 @@
 #include <sysdolphin/baselib/random.h>
 #include <sysdolphin/baselib/tobj.h>
 
+#ifdef MELEE_HOST
+/* A color channel computed in floats reaches 255, which a direct conversion to
+ * s8 leaves undefined; the console converts to an integer and keeps the low
+ * byte, which the host does in two steps. */
+#define IFSTATUS_COLOR_BYTE(x) ((s8) (s32) (x))
+#else
+#define IFSTATUS_COLOR_BYTE(x) (s8) (x)
+#endif
+
 typedef struct FlagsX {
     u32 b80 : 1;
     u32 b40 : 1;
@@ -39,13 +48,28 @@ typedef struct FlagsX {
 } FlagsX;
 
 typedef struct UnkX {
+#ifdef MELEE_HOST
+    /* Another view of IfDamageState, whose two leading pointers move the
+     * fields after them on the host. */
+    u8 filler1[offsetof(IfDamageState, flags)];
+    FlagsX x10_flags;
+    u8 filler2[offsetof(IfDamageState, velocity_x) -
+               offsetof(IfDamageState, flags) - sizeof(FlagsX)];
+#else
     u8 filler1[0x10];
     FlagsX x10_flags;
     u8 filler2[0x34 - 0x14];
+#endif
     Vec4 x34_vec; // or float[4] instead of Vec4
     Vec4 x44_vec;
     HSD_JObj* x54_jobj[4];
 } UnkX; // HudIndex
+
+#ifdef MELEE_HOST
+STATIC_ASSERT(offsetof(UnkX, x10_flags) == offsetof(IfDamageState, flags) &&
+              offsetof(UnkX, x34_vec) == offsetof(IfDamageState, velocity_x) &&
+              offsetof(UnkX, x54_jobj) == offsetof(IfDamageState, jobjs));
+#endif
 
 /* 2F491C */ static void ifStatus_PercentOnDeathAnimationThink(UnkX* value,
                                                                s32, s32);
@@ -294,13 +318,13 @@ static inline void ifStatus_UpdateDamageDisplay(IfDamageState* state,
                 clamped_damage = 0;
             }
             factor = 1.0F - ((f32) clamped_damage / 100.0F);
-            stamina_color->r = (s8) (factor * (f32) (ifStatus_804D57AC[0] -
+            stamina_color->r = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[0] -
                                                      ifStatus_804D57A8[0]) +
                                      (f32) ifStatus_804D57A8[0]);
-            stamina_color->g = (s8) (factor * (f32) (ifStatus_804D57AC[1] -
+            stamina_color->g = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[1] -
                                                      ifStatus_804D57A8[1]) +
                                      (f32) ifStatus_804D57A8[1]);
-            stamina_color->b = (s8) (factor * (f32) (ifStatus_804D57AC[2] -
+            stamina_color->b = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[2] -
                                                      ifStatus_804D57A8[2]) +
                                      (f32) ifStatus_804D57A8[2]);
             stamina_color->a = 255;
@@ -313,13 +337,13 @@ static inline void ifStatus_UpdateDamageDisplay(IfDamageState* state,
                 clamped_damage = 0;
             }
             factor = (f32) clamped_damage / 300.0F;
-            normal_color->r = (s8) (factor * (f32) (ifStatus_804D57AC[0] -
+            normal_color->r = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[0] -
                                                     ifStatus_804D57A8[0]) +
                                     (f32) ifStatus_804D57A8[0]);
-            normal_color->g = (s8) (factor * (f32) (ifStatus_804D57AC[1] -
+            normal_color->g = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[1] -
                                                     ifStatus_804D57A8[1]) +
                                     (f32) ifStatus_804D57A8[1]);
-            normal_color->b = (s8) (factor * (f32) (ifStatus_804D57AC[2] -
+            normal_color->b = IFSTATUS_COLOR_BYTE(factor * (f32) (ifStatus_804D57AC[2] -
                                                     ifStatus_804D57A8[2]) +
                                     (f32) ifStatus_804D57A8[2]);
             normal_color->a = 255;
