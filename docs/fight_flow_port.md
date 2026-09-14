@@ -143,6 +143,12 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   20 pares de banco de estágio do disco traduzem. Com `GS_VS` na tabela (só
   local), a entrada da luta passa por `efAsync_LoadSync(0)` e `(0x1F)` e para
   em `Player_80036DD8`, que pede `plLoadCommonData` a `PdPm.dat`.
+- Executado o tradutor de `plLoadCommonData`. A entrada passa pelos dados de
+  jogador e pelo começo do estágio (`ftCo_800C06C0`, `mpColl_80041C78`,
+  `Ground_801C0378`) e cai em `Ground_801C0754`, porque a entrada de Hyrule
+  Temple em `stage_datas` é nula: o host liga os estágios por referência fraca
+  (`port/src/game/host_weak_stages.h`), o que não puxa `grshrine.c` da
+  biblioteca estática.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

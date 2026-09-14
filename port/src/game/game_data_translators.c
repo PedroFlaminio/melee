@@ -11,9 +11,11 @@
 #include <melee_host/hsd_archive.h>
 
 #include <melee/gm/gmevent.h>
+#include <melee/pl/types.h>
 
 #include <stdalign.h>
 #include <stddef.h>
+#include <string.h>
 
 /* A pointer field of the record at `at`: its target, or 0 with *present
  * false when the field is NULL. */
@@ -371,9 +373,58 @@ static void* refract_data(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : data;
 }
 
+/* plLoadCommonData (PdPm.dat): the thresholds the bonus and trick code
+ * compares a match's stats against (plbonus.c, pltrick.c, pl_040D.c,
+ * gm_16F1.c).  The symbol is a pointer to the table, which Player_80036DD8
+ * dereferences into pl_804D6470.  Every field of pl_804D6470_t is a 4-byte
+ * float or integer, so the table has the same offsets on the host and each
+ * word is converted from big-endian in place.  The exception is xC0, which the
+ * decomp types as four bytes and nothing reads: bytes keep their order.  On
+ * disk the table sits at data+0 and the pointer after it. */
+_Static_assert(sizeof(pl_804D6470_t) == 0x184,
+               "pl_804D6470_t must keep the PowerPC offsets on the host");
+
+static void* player_common_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 bytes_field = offsetof(pl_804D6470_t, xC0);
+    bool present;
+    const mh_u32 source = target_of(reader, root + 0x0, &present);
+    pl_804D6470_t** record;
+    pl_804D6470_t* table;
+    mh_u32 at;
+    mh_u32 i;
+
+    if (!present) {
+        melee_host_hsd_reader_fail(reader,
+                                   "the player common data pointer is NULL");
+        return NULL;
+    }
+    record = melee_host_hsd_reader_allocate(reader, sizeof(*record),
+                                            alignof(pl_804D6470_t*));
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table),
+                                           alignof(pl_804D6470_t));
+    if (record == NULL || table == NULL) {
+        return NULL;
+    }
+    for (at = 0; at < sizeof(*table); at += 4) {
+        if (at == bytes_field) {
+            for (i = 0; i < sizeof(table->xC0); i++) {
+                table->xC0[i] = melee_host_hsd_reader_u8(reader, source + at + i);
+            }
+        } else {
+            const mh_u32 word = melee_host_hsd_reader_u32(reader, source + at);
+            memcpy((unsigned char*) table + at, &word, sizeof(word));
+        }
+    }
+    *record = table;
+    return melee_host_hsd_reader_failed(reader) ? NULL : record;
+}
+
 void melee_host_game_register_data_translators(void)
 {
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
+    (void) melee_host_hsd_register_translator("plLoadCommonData",
+                                              player_common_data);
     (void) melee_host_hsd_register_translator("sqEventInitDataLevelTbl",
                                               event_level_table);
     (void) melee_host_hsd_register_translator("lbAudioLoadData",

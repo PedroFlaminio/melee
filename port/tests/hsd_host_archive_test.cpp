@@ -31,6 +31,7 @@ MELEE_HOST_HSD_END
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -668,6 +669,68 @@ TEST_CASE("the refraction table translates to a count and host floats")
             MELEE_HOST_OK);
 
     REQUIRE(melee_host_hsd_register_translator("lbRefData", nullptr) ==
+            MELEE_HOST_OK);
+}
+
+TEST_CASE("the player common data translates to a pointer and host words")
+{
+    // PdPm.dat's layout: the 0x184-byte table, then the pointer to it, which
+    // is the public symbol.  Floats and integers convert in place; the four
+    // bytes at +0xC0 keep their order.
+    ArchiveBuilder builder(0x188);
+    builder.f32(0x000, 2.5F);
+    builder.u32(0x004, 6);
+    builder.u32(0x0BC, 0x12345678U);
+    builder.u8(0x0C0, 1);
+    builder.u8(0x0C1, 2);
+    builder.u8(0x0C2, 3);
+    builder.u8(0x0C3, 4);
+    builder.f32(0x180, 90.0F);
+    builder.pointer(0x184, 0x000);
+    builder.public_symbol(0x184, "plLoadCommonData");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    REQUIRE(melee_host_hsd_symbol_kind("plLoadCommonData") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const record = static_cast<unsigned char**>(
+        HSD_ArchiveGetPublicAddress(&archive, "plLoadCommonData"));
+    REQUIRE(record != nullptr);
+    const unsigned char* const table = *record;
+    REQUIRE(table != nullptr);
+    float first = 0.0F;
+    std::uint32_t count = 0;
+    std::uint32_t before_bytes = 0;
+    float last = 0.0F;
+    std::memcpy(&first, table + 0x000, sizeof(first));
+    std::memcpy(&count, table + 0x004, sizeof(count));
+    std::memcpy(&before_bytes, table + 0x0BC, sizeof(before_bytes));
+    std::memcpy(&last, table + 0x180, sizeof(last));
+    REQUIRE(first == 2.5F);
+    REQUIRE(count == 6);
+    REQUIRE(before_bytes == 0x12345678U);
+    REQUIRE(table[0x0C0] == 1);
+    REQUIRE(table[0x0C1] == 2);
+    REQUIRE(table[0x0C2] == 3);
+    REQUIRE(table[0x0C3] == 4);
+    REQUIRE(last == 90.0F);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A NULL pointer leaves no table to read; the symbol is refused.
+    ArchiveBuilder empty(0x188);
+    empty.public_symbol(0x184, "plLoadCommonData");
+    std::vector<std::byte> empty_bytes = empty.build();
+    HSD_Archive empty_archive{};
+    REQUIRE(HSD_ArchiveParse(&empty_archive, bytes_of(empty_bytes),
+                             empty_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&empty_archive, "plLoadCommonData") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("pointer is NULL") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(empty_bytes.data()) ==
             MELEE_HOST_OK);
 }
 

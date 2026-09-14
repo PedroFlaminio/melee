@@ -1171,6 +1171,26 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 182/182 e ctest 14/14;
   `host-sanitize` com 182/182, ctest 14/14, rota VS em 19,8 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
+- [x] `plLoadCommonData` traduzido (`port/src/game/game_data_translators.c`).
+  `PdPm.dat` tem 0x188 bytes de dados: a tabela `pl_804D6470_t` em `data+0`
+  (0x184 bytes de limiares que `plbonus.c`, `pltrick.c`, `pl_040D.c` e
+  `gm_16F1.c` comparam com as estatisticas da partida) e, em `data+0x184`, o
+  ponteiro relocado para ela, que e o simbolo; `Player_80036DD8` o
+  derreferencia em `pl_804D6470`. Todo campo da tabela e escalar de 4 bytes,
+  entao os offsets sao os mesmos no host (um `_Static_assert` confere 0x184) e
+  cada palavra e convertida no lugar. `xC0`, que a decomp tipa como quatro
+  bytes e ninguem le, fica na ordem do disco. Um teste unitario confere floats,
+  inteiros, os bytes e a recusa sem ponteiro.
+- [x] Com `GS_VS` na tabela so localmente, a entrada da luta passa pelos dados
+  de jogador, `ftCo_800C06C0`, `mpColl_80041C78` e `Ground_801C0378`, e cai
+  com SIGSEGV em `Ground_801C0754` (`ground.c:463`): `stage_datas` tem NULL
+  para Hyrule Temple. `ground.c` e compilado com `host_weak_stages.h`, que
+  declara todo `StageData` como referencia fraca, e uma referencia fraca nao
+  puxa `grshrine.c` da biblioteca estatica, embora ele esteja no core desde
+  que toda a decomp compila.
+- [x] Medido sem a entrada: `host-debug` com 183/183 e ctest 14/14;
+  `host-sanitize` com 183/183, ctest 14/14, rota VS em 19,7 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos de chamada por ponteiro de funcao.
 
 ## Em andamento
 
