@@ -13,6 +13,7 @@
 #include <melee/gm/gmevent.h>
 #include <melee/gr/types.h>
 #include <melee/pl/types.h>
+#include <melee/ty/types.h>
 
 #include <stdalign.h>
 #include <stddef.h>
@@ -546,8 +547,193 @@ static void* ground_param(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : param;
 }
 
+/* The trophy tables of TyDatai.usd, which Toy_803124BC loads for the trophy
+ * display.  None holds a pointer, so each keeps its PowerPC layout, and none
+ * records its length: every one ends with a row whose first field is -1, which
+ * the game walks to and, when a search finds nothing, reads.  The row is copied
+ * whole.  The model and sort tables are also indexed by trophy up to
+ * TY_TROPHY_COUNT, so they must hold that many rows before the end. */
+_Static_assert(sizeof(TrophyData) == 0x24, "TrophyData keeps its layout");
+_Static_assert(sizeof(TyDspEntry) == 0x10, "TyDspEntry keeps its layout");
+_Static_assert(sizeof(ToyNameData) == 0xC, "ToyNameData keeps its layout");
+
+enum {
+    TROPHY_TABLE_MAX_ROWS = 0x1000,
+};
+
+/* The rows before the one whose first word, `width` bytes wide, is -1. */
+static mh_u32 rows_before_end(MeleeHostHsdReader* reader, mh_u32 root,
+                              mh_u32 row_size, mh_u32 width,
+                              mh_u32 required)
+{
+    mh_u32 rows;
+
+    for (rows = 0; rows < TROPHY_TABLE_MAX_ROWS; rows++) {
+        const mh_u32 at = root + rows * row_size;
+        const bool end = width == 2
+            ? melee_host_hsd_reader_u16(reader, at) == 0xFFFF
+            : melee_host_hsd_reader_u32(reader, at) == 0xFFFFFFFF;
+        if (melee_host_hsd_reader_failed(reader)) {
+            return 0;
+        }
+        if (end) {
+            break;
+        }
+    }
+    if (rows == TROPHY_TABLE_MAX_ROWS) {
+        melee_host_hsd_reader_fail(reader, "the trophy table has no end row");
+        return 0;
+    }
+    if (rows < required) {
+        melee_host_hsd_reader_fail(reader,
+                                   "the trophy table has fewer rows than "
+                                   "trophies");
+        return 0;
+    }
+    return rows;
+}
+
+static void* trophy_model_rows(MeleeHostHsdReader* reader, mh_u32 root,
+                               mh_u32 required)
+{
+    const mh_u32 rows = rows_before_end(reader, root, 0x24, 4, required);
+    TrophyData* table;
+    mh_u32 i;
+
+    if (melee_host_hsd_reader_failed(reader)) {
+        return NULL;
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table) * (rows + 1),
+                                           alignof(TrophyData));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i <= rows; i++) {
+        const mh_u32 at = root + i * 0x24;
+        TrophyData* const row = &table[i];
+        row->id = (s32) melee_host_hsd_reader_u32(reader, at + 0x00);
+        row->x04 = (s32) melee_host_hsd_reader_u32(reader, at + 0x04);
+        row->x08 = melee_host_hsd_reader_f32(reader, at + 0x08);
+        row->x0C = melee_host_hsd_reader_f32(reader, at + 0x0C);
+        row->x10 = melee_host_hsd_reader_f32(reader, at + 0x10);
+        row->x14 = melee_host_hsd_reader_f32(reader, at + 0x14);
+        row->x18 = melee_host_hsd_reader_f32(reader, at + 0x18);
+        row->x1C = melee_host_hsd_reader_f32(reader, at + 0x1C);
+        row->x20 = (s8) melee_host_hsd_reader_u8(reader, at + 0x20);
+        row->x21 = (s8) melee_host_hsd_reader_u8(reader, at + 0x21);
+        row->x22 = (s8) melee_host_hsd_reader_u8(reader, at + 0x22);
+        row->x23 = (s8) melee_host_hsd_reader_u8(reader, at + 0x23);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
+/* tyInitModelTbl: one model row per trophy.  toy.c also counts through it by
+ * TY_TROPHY_COUNT. */
+static void* trophy_init_models(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    return trophy_model_rows(reader, root, TY_TROPHY_COUNT);
+}
+
+/* tyInitModelDTbl: the few rows that differ in another language, only ever
+ * searched to the end row. */
+static void* trophy_init_models_other(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    return trophy_model_rows(reader, root, 0);
+}
+
+/* tyModelSortTbl: six sort keys per trophy, read by trophy index. */
+static void* trophy_sort_keys(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 rows = rows_before_end(reader, root, 0xC, 2, TY_TROPHY_COUNT);
+    ToyNameData* table;
+    mh_u32 i;
+
+    if (melee_host_hsd_reader_failed(reader)) {
+        return NULL;
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table) * (rows + 1),
+                                           alignof(ToyNameData));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i <= rows; i++) {
+        const mh_u32 at = root + i * 0xC;
+        table[i].x0 = read_s16(reader, at + 0x0);
+        table[i].x2 = read_s16(reader, at + 0x2);
+        table[i].x4 = read_s16(reader, at + 0x4);
+        table[i].x6 = read_s16(reader, at + 0x6);
+        table[i].x8 = read_s16(reader, at + 0x8);
+        table[i].xA = read_s16(reader, at + 0xA);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
+/* tyExpDifferentTbl and tyNoGetUsTbl: trophy numbers ending in -1. */
+static void* trophy_number_list(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 rows = rows_before_end(reader, root, 2, 2, 0);
+    s16* list;
+    mh_u32 i;
+
+    if (melee_host_hsd_reader_failed(reader)) {
+        return NULL;
+    }
+    list = melee_host_hsd_reader_allocate(reader, sizeof(*list) * (rows + 1),
+                                          alignof(s16));
+    if (list == NULL) {
+        return NULL;
+    }
+    for (i = 0; i <= rows; i++) {
+        list[i] = read_s16(reader, root + i * 2);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : list;
+}
+
+/* tyDisplayModelTbl and tyDisplayModelUsTbl: how each trophy stands in the
+ * display, searched by trophy number to the end row. */
+static void* trophy_display_rows(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 rows = rows_before_end(reader, root, 0x10, 4, 0);
+    TyDspEntry* table;
+    mh_u32 i;
+
+    if (melee_host_hsd_reader_failed(reader)) {
+        return NULL;
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table) * (rows + 1),
+                                           alignof(TyDspEntry));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i <= rows; i++) {
+        const mh_u32 at = root + i * 0x10;
+        table[i].x00 = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+        table[i].x04 = melee_host_hsd_reader_u8(reader, at + 0x4);
+        table[i].x05 = melee_host_hsd_reader_u8(reader, at + 0x5);
+        table[i].pad_06[0] = melee_host_hsd_reader_u8(reader, at + 0x6);
+        table[i].pad_06[1] = melee_host_hsd_reader_u8(reader, at + 0x7);
+        table[i].x08 = melee_host_hsd_reader_f32(reader, at + 0x8);
+        table[i].x0C = melee_host_hsd_reader_f32(reader, at + 0xC);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("tyInitModelTbl",
+                                              trophy_init_models);
+    (void) melee_host_hsd_register_translator("tyInitModelDTbl",
+                                              trophy_init_models_other);
+    (void) melee_host_hsd_register_translator("tyModelSortTbl",
+                                              trophy_sort_keys);
+    (void) melee_host_hsd_register_translator("tyExpDifferentTbl",
+                                              trophy_number_list);
+    (void) melee_host_hsd_register_translator("tyNoGetUsTbl",
+                                              trophy_number_list);
+    (void) melee_host_hsd_register_translator("tyDisplayModelTbl",
+                                              trophy_display_rows);
+    (void) melee_host_hsd_register_translator("tyDisplayModelUsTbl",
+                                              trophy_display_rows);
     (void) melee_host_hsd_register_translator("grGroundParam", ground_param);
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("plLoadCommonData",

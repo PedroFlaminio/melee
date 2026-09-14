@@ -170,6 +170,13 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `tyDisplayModelTbl`, `tyDisplayModelUsTbl`), todas vetores de structs só de
   escalares terminados por -1, e para na primeira. A falta de `map_head` não é
   fatal até ali.
+- Executados os tradutores das sete tabelas de troféu. Com elas a entrada do
+  estágio termina (`Stage_802251E8` retorna) e `fn_8016E730` segue até
+  `Item_80266F70`, onde `it_8027870C` pede `itPublicData` a `ItCo.usd`; o
+  registro guarda em `x0`–`x14` as seis tabelas comuns de item que ela copia
+  para `it_804D6D28`, `it_804D6D24`, `it_804D6D38`, `it_804D6D30`,
+  `it_804D6D40` e `it_804D6D04`. É o próximo tradutor. Os dados do estágio que
+  faltam (`map_head`, `coll_data` e mais cinco) ainda não pararam a entrada.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

@@ -1228,6 +1228,32 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 184/184 e ctest 14/14;
   `host-sanitize` com 184/184, ctest 14/14, rota VS em 20,0 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
+- [x] As sete tabelas de trofeu traduzidas
+  (`port/src/game/game_data_translators.c`): `tyInitModelTbl` e
+  `tyInitModelDTbl` (`TrophyData`, 0x24 bytes), `tyModelSortTbl`
+  (`ToyNameData`, 0xC), `tyExpDifferentTbl` e `tyNoGetUsTbl` (`s16`),
+  `tyDisplayModelTbl` e `tyDisplayModelUsTbl` (`TyDspEntry`, 0x10). Nenhuma
+  tem ponteiro, entao cada uma mantem o layout do PowerPC, e nenhuma grava o
+  proprio tamanho: todas terminam numa linha cujo primeiro campo e -1, que o
+  jogo percorre e, quando uma busca nao acha nada, le. O tradutor conta ate
+  essa linha, copia-a inteira e, nas tabelas que `toy.c` tambem indexa por
+  trofeu (`tyInitModelTbl` e `tyModelSortTbl`), exige `TY_TROPHY_COUNT` (293)
+  linhas antes dela; no disco as duas tem exatamente 293. Um teste unitario
+  confere as quatro formas e a recusa de uma tabela de ordenacao curta.
+- [x] Na varredura as tabelas traduzem nos dois arquivos que as trazem,
+  `TyDatai.usd` e `TyDatai.dat` (mesmo tamanho): `game_data` 184/184 e
+  `unsupported` 5.298, com as mesmas duas recusas de `TyLight.dat`.
+- [x] Com `GS_VS` na tabela so localmente, a entrada do estagio termina:
+  `Stage_802251E8` retorna, e `fn_8016E730` para dois passos adiante, em
+  `Item_80266F70`, que chama `it_8027870C`. `ItCo.usd` (2,8 MB, 44.204
+  relocacoes, um simbolo publico e seis externos, animacoes de modelo de item)
+  nao tem traducao para `itPublicData` (assert de `lbarchive.c:87`). O
+  registro aponta `ItemCommonData`, tres tabelas de `Article` (atributos,
+  atributos proprios de cada item em `void*`, hurtboxes, estados, modelo e
+  dinamica), um `it_804D6D40_t` e um `Fighter_804D653C_t`.
+- [x] Medido sem a entrada: `host-debug` com 185/185 e ctest 14/14;
+  `host-sanitize` com 185/185, ctest 14/14, rota VS em 19,9 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 

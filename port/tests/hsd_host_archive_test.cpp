@@ -845,6 +845,117 @@ TEST_CASE("the ground parameters translate with their stage rows")
             MELEE_HOST_OK);
 }
 
+TEST_CASE("the trophy tables translate up to and including their end rows")
+{
+    // TyDatai.usd's tables hold no pointer and end with a row whose first
+    // field is -1.  The host rows are the game's own layouts.
+    struct HostTrophyData {
+        std::int32_t id;
+        std::int32_t x04;
+        float x08, x0C, x10, x14, x18, x1C;
+        std::int8_t x20, x21, x22, x23;
+    };
+    struct HostDisplayEntry {
+        std::int32_t x00;
+        std::uint8_t x04, x05, pad[2];
+        float x08, x0C;
+    };
+    constexpr std::uint32_t kTrophies = 293;
+    constexpr std::uint32_t kSort = 0x100;
+
+    ArchiveBuilder builder(0x1000);
+    // Two model rows and the end row, which keeps its own floats.
+    builder.u32(0x00, 29);
+    builder.u32(0x04, 2);
+    builder.f32(0x08, -0.82F);
+    builder.u8(0x20, 0x63);
+    builder.u8(0x21, 0xFF);
+    builder.u32(0x24, 30);
+    builder.u32(0x48, 0xFFFFFFFFU);
+    builder.f32(0x50, 1.0F);
+    // Trophy numbers.
+    builder.u16(0x80, 0x1D);
+    builder.u16(0x82, 0x67);
+    builder.u16(0x84, 0xFFFF);
+    // Display rows.
+    builder.u32(0xA0, 0x1D);
+    builder.u8(0xA4, 0x0F);
+    builder.u8(0xA5, 0x05);
+    builder.f32(0xA8, 1.0F);
+    builder.f32(0xAC, 1.7F);
+    builder.u32(0xB0, 0xFFFFFFFFU);
+    // One sort row per trophy, then the end row.
+    for (std::uint32_t row = 0; row < kTrophies; ++row) {
+        builder.u16(kSort + row * 12, static_cast<std::uint16_t>(row));
+        builder.u16(kSort + row * 12 + 10, static_cast<std::uint16_t>(row + 5));
+    }
+    builder.u16(kSort + kTrophies * 12, 0xFFFF);
+    builder.u16(kSort + kTrophies * 12 + 2, 0xFFFF);
+    builder.public_symbol(0x00, "tyInitModelDTbl");
+    builder.public_symbol(0x80, "tyExpDifferentTbl");
+    builder.public_symbol(0xA0, "tyDisplayModelUsTbl");
+    builder.public_symbol(kSort, "tyModelSortTbl");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+
+    auto* const models = static_cast<HostTrophyData*>(
+        HSD_ArchiveGetPublicAddress(&archive, "tyInitModelDTbl"));
+    REQUIRE(models != nullptr);
+    REQUIRE(models[0].id == 29);
+    REQUIRE(models[0].x04 == 2);
+    REQUIRE(models[0].x08 == -0.82F);
+    REQUIRE(models[0].x20 == 0x63);
+    REQUIRE(models[0].x21 == -1);
+    REQUIRE(models[1].id == 30);
+    REQUIRE(models[2].id == -1);
+    REQUIRE(models[2].x08 == 1.0F);
+
+    auto* const numbers = static_cast<std::int16_t*>(
+        HSD_ArchiveGetPublicAddress(&archive, "tyExpDifferentTbl"));
+    REQUIRE(numbers != nullptr);
+    REQUIRE(numbers[0] == 0x1D);
+    REQUIRE(numbers[1] == 0x67);
+    REQUIRE(numbers[2] == -1);
+
+    auto* const display = static_cast<HostDisplayEntry*>(
+        HSD_ArchiveGetPublicAddress(&archive, "tyDisplayModelUsTbl"));
+    REQUIRE(display != nullptr);
+    REQUIRE(display[0].x00 == 0x1D);
+    REQUIRE(display[0].x04 == 0x0F);
+    REQUIRE(display[0].x05 == 0x05);
+    REQUIRE(display[0].x0C == 1.7F);
+    REQUIRE(display[1].x00 == -1);
+
+    auto* const sort = static_cast<std::int16_t*>(
+        HSD_ArchiveGetPublicAddress(&archive, "tyModelSortTbl"));
+    REQUIRE(sort != nullptr);
+    REQUIRE(sort[0] == 0);
+    REQUIRE(sort[5] == 5);
+    REQUIRE(sort[(kTrophies - 1) * 6] == static_cast<std::int16_t>(kTrophies - 1));
+    REQUIRE(sort[(kTrophies - 1) * 6 + 5] ==
+            static_cast<std::int16_t>(kTrophies + 4));
+    REQUIRE(sort[kTrophies * 6] == -1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A sort table that ends before every trophy has a row is refused.
+    ArchiveBuilder short_sort(0x40);
+    short_sort.u16(0x0C, 0xFFFF);
+    short_sort.public_symbol(0x00, "tyModelSortTbl");
+    std::vector<std::byte> short_bytes = short_sort.build();
+    HSD_Archive short_archive{};
+    REQUIRE(HSD_ArchiveParse(&short_archive, bytes_of(short_bytes),
+                             short_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&short_archive, "tyModelSortTbl") ==
+            nullptr);
+    REQUIRE(std::string_view(melee_host_hsd_archive_last_error())
+                .find("fewer rows than trophies") != std::string_view::npos);
+    REQUIRE(melee_host_hsd_archive_release(short_bytes.data()) ==
+            MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed
