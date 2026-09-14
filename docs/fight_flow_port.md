@@ -326,12 +326,21 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
 - A rodada seguinte já tinha os lutadores em `Fighter_procUpdate` e achou o
   pool de `HSD_psAppSRT` criado com o tamanho do console (0xA4, 184 bytes no
   host). Corrigido sob `MELEE_HOST` com `sizeof`.
-- Próximo bloqueio: com esse lote, a rota da luta sob ASan (`GS_VS` só local)
-  roda os procs dos lutadores até `Fighter_8006A360` → `ftCo_RebirthWait_Anim`
-  → `ftCo_8008A7A8` → `ftAnim_8006EBA4` → `ftAction_80073240`, e o
-  `Command_04` de `lbcommand.c:57` lê um endereço inválido (SEGV). Depois
-  dele: medir o que acontece nos frames (contagem, imagem e resposta à
-  entrada) e seguir para `coll_data`.
+- Bloqueio seguinte, resolvido: com esse lote, a rota da luta sob ASan
+  (`GS_VS` só local) rodava os procs dos lutadores até `Fighter_8006A360` →
+  `ftCo_RebirthWait_Anim` → `ftCo_8008A7A8` → `ftAnim_8006EBA4` →
+  `ftAction_80073240`, e o `Command_04` de `lbcommand.c:57` lia um endereço
+  inválido (SEGV). O comando nem devia rodar: `ftAction_80073240` lê o opcode
+  por `gmScriptEventDefault` (`ft/types.h`), bit-fields fora de `lb/types.h`
+  que o gerador de layouts não cobre, e o host tirava o opcode dos seis bits
+  baixos da palavra. Corrigido sob `MELEE_HOST` com os campos invertidos.
+- Com o opcode certo, a luta roda o laço de frames sem erro: 600 frames da
+  luta em ~60 s no `host-debug` e 400 s sob ASan, sem terminar sozinha.
+- Próximo bloqueio: a rota não tem fim. Antes de virar teste, `--run-modes`
+  precisa de um limite de frames (o jogo pede o fim da cena por
+  `gm_801A4B60`). Depois: medir o que os frames fazem (imagem e resposta à
+  entrada) e seguir para `coll_data`, que o estágio hoje substitui por faixas
+  padrão.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

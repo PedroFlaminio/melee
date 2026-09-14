@@ -365,6 +365,13 @@ pronto. Na SSS o cursor comeca em (0, -13) e sobe ate Hyrule Temple.
   `CMD_U16` ou `CMD_S16`; a palavra `u32` inteira nao muda. Um ponteiro no
   script so existe como operando de sub-rotina ou goto, e no host e a
   distancia ate o alvo (`rel`).
+- O gerador so le `lb/types.h`. Uma struct de bit-fields sobre a palavra do
+  script declarada em outro lugar precisa da ordem inversa escrita a mao sob
+  `MELEE_HOST`: `itAnimlistCmdUnk` (`itanimlist.c`) e `gmScriptEventDefault`
+  (`ft/types.h`), pela qual `ftaction.c` le o opcode. Esquecida, ela nao
+  quebra na leitura: um opcode tirado dos bits baixos que valha 0 e Reset, que
+  so encerra o script, e o erro aparece longe, num comando de laco ou de
+  sub-rotina que roda sem pilha.
 - Toda lista variadica de ponteiros terminada por `0` precisa de `VA_END_PTR`
   quando a unidade entra no build. No build de debug o `0` pode passar por
   sorte; sob ASan a metade alta do slot vem suja e o carregador escreve num

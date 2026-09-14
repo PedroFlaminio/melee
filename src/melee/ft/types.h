@@ -1957,10 +1957,19 @@ struct Fighter {
 };
 ASSERT_SIZE(struct Fighter, 0x23EC);
 
+#ifdef MELEE_HOST
+/* The word converted to native order, each field on the bits MWCC gives it
+ * (see port/src/game/host_command_layout.h). */
+struct gmScriptEventDefault {
+    u32 value1 : 26;
+    u32 opcode : 6;
+};
+#else
 struct gmScriptEventDefault {
     u32 opcode : 6;
     u32 value1 : 26;
 };
+#endif
 
 struct ftData_UnkCountStruct {
     void* data;

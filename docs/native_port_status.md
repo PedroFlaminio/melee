@@ -1641,6 +1641,33 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 193/193 e ctest 15/15;
   `host-sanitize` com 193/193, ctest 15/15, rota VS em 19,7 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro pontos.
+- [x] O SEGV em `Command_04` (`lbcommand.c:57`) nao era um laco mal
+  empilhado: o opcode vinha dos bits errados. `ftAction_80073240` e
+  `ftAction_80073354` despacham pelo `opcode` de `gmScriptEventDefault`
+  (`ft/types.h`), uma struct de bit-fields sobre a palavra do script que fica
+  fora de `lb/types.h` e por isso fora do gerador de layouts. No host o
+  `opcode : 6` saia dos seis bits baixos da palavra ja convertida, onde o
+  console le os seis altos. Uma palavra com os bits baixos valendo 4 rodava
+  Execute Loop sem laco empilhado, `loop_count - 1` dava `0xFFFFFFFF` em `u32`
+  e o indice de `event_return` caia fora da memoria. Com os bits baixos zerados
+  a palavra roda Reset, que encerra o script sem erro. Sob `MELEE_HOST` a
+  struct declara os campos em ordem inversa, como `itAnimlistCmdUnk`; sem o
+  define `ftaction.c` pre-processa identico ao HEAD. Teste unitario le opcode
+  e valor de palavras montadas como no console
+  (`port/tests/command_stream_run.c`). Os outros leitores de script
+  (`ftcolanim.c`, `grmaterial.c`, `lbcommand.c`, `lb_013B.c`, `lb_0219.c`,
+  `itanimlist.c`, `item.c`) nao tem outra struct de bit-field local.
+- [x] Com `GS_VS` na tabela so localmente, a luta Fox vs. Fox em Hyrule Temple
+  roda o laco de frames sem erro. No `host-debug`, um gdb interrompido depois
+  de ~60 s achou 600 frames da luta desenhados (CSS 141, SSS 149) e o laco no
+  desenho do estagio (`grDisplay_801C5DB0`); a mesma rota seguiu 150 s sem
+  erro. Sob ASan, 400 s sem erro do ASan, ate o `timeout`. A luta nao termina
+  sozinha nesse tempo, entao a rota precisa de um limite de frames antes de
+  virar teste. A entrada avisa que `coll_data`, `itemdata`, `ALDYakuAll`,
+  `yakumono_param`, `map_plit` e `quake_model_set` nao tem traducao.
+- [x] Medido sem a entrada: `host-debug` com 194/194 e ctest 15/15;
+  `host-sanitize` com 194/194, ctest 15/15, rota VS em 20,0 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro pontos.
 
 ## Em andamento
 

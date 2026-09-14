@@ -2,6 +2,7 @@
  * API converted, for hsd_host_archive_test.cpp, which cannot include the
  * game's C types. */
 
+#include <melee/ft/types.h>
 #include <melee/lb/lbcommand.h>
 #include <melee/lb/types.h>
 
@@ -33,4 +34,20 @@ void melee_host_test_run_generic_commands(void* stream, int max_steps,
     out->timer = info.timer;
     out->loop_count = info.loop_count;
     out->finished = info.u == NULL;
+}
+
+void melee_host_test_read_script_event(unsigned word, unsigned* opcode,
+                                       unsigned* value1);
+
+/* ftAction_80073240 reads a fighter script word's opcode through ft/types.h's
+ * gmScriptEventDefault, not through the lb/types.h commands. */
+void melee_host_test_read_script_event(unsigned word, unsigned* opcode,
+                                       unsigned* value1)
+{
+    const u32 native = word;
+    const gmScriptEventDefault* const event =
+        (const gmScriptEventDefault*) &native;
+
+    *opcode = event->opcode;
+    *value1 = event->value1;
 }
