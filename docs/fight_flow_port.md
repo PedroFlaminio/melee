@@ -177,6 +177,37 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   para `it_804D6D28`, `it_804D6D24`, `it_804D6D38`, `it_804D6D30`,
   `it_804D6D40` e `it_804D6D04`. É o próximo tradutor. Os dados do estágio que
   faltam (`map_head`, `coll_data` e mais cinco) ainda não pararam a entrada.
+- Levantado para o tradutor de `itPublicData` (medido em `ItCo.usd` em
+  14/09/2026, com um script sobre as relocações do arquivo):
+  - O registro tem seis ponteiros: `ItemCommonData` (`data+0x2FC`), as tabelas
+    de `Article*` dos 43 itens comuns (`0x3EAC`), dos 118 itens de personagem
+    (`0x4EC8`) e dos 47 Pokémon (`0xBB38`), `it_804D6D40_t` e
+    `Fighter_804D653C_t`. As contagens vêm de `It_Kind_Kuriboh` (43),
+    `It_PKind_Start` (161) e `It_Kind_Old_Kuri` (208), e a tabela de Pokémon
+    termina exatamente onde `it_804D6D40_t` começa. Os itens de estágio
+    (`it_804A0F60`) não vêm de `ItCo`.
+  - Os 43 itens comuns e os 47 Pokémon estão todos presentes; dos 118 de
+    personagem, só 8 ponteiros não são nulos no arquivo. Cada `Article` aponta
+    atributos comuns (`ItemAttr`, com bit-fields e `itECB`), atributos
+    próprios em `void*`, hurtboxes (`ItHurtBoneList`: 14 comuns, 6 de
+    personagem, 4 Pokémon), estados (`ItemStateDesc`: três animações e o
+    script), modelo (`ItemModelDesc`) e dinâmica (`BoneDynamicsDesc`, só em 3
+    itens comuns).
+  - Os atributos próprios mudam de layout por item. Em 11 blocos há ponteiros
+    relocados (itens comuns 18, 26, 27 e 29; de personagem 0 a 3 e 115;
+    Pokémon 11 e 38), então eles pedem tradução por tipo; os outros não têm
+    ponteiro, mas só a struct de cada item diz a largura dos campos.
+  - O script de cada estado (`xC_script`) é lido por `itanimlist.c` pela
+    `CmdUnion` de `lb/types.h`, que declara cada comando como bit-fields sobre
+    `u32` (`opcode : 6` primeiro). O MWCC aloca bit-fields a partir do bit mais
+    significativo e o GCC do host, em little-endian, a partir do menos
+    significativo, então o fluxo não pode ficar verbatim como as animações. É o
+    formato dos scripts de lutador também: os leitores são `ftaction.c`,
+    `ftcolanim.c`, `grmaterial.c`, `itanimlist.c`, `lbcommand.c`, `lb_013B.c`
+    e `lb_0219.c`, e as structs de comando têm 295 linhas de bit-field. A
+    decisão (converter as palavras e inverter a ordem dos campos sob
+    `MELEE_HOST`, ou `scalar_storage_order("big-endian")`, que só o GCC tem)
+    vale para itens e lutadores e deve vir antes do tradutor.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

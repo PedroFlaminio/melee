@@ -1291,8 +1291,10 @@ Atualizado em 13 de setembro de 2026.
    lutadores (Fox), estagio (Hyrule Temple, `grshrine.c`), mapa de colisao, HUD
    e camera. O teste `melee-host-vs-selection-asset` ja entrega a selecao que
    ela consome. A cena liga, e com `GS_VS` na tabela so localmente a entrada
-   passa pela refracao e pelos efeitos e para nos dados comuns de jogador
-   (`plLoadCommonData`); o roteiro e o historico das ondas de link estao em
+   passa pela refracao, pelos efeitos, pelos dados de jogador e pelo estagio
+   e para nos dados comuns de item (`itPublicData`). O roteiro, o levantamento
+   dos itens (inclusive os scripts de comando em bit-fields, que tambem sao os
+   dos lutadores) e o historico das ondas de link estao em
    `docs/fight_flow_port.md`.
 2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
