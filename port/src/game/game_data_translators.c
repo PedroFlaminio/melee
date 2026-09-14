@@ -1105,8 +1105,343 @@ static void* item_public_data(MeleeHostHsdReader* reader, mh_u32 root)
     return melee_host_hsd_reader_failed(reader) ? NULL : data;
 }
 
+/* map_head (Gr*.dat): what a stage's models need beyond their joint trees
+ * (UnkStageDat).  The models come first, because the light overrides compare
+ * their descriptors with the models' lights by address:
+ * - each model's joint, NULL-terminated animation tables, camera, lights, fog,
+ *   GrJoint list, animation flag bytes (verbatim) and s16 list;
+ * - unk0, entries of s16 pairs that Ground_801C5940 walks;
+ * - the splines Ground_801C247C hands out;
+ * - the light overrides: a descriptor and three flags from the most
+ *   significant bit.  The entries also name materials and other records, which
+ *   can never equal a light; those keep a unique address in the payload;
+ * - the materials grDatFiles_801C6228 marks, the models' own HSD_MObjDesc.
+ * Left out, because nothing in the game reads them: each model's x14 and the
+ * unk20 table. */
+_Static_assert(sizeof(GrJoint) == 6, "GrJoint keeps its PowerPC layout");
+
+/* ground.c declares these records locally; the same declarations give the
+ * host the same layout. */
+typedef struct HostLightOverrideEntry {
+    HSD_LightDesc* desc;
+    u8 a : 1;
+    u8 b : 1;
+    u8 c : 1;
+    u8 _ : 5;
+    u8 _pad[3];
+} HostLightOverrideEntry;
+
+typedef struct HostStagePairs {
+    u8 x0_pad[0x4];
+    struct {
+        s16 a, b;
+    }* unk4;
+    s32 unk8;
+} HostStagePairs;
+
+enum {
+    STAGE_TABLE_MAX = 0x400,
+    STAGE_MODEL_SIZE = 0x34,
+};
+
+static bool stage_count_ok(MeleeHostHsdReader* reader, s32 count,
+                           bool present, const char* what)
+{
+    if (count < 0 || count > STAGE_TABLE_MAX || (count != 0 && !present)) {
+        melee_host_hsd_reader_fail(reader, what);
+        return false;
+    }
+    return true;
+}
+
+/* A NULL-terminated table of pointers, each entry built by `build`, bounded by
+ * the block's extent; the terminator is kept. */
+static void** stage_pointer_table(MeleeHostHsdReader* reader, mh_u32 at,
+                                  void* (*build)(MeleeHostHsdReader*, mh_u32))
+{
+    const mh_u32 limit = melee_host_hsd_reader_extent(reader, at) / 4;
+    mh_u32 count = 0;
+    void** table;
+    mh_u32 i;
+
+    for (count = 0; count < limit; count++) {
+        bool present;
+        (void) target_of(reader, at + count * 4, &present);
+        if (!present) {
+            break;
+        }
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(void*) * (count + 1),
+                                           alignof(void*));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        bool present;
+        const mh_u32 target = target_of(reader, at + i * 4, &present);
+        table[i] = build(reader, target);
+    }
+    table[count] = NULL;
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
+static s16* stage_s16_list(MeleeHostHsdReader* reader, mh_u32 at, s32 count)
+{
+    s16* const list = melee_host_hsd_reader_allocate(
+        reader, sizeof(s16) * (size_t) count, alignof(s16));
+    s32 i;
+
+    if (list == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        list[i] = read_s16(reader, at + (mh_u32) i * 2);
+    }
+    return list;
+}
+
+static void stage_model(MeleeHostHsdReader* reader, mh_u32 at,
+                        struct UnkStageDat_x8_t* model)
+{
+    bool present;
+    mh_u32 target;
+    s32 count;
+    s32 i;
+
+    target = target_of(reader, at + 0x00, &present);
+    model->unk0 = present ? melee_host_hsd_reader_joint(reader, target) : NULL;
+    target = target_of(reader, at + 0x04, &present);
+    model->unk4 = present ? (HSD_AnimJoint**) stage_pointer_table(
+                                reader, target, melee_host_hsd_reader_anim_joint)
+                          : NULL;
+    target = target_of(reader, at + 0x08, &present);
+    model->unk8 = present
+                      ? (HSD_MatAnimJoint**) stage_pointer_table(
+                            reader, target, melee_host_hsd_reader_mat_anim_joint)
+                      : NULL;
+    target = target_of(reader, at + 0x0C, &present);
+    model->unkC =
+        present ? (HSD_ShapeAnimJoint**) stage_pointer_table(
+                      reader, target, melee_host_hsd_reader_shape_anim_joint)
+                : NULL;
+    target = target_of(reader, at + 0x10, &present);
+    model->x10 = present ? melee_host_hsd_reader_camera(reader, target) : NULL;
+    /* Nothing reads x14; in GrSh.dat it is a block of zeros. */
+    (void) target_of(reader, at + 0x14, &present);
+    model->x14 = NULL;
+    target = target_of(reader, at + 0x18, &present);
+    model->x18 =
+        present ? melee_host_hsd_reader_light_lists(reader, target) : NULL;
+    target = target_of(reader, at + 0x1C, &present);
+    model->x1C = present ? melee_host_hsd_reader_fog(reader, target) : NULL;
+
+    count = (s32) melee_host_hsd_reader_u32(reader, at + 0x24);
+    target = target_of(reader, at + 0x20, &present);
+    model->unk20 = NULL;
+    model->unk24 = count;
+    if (stage_count_ok(reader, count, present,
+                       "a stage model lists its GrJoints wrongly") &&
+        count != 0)
+    {
+        GrJoint* const joints = melee_host_hsd_reader_allocate(
+            reader, sizeof(GrJoint) * (size_t) count, alignof(GrJoint));
+        if (joints != NULL) {
+            for (i = 0; i < count; i++) {
+                const mh_u32 joint = target + (mh_u32) i * sizeof(GrJoint);
+                joints[i].x = read_s16(reader, joint + 0);
+                joints[i].y = read_s16(reader, joint + 2);
+                joints[i].z = read_s16(reader, joint + 4);
+            }
+        }
+        model->unk20 = joints;
+    }
+
+    target = target_of(reader, at + 0x28, &present);
+    model->x28 =
+        present ? melee_host_hsd_reader_payload(reader, target, 1) : NULL;
+
+    count = (s32) melee_host_hsd_reader_u32(reader, at + 0x30);
+    target = target_of(reader, at + 0x2C, &present);
+    model->x2C = NULL;
+    model->x30 = count;
+    if (stage_count_ok(reader, count, present,
+                       "a stage model lists its s16 values wrongly") &&
+        count != 0)
+    {
+        model->x2C = stage_s16_list(reader, target, count);
+    }
+}
+
+static void* stage_map_head(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    UnkStageDat* const dat = melee_host_hsd_reader_allocate(
+        reader, sizeof(UnkStageDat), alignof(UnkStageDat));
+    bool present;
+    mh_u32 target;
+    s32 count;
+    s32 i;
+
+    if (dat == NULL) {
+        return NULL;
+    }
+
+    count = (s32) melee_host_hsd_reader_u32(reader, root + 0x0C);
+    target = target_of(reader, root + 0x08, &present);
+    dat->unkC = count;
+    if (!stage_count_ok(reader, count, present,
+                        "map_head lists its models wrongly"))
+    {
+        return NULL;
+    }
+    if (count != 0) {
+        struct UnkStageDat_x8_t* const models = melee_host_hsd_reader_allocate(
+            reader, sizeof(*models) * (size_t) count,
+            alignof(struct UnkStageDat_x8_t));
+        if (models == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            stage_model(reader, target + (mh_u32) i * STAGE_MODEL_SIZE,
+                        &models[i]);
+        }
+        dat->unk8 = models;
+    }
+
+    count = (s32) melee_host_hsd_reader_u32(reader, root + 0x04);
+    target = target_of(reader, root + 0x00, &present);
+    dat->unk4 = count;
+    if (!stage_count_ok(reader, count, present,
+                        "map_head lists its pair tables wrongly"))
+    {
+        return NULL;
+    }
+    if (count != 0) {
+        HostStagePairs* const entries = melee_host_hsd_reader_allocate(
+            reader, sizeof(*entries) * (size_t) count, alignof(HostStagePairs));
+        if (entries == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            const mh_u32 entry = target + (mh_u32) i * 0xC;
+            const s32 pairs = (s32) melee_host_hsd_reader_u32(reader, entry + 0x8);
+            bool listed;
+            const mh_u32 list = target_of(reader, entry + 0x4, &listed);
+            /* x0 holds a joint address ground.c declares as padding and never
+             * reads. */
+            entries[i].unk8 = pairs;
+            entries[i].unk4 = NULL;
+            if (stage_count_ok(reader, pairs, listed,
+                               "map_head lists its s16 pairs wrongly") &&
+                pairs != 0)
+            {
+                entries[i].unk4 = (void*) stage_s16_list(reader, list, pairs * 2);
+            }
+        }
+        dat->unk0 = entries;
+    }
+
+    count = (s32) melee_host_hsd_reader_u32(reader, root + 0x14);
+    target = target_of(reader, root + 0x10, &present);
+    dat->unk14 = count;
+    if (!stage_count_ok(reader, count, present,
+                        "map_head lists its splines wrongly"))
+    {
+        return NULL;
+    }
+    if (count != 0) {
+        HSD_Spline** const splines = melee_host_hsd_reader_allocate(
+            reader, sizeof(HSD_Spline*) * (size_t) count, alignof(HSD_Spline*));
+        if (splines == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            bool listed;
+            const mh_u32 spline =
+                target_of(reader, target + (mh_u32) i * 4, &listed);
+            splines[i] =
+                listed ? melee_host_hsd_reader_spline(reader, spline) : NULL;
+        }
+        dat->unk10 = splines;
+    }
+
+    count = (s32) melee_host_hsd_reader_u32(reader, root + 0x1C);
+    target = target_of(reader, root + 0x18, &present);
+    dat->unk1C = count;
+    if (!stage_count_ok(reader, count, present,
+                        "map_head lists its light overrides wrongly"))
+    {
+        return NULL;
+    }
+    if (count != 0) {
+        HostLightOverrideEntry* const entries = melee_host_hsd_reader_allocate(
+            reader, sizeof(*entries) * (size_t) count,
+            alignof(HostLightOverrideEntry));
+        if (entries == NULL) {
+            return NULL;
+        }
+        /* unk1C counts twice the entries the table holds, in every stage file
+         * on the disc, and find_light_override walks that many, reading the
+         * records that follow (the next tables and map_head itself) as
+         * entries.  None of those words can equal a light's address; here
+         * they get a unique address in the payload that cannot either. */
+        for (i = 0; i < count; i++) {
+            const mh_u32 entry = target + (mh_u32) i * 8;
+            const mh_u8 flags = melee_host_hsd_reader_u8(reader, entry + 0x4);
+            HSD_LightDesc* light = NULL;
+            if (melee_host_hsd_reader_has_pointer(reader, entry + 0x0)) {
+                bool listed;
+                const mh_u32 desc = target_of(reader, entry + 0x0, &listed);
+                light = melee_host_hsd_reader_light_built_at(reader, desc);
+                if (light == NULL) {
+                    light = melee_host_hsd_reader_payload(reader, desc, 1);
+                }
+            } else if (melee_host_hsd_reader_u32(reader, entry + 0x0) != 0) {
+                light = melee_host_hsd_reader_payload(reader, entry, 1);
+            }
+            entries[i].desc = light;
+            entries[i].a = (flags >> 7) & 1;
+            entries[i].b = (flags >> 6) & 1;
+            entries[i].c = (flags >> 5) & 1;
+            entries[i]._ = flags & 0x1F;
+        }
+        dat->unk18 = entries;
+    }
+
+    /* Nothing reads the unk20 table. */
+    (void) target_of(reader, root + 0x20, &present);
+    dat->unk20 = NULL;
+    dat->unk24 = 0;
+
+    count = (s32) melee_host_hsd_reader_u32(reader, root + 0x2C);
+    target = target_of(reader, root + 0x28, &present);
+    dat->unk2C = count;
+    if (!stage_count_ok(reader, count, present,
+                        "map_head lists its materials wrongly"))
+    {
+        return NULL;
+    }
+    if (count != 0) {
+        UnkStageDatInternal** const materials = melee_host_hsd_reader_allocate(
+            reader, sizeof(UnkStageDatInternal*) * (size_t) count,
+            alignof(UnkStageDatInternal*));
+        if (materials == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < count; i++) {
+            bool listed;
+            const mh_u32 mobj =
+                target_of(reader, target + (mh_u32) i * 4, &listed);
+            materials[i] =
+                listed ? melee_host_hsd_reader_mobj(reader, mobj) : NULL;
+        }
+        dat->unk28 = materials;
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : dat;
+}
+
 void melee_host_game_register_data_translators(void)
 {
+    (void) melee_host_hsd_register_translator("map_head", stage_map_head);
     (void) melee_host_hsd_register_translator("itPublicData",
                                               item_public_data);
     (void) melee_host_hsd_register_translator("tyInitModelTbl",

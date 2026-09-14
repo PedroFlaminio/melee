@@ -1354,6 +1354,52 @@ Atualizado em 13 de setembro de 2026.
 - [x] Medido sem a entrada: `host-debug` com 188/188 e ctest 15/15;
   `host-sanitize` com 188/188, ctest 15/15, rota VS em 19,7 s, nenhum erro do
   ASan e, do UBSan, os mesmos quatro relatos.
+- [x] `map_head` traduzido (`port/src/game/game_data_translators.c`), o
+  `UnkStageDat` que `grDatFiles_801C6038` guarda:
+  - Os modelos primeiro (`UnkStageDat_x8_t`): joint, tabelas de animacao
+    terminadas por NULL, camera, `LightList`, fog, `GrJoint`, os bytes de flag
+    de animacao (verbatim; `granime.c` os indexa) e a lista `s16` que
+    `Ground_801C3FA4` recebe. Depois as tabelas de pares `s16` que
+    `Ground_801C5940` percorre, as splines, os overrides de luz e os
+    materiais que `grDatFiles_801C6228` marca.
+  - Os overrides: `Ground_801C20E0` compara o descritor de cada entrada com as
+    luzes dos modelos por endereco. O materializador passou a construir cada
+    luz uma vez por endereco, e o tradutor entrega a mesma `HSD_LightDesc`.
+    `unk1C` conta o dobro das entradas que a tabela tem, em todos os 66
+    estagios em que uma simulacao chegou ate ela, e `find_light_override`
+    percorre essa contagem, lendo como entradas as tabelas seguintes e o
+    proprio `map_head`. O host monta a mesma contagem; o que nao e luz ganha
+    um endereco unico no payload, que nunca iguala uma luz.
+  - Os materiais sao os `HSD_MObjDesc` dos proprios modelos (os 27 de Hyrule
+    Temple). `UnkStageDatInternal` tem layout host sob `MELEE_HOST`, com o
+    `rendermode` depois do nome de classe em largura de ponteiro, onde
+    `grDatFiles_801C6228` liga `0x4000000`.
+  - Ficam de fora, porque nada no jogo os le: o `x14` de cada modelo (zeros
+    em `GrSh.dat`), a tabela `unk20` e o ponteiro de joint que `ground.c`
+    declara como preenchimento nas entradas de pares.
+  - O leitor C ganhou `melee_host_hsd_reader_camera`, `_fog`, `_light_lists`,
+    `_light_built_at`, `_mobj` e `_spline`; `scene_lights` passou a montar a
+    mesma tabela de luzes a partir de um offset.
+  - Um teste unitario monta um `map_head` e confere, pelos tipos do jogo
+    (`port/tests/stage_data_check.c`), o modelo, os pares, os overrides com a
+    contagem dobrada e a luz batendo por endereco, e o material pelo layout
+    host.
+- [x] No disco: 69 dos 71 `map_head` traduzem. `GrIz.dat` e `GrNLa.dat` param
+  na animacao de luz que segue um joint, a mesma limitacao de `TyLight.dat`.
+  Os modelos do Pokemon Stadium (`GrPs*.dat`) tem campos em cadeias de
+  externos, partes compartilhadas entre as transformacoes, que
+  `lbArchive_InitializeDAT` resolve para NULL. Varredura: `game_data`
+  260/262, joints 725/725, `scene_lights` 17/17 com 51 LObjs.
+- [x] Matching: `grdatfiles.c` e `ground.c` pre-processam identicos sem
+  `MELEE_HOST`.
+- [x] Com `GS_VS` na tabela so localmente, a entrada passa por
+  `Stage_8022524C` inteiro, pela camera e por `fn_8016E2BC`, e para em
+  `Fighter_LoadCommonData` (`fighter.c:182`), que pede `ftLoadCommonData` a
+  `PlCo.dat` (assert de `lbarchive.c:87`). No caminho o jogo imprime "use
+  dummy CamRange" e "use dummy DeadRange".
+- [x] Medido sem a entrada: `host-debug` com 189/189 e ctest 15/15;
+  `host-sanitize` com 189/189, ctest 15/15, rota VS em 19,6 s, nenhum erro do
+  ASan e, do UBSan, os mesmos quatro relatos.
 
 ## Em andamento
 
@@ -1596,10 +1642,10 @@ Atualizado em 13 de setembro de 2026.
   endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
   mesmo endereco continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
-  carrega ainda: a API de arquivo do host traduz `grGroundParam`, mas nao
-  `map_head`, `coll_data`, `itemdata`, `ALDYakuAll`, `yakumono_param`,
-  `map_plit` nem `quake_model_set`. Os 71 arquivos `Gr*.dat` trazem os cinco
-  primeiros; 67 trazem os dois ultimos.
+  carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam` e
+  `map_head` (69 de 71), mas nao `coll_data`, `itemdata`, `ALDYakuAll`,
+  `yakumono_param`, `map_plit` nem `quake_model_set`. Os 71 arquivos
+  `Gr*.dat` trazem os quatro primeiros; 67 trazem os dois ultimos.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.

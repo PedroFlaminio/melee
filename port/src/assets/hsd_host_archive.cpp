@@ -660,6 +660,61 @@ extern "C" mh_u32 melee_host_hsd_reader_extent(MeleeHostHsdReader* reader,
         });
 }
 
+extern "C" void* melee_host_hsd_reader_camera(MeleeHostHsdReader* reader,
+                                              mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_camera(offset);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_fog(MeleeHostHsdReader* reader,
+                                           mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_fog(offset);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_light_lists(MeleeHostHsdReader* reader,
+                                                   mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_light_lists(offset);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_mobj(MeleeHostHsdReader* reader,
+                                            mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_mobj(offset);
+        });
+}
+
+extern "C" void* melee_host_hsd_reader_spline(MeleeHostHsdReader* reader,
+                                              mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_spline(offset);
+        });
+}
+
+extern "C" void*
+melee_host_hsd_reader_light_built_at(MeleeHostHsdReader* reader,
+                                     mh_u32 offset)
+{
+    return reader_step<void*>(
+        reader, nullptr, [offset](HsdMaterializedArchive& d) -> void* {
+            return d.translator_light_built_at(offset);
+        });
+}
+
 extern "C" void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader,
                                                 size_t size, size_t alignment)
 {

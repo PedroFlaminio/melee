@@ -129,6 +129,20 @@ void* melee_host_hsd_reader_shape_anim_joint(MeleeHostHsdReader* reader,
 /* The bytes from `offset` to the next address a relocation targets or a public
  * symbol names: the most that a block recording no length can hold. */
 mh_u32 melee_host_hsd_reader_extent(MeleeHostHsdReader* reader, mh_u32 offset);
+/* The HSD_CObjDesc, HSD_FogDesc, NULL-terminated LightList table,
+ * HSD_MObjDesc or HSD_Spline at `offset`, built as the scene and joint symbols
+ * build them; lights and materials are shared with every other reference to
+ * the same address. */
+void* melee_host_hsd_reader_camera(MeleeHostHsdReader* reader, mh_u32 offset);
+void* melee_host_hsd_reader_fog(MeleeHostHsdReader* reader, mh_u32 offset);
+void* melee_host_hsd_reader_light_lists(MeleeHostHsdReader* reader,
+                                        mh_u32 offset);
+void* melee_host_hsd_reader_mobj(MeleeHostHsdReader* reader, mh_u32 offset);
+void* melee_host_hsd_reader_spline(MeleeHostHsdReader* reader, mh_u32 offset);
+/* The HSD_LightDesc already built from the record at `offset`, or NULL when
+ * none was; asking never builds one. */
+void* melee_host_hsd_reader_light_built_at(MeleeHostHsdReader* reader,
+                                           mh_u32 offset);
 void* melee_host_hsd_reader_allocate(MeleeHostHsdReader* reader, size_t size,
                                      size_t alignment);
 void melee_host_hsd_reader_fail(MeleeHostHsdReader* reader,

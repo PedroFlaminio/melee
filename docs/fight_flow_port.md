@@ -236,6 +236,29 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   a tabela de luzes que `LightOverrideEntry` compara por ponteiro com as
   `LightList` dos modelos; por isso o tradutor precisa entregar o mesmo
   `HSD_LightDesc*` nas duas estruturas.
+- Executado o tradutor de `map_head` (detalhes em
+  `docs/native_port_status.md`); 69 dos 71 estágios traduzem. Com `GS_VS` na
+  tabela (só local), a entrada passa por `Stage_8022524C` inteiro (o jogo
+  avisa "use dummy CamRange" e "use dummy DeadRange", porque o resto dos dados
+  de estágio ainda não chega), pela câmera e por `fn_8016E2BC`, e para em
+  `Fighter_LoadCommonData`, que pede `ftLoadCommonData` a `PlCo.dat`.
+- Próximo bloqueio: `ftLoadCommonData`, um registro de 23 ponteiros que
+  `Fighter_LoadCommonData` copia para globais. Levantado em 14/09/2026:
+  - Só escalares, sem relocação dentro: `ftCommonData` (0x818 bytes; as
+    exceções em bytes são `x6DC_colorsByPlayer`, `x6EC` e `x7D8`), as linhas
+    de `ftCo_ItemThrowAttrs` de `Fighter_804D6550` (que `ftCo_ItemThrow.c`
+    percorre por aritmética com offsets do console, válida porque as linhas
+    são só floats), `654C` (linhas de 5 floats), `6548`, os modificadores de
+    escala, coelho, metal e gravidade (`6524` a `6518`), `CrowdConfig`, `6510`
+    (sem leitor) e os bytes de `650C` e `6508`.
+  - Com ponteiros: `ftPartsTable` (por tipo de lutador, dois vetores de `u8`
+    e a contagem), `Fighter_804D6540` (por tipo, ponteiro e contagem de
+    registros de `u8`), as tabelas de scripts de cor `653C` e `6538` (lidas
+    por `lb_800144C8`, como as dos itens), `6534` (o joint e a animação do
+    pedestal de reaparecimento), `6530` (pares de `Vec2*` e contagem, com a
+    contagem lida de um slot de ponteiro), as duas tabelas de tremor, os
+    joints de `6514` (pedestal de troféu) e `6504`, e `Fighter_804D64FC`, as
+    tabelas da IA de CPU por personagem, com os scripts de `cmdscripts`.
 - Como era o bloqueio dos efeitos: `efAsync_LoadSync(0)` carrega `EfCoData.dat`
   e pede `effCommonDataTable`, cuja estrutura aponta os bancos de comando e de
   textura das partículas (e os modelos dos efeitos). No console

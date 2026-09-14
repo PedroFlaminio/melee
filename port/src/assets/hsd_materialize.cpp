@@ -1433,7 +1433,19 @@ HSD_LightDesc* HsdMaterializedArchive::light_desc_chain(HsdRuntimeNode node)
         if (++links > kLightLimit) {
             throw HsdArchiveError("HSD light chain does not end");
         }
+        /* A light a table and an override both name is one descriptor, which
+         * Ground_801C20E0 compares by address. */
+        const auto found = light_descs_.find(current->data_offset);
+        if (found != light_descs_.end()) {
+            if (tail != nullptr) {
+                tail->next = found->second;
+            } else {
+                head = found->second;
+            }
+            return head;
+        }
         HSD_LightDesc* const host = allocate<HSD_LightDesc>();
+        light_descs_.emplace(current->data_offset, host);
         stats_.light_descs += 1;
 
         if (const auto name = reference(*current, light_field::kClassName)) {
@@ -1571,7 +1583,12 @@ HSD_LightAnim* HsdMaterializedArchive::light_anim_chain(HsdRuntimeNode node)
 MaterializedLightList**
 HsdMaterializedArchive::scene_lights(std::string_view public_symbol)
 {
-    const HsdRuntimeNode table = archive_.public_root(public_symbol);
+    return light_list_table(archive_.public_root(public_symbol));
+}
+
+MaterializedLightList**
+HsdMaterializedArchive::light_list_table(HsdRuntimeNode table)
+{
     std::size_t count = 0;
     while (reference(table, static_cast<std::uint32_t>(count * 4)).has_value()) {
         if (++count >= kLightLimit) {
@@ -1771,6 +1788,39 @@ HsdMaterializedArchive::translator_extent(std::uint32_t data_offset)
                                     ? static_cast<std::uint32_t>(payload_size_)
                                     : *next;
     return limit - data_offset;
+}
+
+HSD_CObjDesc* HsdMaterializedArchive::translator_camera(std::uint32_t data_offset)
+{
+    return camera_desc({ data_offset });
+}
+
+HSD_FogDesc* HsdMaterializedArchive::translator_fog(std::uint32_t data_offset)
+{
+    return fog_desc({ data_offset });
+}
+
+MaterializedLightList**
+HsdMaterializedArchive::translator_light_lists(std::uint32_t data_offset)
+{
+    return light_list_table({ data_offset });
+}
+
+HSD_LightDesc* HsdMaterializedArchive::translator_light_built_at(
+    std::uint32_t data_offset) const
+{
+    const auto found = light_descs_.find(data_offset);
+    return found == light_descs_.end() ? nullptr : found->second;
+}
+
+HSD_MObjDesc* HsdMaterializedArchive::translator_mobj(std::uint32_t data_offset)
+{
+    return mobj_desc({ data_offset });
+}
+
+HSD_Spline* HsdMaterializedArchive::translator_spline(std::uint32_t data_offset)
+{
+    return spline_desc({ data_offset });
 }
 
 void HsdMaterializedArchive::index_stream_boundaries()

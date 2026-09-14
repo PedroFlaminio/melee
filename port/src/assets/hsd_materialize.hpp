@@ -257,8 +257,24 @@ public:
      * a public symbol names: the most that a block recording no length of its
      * own can hold. */
     [[nodiscard]] std::uint32_t translator_extent(std::uint32_t data_offset);
+    /* Descriptors a stage's map_head points at, built as the scene symbols
+     * build them.  A light, a material and a joint are shared with every
+     * other reference to the same address; translator_light_built_at returns
+     * a light only once one was built there. */
+    [[nodiscard]] HSD_CObjDesc* translator_camera(std::uint32_t data_offset);
+    [[nodiscard]] HSD_FogDesc* translator_fog(std::uint32_t data_offset);
+    [[nodiscard]] MaterializedLightList**
+    translator_light_lists(std::uint32_t data_offset);
+    [[nodiscard]] HSD_LightDesc*
+    translator_light_built_at(std::uint32_t data_offset) const;
+    [[nodiscard]] HSD_MObjDesc* translator_mobj(std::uint32_t data_offset);
+    [[nodiscard]] HSD_Spline* translator_spline(std::uint32_t data_offset);
 
 private:
+    MaterializedLightList** light_list_table(HsdRuntimeNode table);
+    /* Every light descriptor built, by the address of its record. */
+    std::unordered_map<std::uint32_t, HSD_LightDesc*> light_descs_;
+
     void index_stream_boundaries();
     void* command_stream(HsdRuntimeNode start);
 

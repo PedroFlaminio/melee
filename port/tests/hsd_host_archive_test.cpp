@@ -1131,6 +1131,89 @@ TEST_CASE("the common item data translates, leaving out per-kind layouts")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_stage_map_head(void* translated,
+                                                   char* message,
+                                                   std::size_t size);
+
+TEST_CASE("a stage's map_head translates with its lights shared by address")
+{
+    // One model with an animation table that is only its terminator, a light
+    // list naming an ambient light, GrJoints, flag bytes and s16 values; a
+    // table of s16 pairs; light overrides counted twice, as on the disc, whose
+    // first entry names the model's light; a table nothing reads; and a
+    // material.  stage_data_check.c reads it back through the game's types.
+    ArchiveBuilder builder(0x200);
+    // The model.
+    builder.pointer(0x004, 0x040);
+    builder.pointer(0x014, 0x050);
+    builder.pointer(0x018, 0x060);
+    builder.pointer(0x020, 0x070);
+    builder.u32(0x024, 2);
+    builder.pointer(0x028, 0x07C);
+    builder.pointer(0x02C, 0x080);
+    builder.u32(0x030, 3);
+    builder.u32(0x050, 0xABCDU);
+    builder.pointer(0x060, 0x090);
+    builder.u16(0x070, 1);
+    builder.u16(0x072, 2);
+    builder.u16(0x074, 3);
+    builder.u16(0x076, 4);
+    builder.u16(0x078, 0xFFFD);
+    builder.u16(0x07A, 6);
+    builder.u8(0x07C, 1);
+    builder.u16(0x080, 10);
+    builder.u16(0x082, 11);
+    builder.u16(0x084, 0xFFF9);
+    // The light list entry and an ambient light.
+    builder.pointer(0x090, 0x0A0);
+    builder.u8(0x0AC, 0x40);
+    builder.u8(0x0AD, 0x80);
+    builder.u8(0x0AE, 0xC0);
+    builder.u8(0x0AF, 0xFF);
+    // s16 pairs.
+    builder.pointer(0x0C0, 0x000);
+    builder.pointer(0x0C4, 0x0D0);
+    builder.u32(0x0C8, 2);
+    builder.u16(0x0D0, 1);
+    builder.u16(0x0D2, 0x94);
+    builder.u16(0x0D4, 2);
+    builder.u16(0x0D6, 0x95);
+    // Two real overrides: the light, then the material.
+    builder.pointer(0x0E0, 0x0A0);
+    builder.u8(0x0E4, 0xC0);
+    builder.pointer(0x0E8, 0x150);
+    builder.u8(0x0EC, 0x20);
+    // What the doubled count reads next: a plain word, then the material
+    // table's pointer.
+    builder.u32(0x0F0, 0x12345678U);
+    builder.pointer(0x0F8, 0x150);
+    // map_head.
+    builder.pointer(0x100, 0x0C0);
+    builder.u32(0x104, 1);
+    builder.pointer(0x108, 0x000);
+    builder.u32(0x10C, 1);
+    builder.pointer(0x118, 0x0E0);
+    builder.u32(0x11C, 4);
+    builder.pointer(0x120, 0x0F0);
+    builder.u32(0x124, 1);
+    builder.pointer(0x128, 0x0F8);
+    builder.u32(0x12C, 1);
+    // The material, render mode 0x12.
+    builder.u32(0x154, 0x12);
+    builder.public_symbol(0x100, "map_head");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const head = HSD_ArchiveGetPublicAddress(&archive, "map_head");
+    REQUIRE(head != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_stage_map_head(head, message,
+                                                 sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed

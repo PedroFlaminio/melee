@@ -2033,10 +2033,20 @@ struct GroundParam {
     GXColor xD8;
 };
 
+#ifdef MELEE_HOST
+/* The entries map_head lists here are material descriptors (HSD_MObjDesc):
+ * unk4 is the render mode, which on the host follows a pointer-wide class
+ * name. */
+struct UnkStageDatInternal {
+    char* x0_class_name;
+    u32 unk4; // flags
+};
+#else
 struct UnkStageDatInternal {
     u8 x0_fill[0x4];
     u32 unk4; // flags
 };
+#endif
 
 struct UnkStageDat_x8_t {
     /*  +0 */ struct HSD_Joint* unk0;

@@ -16,15 +16,15 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos e dados de jogador e para nos dados de estágio (`GrSh.dat`) | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | a cena liga; com `GS_VS` só local, a entrada passa por refração, efeitos, dados de jogador, itens, estágio e câmera e para nos dados comuns de lutador (`PlCo.dat`) | 30% |
 | Áudio, distribuição e regressão end-to-end | parcial; sem partida validada | 10% |
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 15/15 testes aprovados; 188/188 testes
+- `ctest --preset host-debug`: 15/15 testes aprovados; 189/189 testes
   unitários.
-- `ctest --preset host-sanitize -V`: 15/15 e 188/188, sem erro do ASan; a rota
-  VS leva 19,7 s. O UBSan só relata chamadas por ponteiro de função de outro
+- `ctest --preset host-sanitize -V`: 15/15 e 189/189, sem erro do ASan; a rota
+  VS leva 19,6 s. O UBSan só relata chamadas por ponteiro de função de outro
   tipo (quatro pontos, listados em `native_port_status.md`).
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
@@ -69,3 +69,4 @@ Battlefield ficam travados na SSS sem dados salvos.
 | 2026-09-14 | 48% | Levantamento de `itPublicData`: 43 itens comuns, 8 dos 118 de personagem e 47 Pokémon em `ItCo.usd`, 11 blocos de atributos próprios com ponteiros e scripts de estado lidos por bit-fields sobre `u32`, o mesmo formato dos scripts de lutador. Plano em `fight_flow_port.md`. |
 | 2026-09-14 | 49% | Scripts de comando no host: a API de arquivo converte as palavras dos scripts para a ordem nativa, as structs de bit-field do host são geradas de `lb/types.h` com os campos invertidos (255 campos conferidos contra o modelo do MWCC) e sub-rotina e goto usam distâncias relativas. Vale para itens, lutadores e sobreposição de cor; nos 150 scripts de estado de `ItCo.usd` a regra de parada vale. |
 | 2026-09-14 | 51% | `itPublicData` traduzido: dados comuns, 98 `Article` (43 comuns, 8 de personagem, 47 Pokémon) com atributos, hurtboxes, estados com animações e scripts, modelos e a tabela de cor, mais as restrições RObj de bytecode dos modelos. Atributos próprios por tipo de item e dinâmica ficam de fora, com parada nomeada ao criar o item. A entrada da luta passa pelos itens e pelo áudio e para no `map_head` do estágio. |
+| 2026-09-14 | 53% | `map_head` traduzido (69 de 71 estágios): modelos com câmera, luzes e fog, pares, splines, overrides de luz com o mesmo `HSD_LightDesc*` das luzes dos modelos (a contagem no disco é o dobro da tabela, e o jogo lê além dela) e os materiais dos modelos. A entrada da luta passa pelo estágio e pela câmera e para nos dados comuns de lutador (`ftLoadCommonData`, `PlCo.dat`). |

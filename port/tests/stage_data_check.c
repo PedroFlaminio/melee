@@ -1,0 +1,107 @@
+/* Checks, through the game's own C types, the map_head the host archive API
+ * translated from the archive hsd_host_archive_test.cpp builds, which C++
+ * cannot include the stage headers to read. */
+
+#include <melee/gr/types.h>
+#include <melee/sc/types.h>
+#include <sysdolphin/baselib/lobj.h>
+
+#include <stddef.h>
+#include <stdio.h>
+
+int melee_host_test_check_stage_map_head(void* translated, char* message,
+                                         size_t size);
+
+/* ground.c declares these records locally; game_data_translators.c keeps the
+ * same declarations. */
+typedef struct CheckLightOverrideEntry {
+    HSD_LightDesc* desc;
+    u8 a : 1;
+    u8 b : 1;
+    u8 c : 1;
+    u8 _ : 5;
+    u8 _pad[3];
+} CheckLightOverrideEntry;
+
+typedef struct CheckStagePairs {
+    u8 x0_pad[0x4];
+    struct {
+        s16 a, b;
+    }* unk4;
+    s32 unk8;
+} CheckStagePairs;
+
+#define CHECK(condition)                                                      \
+    do {                                                                      \
+        if (!(condition)) {                                                   \
+            snprintf(message, size, "%s", #condition);                        \
+            return 0;                                                         \
+        }                                                                     \
+    } while (0)
+
+int melee_host_test_check_stage_map_head(void* translated, char* message,
+                                         size_t size)
+{
+    const UnkStageDat* const dat = translated;
+    const struct UnkStageDat_x8_t* model;
+    const HSD_LightDesc* light;
+    const CheckLightOverrideEntry* overrides;
+    const CheckStagePairs* pairs;
+
+    CHECK(dat != NULL);
+
+    /* One model: an animation table that is only its terminator, the left-out
+     * x14, one ambient light, two GrJoints, flag bytes and three s16. */
+    CHECK(dat->unkC == 1);
+    model = dat->unk8;
+    CHECK(model != NULL);
+    CHECK(model->unk0 == NULL);
+    CHECK(model->unk4 != NULL && model->unk4[0] == NULL);
+    CHECK(model->unk8 == NULL && model->unkC == NULL);
+    CHECK(model->x10 == NULL);
+    CHECK(model->x14 == NULL);
+    CHECK(model->x18 != NULL && model->x18[0] != NULL && model->x18[1] == NULL);
+    light = model->x18[0]->desc;
+    CHECK(light != NULL);
+    CHECK(light->color.r == 0x40 && light->color.a == 0xFF);
+    CHECK(model->x1C == NULL);
+    CHECK(model->unk24 == 2);
+    CHECK(model->unk20 != NULL);
+    CHECK(model->unk20[0].x == 1 && model->unk20[1].y == -3 &&
+          model->unk20[1].z == 6);
+    CHECK(model->x28 != NULL && ((const u8*) model->x28)[0] == 1 &&
+          ((const u8*) model->x28)[1] == 0);
+    CHECK(model->x30 == 3);
+    CHECK(model->x2C != NULL && model->x2C[0] == 10 && model->x2C[2] == -7);
+
+    CHECK(dat->unk4 == 1);
+    pairs = dat->unk0;
+    CHECK(pairs != NULL && pairs[0].unk8 == 2);
+    CHECK(pairs[0].unk4 != NULL);
+    CHECK(pairs[0].unk4[0].a == 1 && pairs[0].unk4[0].b == 0x94);
+    CHECK(pairs[0].unk4[1].a == 2 && pairs[0].unk4[1].b == 0x95);
+
+    CHECK(dat->unk10 == NULL && dat->unk14 == 0);
+
+    /* Four overrides counted for the two the table holds.  The first names
+     * the model's light, flags from the most significant bit; the rest never
+     * equal it. */
+    CHECK(dat->unk1C == 4);
+    overrides = dat->unk18;
+    CHECK(overrides != NULL);
+    CHECK(overrides[0].desc == light);
+    CHECK(overrides[0].a == 1 && overrides[0].b == 1 && overrides[0].c == 0);
+    CHECK(overrides[1].desc != NULL && overrides[1].desc != light);
+    CHECK(overrides[1].a == 0 && overrides[1].c == 1);
+    CHECK(overrides[2].desc != NULL && overrides[2].desc != light);
+    CHECK(overrides[3].desc != NULL && overrides[3].desc != light);
+    CHECK(overrides[2].desc != overrides[3].desc);
+
+    CHECK(dat->unk20 == NULL && dat->unk24 == 0);
+
+    /* The material, read through the host layout of UnkStageDatInternal. */
+    CHECK(dat->unk2C == 1);
+    CHECK(dat->unk28 != NULL && dat->unk28[0] != NULL);
+    CHECK(dat->unk28[0]->unk4 == 0x12);
+    return 1;
+}
