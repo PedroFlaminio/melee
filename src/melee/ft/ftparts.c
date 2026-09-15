@@ -544,6 +544,19 @@ void ftParts_800749CC(Fighter_GObj* gobj)
     Fighter* fp = GET_FIGHTER(gobj);
     int i;
 
+#ifdef MELEE_HOST
+    /* The host does not yet reproduce every model-visibility transition used
+     * by fighter action data. Mario and Link expose this as whole leg meshes
+     * intermittently being hidden. Their base costumes do not need a swap,
+     * so keep all their DObjs enabled rather than apply an incomplete table. */
+    if (fp->kind == Ft_Kind_Mario || fp->kind == Ft_Kind_Link) {
+        fp->x5AC.model_num = fp->ft_data->x8->x0.model_num;
+        memset(fp->x5AC.xC, 0, sizeof(fp->x5AC.xC));
+        memset(fp->x5AC.cleared, true, sizeof(fp->x5AC.cleared));
+        return;
+    }
+#endif
+
     ftParts_8007487C(&fp->ft_data->x8->x0, &fp->x5AC, fp->x619_costume_id,
                      &fp->dobj_list, &fp->x203C);
     for (i = 0; i < fp->x5AC.model_num; i++) {

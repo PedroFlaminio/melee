@@ -85,6 +85,18 @@ void ftCo_8009CB40(Fighter* fp, ssize_t bone_idx, bool arg2, FigaTree* arg3)
 void ftCo_8009CF84(Fighter* fp)
 {
     ftData* data = fp->ft_data;
+
+#ifdef MELEE_HOST
+    /* Link's cap dynamics use a console-era solver whose constraints are not
+     * yet represented faithfully by the native renderer.  Leaving the cap
+     * on its animated skeleton is visually correct enough and avoids the
+     * long, flag-like deformation seen while moving. */
+    if (fp->kind == Ft_Kind_Link) {
+        fp->dynamics_num = 0;
+        return;
+    }
+#endif
+
     fp->dynamics_num = data->x2C->dynamicsNum;
     if (fp->dynamics_num >= Ft_Dynamics_NumMax) {
         HSD_ASSERTREPORT(109, 0, "fighter dynamics num over!\n");
