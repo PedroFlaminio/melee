@@ -2163,6 +2163,25 @@ Atualizado em 15 de setembro de 2026.
   como referencia para o mixer: nenhuma satura (so 1 e 2 amostras nas duas
   falas longas do titulo), com picos de 8,7 mil a 32,7 mil e duracoes de
   efeito e fala coerentes.
+- [x] Mixer AX do host (`port/src/os/ax_mixer.c`), no lugar das fachadas de
+  voz de `baselib_support.c`. Pool de 64 vozes com o indice fixo que o synth
+  usa; `AXAcquireVoice` pega uma voz livre ou, com todas ocupadas, a mais
+  antiga da menor prioridade abaixo do pedido, marca depop e chama o callback
+  do dono, como a pilha por prioridade de `AXAlloc.c`. Os setters seguem
+  `AXVPB.c`: blocos copiados, `mixerCtrl` calculado por `AXSetVoiceMix`, a
+  razao de `AXSetVoiceSrcRatio` limitada a 4 e ganho de PCM em
+  `AXSetVoiceAddr`. `melee_host_ax_run_frame` toca um quadro de 5 ms (160
+  pares estereo a 32 kHz): DSP ADPCM do endereco corrente ao final inclusive,
+  com o byte de preditor e escala a cada 16 nibbles, laco com o contexto de
+  `adpcmLoop`, PCM16 e PCM8, reamostragem linear, envelope por amostra e mix
+  L e R com rampa; a voz para depois da ultima amostra. O callback do usuario
+  roda depois das vozes, como em `__AXOutNewFrame`. Os barramentos aux
+  (reverb e chorus), o ITD e o surround nao sao tocados. `AXAcquireVoice` so
+  entrega voz com `melee_host_ax_set_voices_enabled(true)`, desligado por
+  padrao, porque uma voz abre os caminhos de efeitos e musica que o host ainda
+  nao tem. Oito verificacoes em C (`ax_mixer_check.c`, porque `dolphin/ax.h`
+  inclui `os.h`, que nao e C++ limpo): decodificacao, predicao, laco,
+  reamostragem, vozes desligadas, roubo de voz, setters e quadro.
 
 ## Em andamento
 
@@ -2194,11 +2213,12 @@ Atualizado em 15 de setembro de 2026.
 
 ## Proximos gates
 
-1. Audio: vozes AX no host (decodificacao ADPCM, pool de vozes, parametros
-   que `synth.c` escreve e le, callback de quadro a cada 5 ms), os fluxos de
-   comando do `.sem` e o cabecalho `.hps`, ainda lidos como big-endian.
-   Validar primeiro com uma voz sintetica e depois gravando WAV de um som do
-   jogo, antes de ligar uma saida em tempo real.
+1. Audio. O mixer AX existe e passa nas verificacoes sinteticas; falta: conferir
+   bit a bit contra `ssm_to_wav.py` nas vozes dos bancos; montar no host os
+   descritores de amostra do `.ssm` e mandar as amostras a ARAM; converter os
+   fluxos de comando do `.sem` na carga (a regiao depois das tabelas e so de
+   palavras de 32 bits); rodar um quadro AX a cada 5 ms de tempo do OS; gravar
+   WAV numa rota e so entao ligar as vozes, a saida SDL e a musica (`.hps`).
 2. Ritmo com apresentacao: sem apresentar, a luta roda a cerca de 200 frames
    por segundo no build `-O2`; falta medir o presenter e a janela.
 3. Copias da EFB alem da sombra I4: os retratos dos resultados

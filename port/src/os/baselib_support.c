@@ -1,3 +1,4 @@
+#include <melee_host/ax_mixer.h>
 #include <melee_host/host.h>
 #include <melee_host/memory.h>
 
@@ -38,7 +39,6 @@ static u32 melee_host_aram_block_count;
 static u32 melee_host_dsp_sample_rate;
 static u8 melee_host_stream_volume_left;
 static u8 melee_host_stream_volume_right;
-static void (*melee_host_ax_callback)(void);
 
 u32 ARAlloc(u32 length)
 {
@@ -93,6 +93,16 @@ void ARQInit(void) {}
 
 static u8 melee_host_aram_store[MELEE_HOST_ARAM_SIZE];
 
+const mh_u8* melee_host_aram_bytes(void)
+{
+    return melee_host_aram_store;
+}
+
+mh_u32 melee_host_aram_size(void)
+{
+    return MELEE_HOST_ARAM_SIZE;
+}
+
 static bool melee_host_aram_range_valid(ARQAddress offset, u32 length)
 {
     return offset <= MELEE_HOST_ARAM_SIZE &&
@@ -129,141 +139,6 @@ static void melee_host_arq_complete(void* user_data)
 void AIInit(u8* stack)
 {
     (void) stack;
-}
-
-void AXInit(void)
-{
-    melee_host_ax_callback = NULL;
-}
-
-/* There is no mixer on the host yet, so no voice can be handed out.  The
- * synth treats a NULL voice as every voice being taken and gives up on the
- * sound, which is what happens on the console when voices run out.  The
- * voice setters below are only ever called with a voice this returned. */
-AXVPB* AXAcquireVoice(u32 priority, void (*callback)(void*), u32 userContext)
-{
-    (void) priority;
-    (void) callback;
-    (void) userContext;
-    return NULL;
-}
-
-void AXRegisterAuxACallback(void (*callback)(void*, void*), void* context)
-{
-    (void) callback;
-    (void) context;
-}
-
-void AXRegisterAuxBCallback(void (*callback)(void*, void*), void* context)
-{
-    (void) callback;
-    (void) context;
-}
-
-void AXSetVoiceMix(AXVPB* voice, AXPBMIX* mix)
-{
-    (void) voice;
-    (void) mix;
-}
-
-void AXSetVoiceItdOn(AXVPB* voice)
-{
-    (void) voice;
-}
-
-void AXSetVoiceItdTarget(AXVPB* voice, u16 lShift, u16 rShift)
-{
-    (void) voice;
-    (void) lShift;
-    (void) rShift;
-}
-
-void AXSetVoiceSrc(AXVPB* voice, AXPBSRC* src)
-{
-    (void) voice;
-    (void) src;
-}
-
-void AXSetVoiceAddr(AXVPB* voice, AXPBADDR* addr)
-{
-    (void) voice;
-    (void) addr;
-}
-
-void AXSetVoiceCurrentAddr(AXVPB* voice, u32 addr)
-{
-    (void) voice;
-    (void) addr;
-}
-
-void AXSetVoiceAdpcm(AXVPB* voice, AXPBADPCM* adpcm)
-{
-    (void) voice;
-    (void) adpcm;
-}
-
-void AXSetVoiceState(AXVPB* voice, u16 state)
-{
-    (void) voice;
-    (void) state;
-}
-
-void AXRegisterCallback(void (*callback)(void))
-{
-    melee_host_ax_callback = callback;
-}
-
-void AXFreeVoice(AXVPB* voice)
-{
-    (void) voice;
-}
-
-void AXSetVoiceVe(AXVPB* voice, AXPBVE* envelope)
-{
-    (void) voice;
-    (void) envelope;
-}
-
-void AXSetVoiceVeDelta(AXVPB* voice, s16 delta)
-{
-    (void) voice;
-    (void) delta;
-}
-
-void AXSetVoiceLoop(AXVPB* voice, u16 loop)
-{
-    (void) voice;
-    (void) loop;
-}
-
-void AXSetVoiceLoopAddr(AXVPB* voice, u32 address)
-{
-    (void) voice;
-    (void) address;
-}
-
-void AXSetVoiceEndAddr(AXVPB* voice, u32 address)
-{
-    (void) voice;
-    (void) address;
-}
-
-void AXSetVoicePriority(AXVPB* voice, u32 priority)
-{
-    (void) voice;
-    (void) priority;
-}
-
-void AXSetVoiceSrcRatio(AXVPB* voice, float ratio)
-{
-    (void) voice;
-    (void) ratio;
-}
-
-void AXSetVoiceAdpcmLoop(AXVPB* voice, AXPBADPCMLOOP* loop)
-{
-    (void) voice;
-    (void) loop;
 }
 
 void AISetDSPSampleRate(u32 rate)

@@ -18,6 +18,7 @@ add_library(melee_host STATIC
     src/os/absent_devices.c
     src/os/alarm.c
     src/os/baselib_support.c
+    src/os/ax_mixer.c
     src/os/dolphin_mtx.c
     src/os/dolphin_time.cpp
     src/os/interrupts.c
@@ -420,6 +421,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/local_match_test.cpp
         tests/scene_runtime_test.cpp
         tests/spline_test.cpp
+        tests/ax_mixer_test.cpp
         tests/synth_test.cpp
         tests/gx_state_test.cpp
         tests/gx_tev_test.cpp
@@ -441,6 +443,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/fighter_data_check.c
         tests/fighter_fox_data_check.c
         tests/scene_data_check.c
+        tests/ax_mixer_check.c
         tests/test_main.cpp
     )
     target_link_libraries(melee-host-tests PRIVATE melee_game_core)
@@ -457,6 +460,7 @@ if(MELEE_HOST_BUILD_TESTS)
             tests/fighter_data_check.c
             tests/fighter_fox_data_check.c
             tests/scene_data_check.c
+            tests/ax_mixer_check.c
             PROPERTIES COMPILE_OPTIONS
                 "-Wno-pedantic;-Wno-conversion;-Wno-shadow;-Wno-sign-conversion;-Wno-sign-compare;-Wno-deprecated-non-prototype;-Wno-unused-parameter;-Wno-missing-field-initializers"
         )
