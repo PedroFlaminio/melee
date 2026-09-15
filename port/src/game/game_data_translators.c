@@ -26,6 +26,7 @@
 #include <melee/lb/types.h>
 #include <melee/mp/types.h>
 #include <melee/pl/types.h>
+#include <melee/sc/types.h>
 #include <melee/sfx/crowdsfx.h>
 #include <melee/ty/types.h>
 
@@ -1461,6 +1462,73 @@ static void stage_model(MeleeHostHsdReader* reader, mh_u32 at,
     }
 }
 
+/* map_plit: the stage's NULL-terminated table of LightList, the lights
+ * ftCo_09F4.c gives the fighters through Ground_801C49B4.  Light descriptors
+ * are the ones map_head's overrides name, shared by address, which is how
+ * Ground_801C20E0 finds them. */
+static void* stage_light_lists(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    return melee_host_hsd_reader_light_lists(reader, root);
+}
+
+/* quake_model_set: one DynamicModelDesc, the model grlib.c loads for a stage
+ * quake, with its joint and three NULL-terminated animation tables. */
+static void* stage_quake_model_set(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    DynamicModelDesc* const model = melee_host_hsd_reader_allocate(
+        reader, sizeof(*model), alignof(DynamicModelDesc));
+    bool present;
+    mh_u32 target;
+
+    if (model == NULL) {
+        return NULL;
+    }
+    target = target_of(reader, root + 0x0, &present);
+    model->joint = present ? melee_host_hsd_reader_joint(reader, target) : NULL;
+    target = target_of(reader, root + 0x4, &present);
+    model->anims = present ? (HSD_AnimJoint**) stage_pointer_table(
+                                 reader, target, melee_host_hsd_reader_anim_joint)
+                           : NULL;
+    target = target_of(reader, root + 0x8, &present);
+    model->matanims =
+        present ? (HSD_MatAnimJoint**) stage_pointer_table(
+                      reader, target, melee_host_hsd_reader_mat_anim_joint)
+                : NULL;
+    target = target_of(reader, root + 0xC, &present);
+    model->shapeanims =
+        present ? (HSD_ShapeAnimJoint**) stage_pointer_table(
+                      reader, target, melee_host_hsd_reader_shape_anim_joint)
+                : NULL;
+    return melee_host_hsd_reader_failed(reader) ? NULL : model;
+}
+
+/* One entry of itemdata: an item kind and the Article Ground_801C0754 creates
+ * it from. */
+static void* stage_item_entry(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct GroundItemData* const entry = melee_host_hsd_reader_allocate(
+        reader, sizeof(*entry), alignof(struct GroundItemData));
+    bool present;
+    mh_u32 target;
+
+    if (entry == NULL) {
+        return NULL;
+    }
+    entry->unk0 = (s32) melee_host_hsd_reader_u32(reader, at + 0x0);
+    target = target_of(reader, at + 0x4, &present);
+    entry->unk4 = present ? item_article(reader, target) : NULL;
+    return melee_host_hsd_reader_failed(reader) ? NULL : entry;
+}
+
+/* itemdata: the stage's NULL-terminated table of items, empty in Hyrule
+ * Temple.  An Article leaves its per-kind attributes out, as itPublicData's
+ * do, and creating such an item stops with a name. */
+static void* stage_item_data(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    item_memo.count = 0;
+    return stage_pointer_table(reader, root, stage_item_entry);
+}
+
 static void* stage_map_head(MeleeHostHsdReader* reader, mh_u32 root)
 {
     UnkStageDat* const dat = melee_host_hsd_reader_allocate(
@@ -2675,6 +2743,10 @@ void melee_host_game_register_data_translators(void)
                                               trophy_display_rows);
     (void) melee_host_hsd_register_translator("grGroundParam", ground_param);
     (void) melee_host_hsd_register_translator("coll_data", stage_coll_data);
+    (void) melee_host_hsd_register_translator("map_plit", stage_light_lists);
+    (void) melee_host_hsd_register_translator("quake_model_set",
+                                              stage_quake_model_set);
+    (void) melee_host_hsd_register_translator("itemdata", stage_item_data);
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("plLoadCommonData",
                                               player_common_data);

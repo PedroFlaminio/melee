@@ -2279,6 +2279,32 @@ Atualizado em 15 de setembro de 2026.
   `host-sanitize` (`-Wsign-conversion` com `-Werror`) recusou cinco conversoes
   de sinal do rasterizador que o GCC aceitava; corrigidas, a suite sob ASan
   passa 19/19 sem relato do ASan e com os mesmos 31 pontos do UBSan.
+- [x] `map_plit`, `quake_model_set` e `itemdata` traduzidos
+  (`game_data_translators.c`). `map_plit` e a tabela terminada em NULL de
+  `LightList` que `Ground_801C49B4` entrega a `ftCo_8009F4A4`, a luz dos
+  lutadores; sai de `melee_host_hsd_reader_light_lists`, e os
+  `HSD_LightDesc` sao os mesmos objetos que as sobreposicoes do `map_head`
+  nomeiam, que `Ground_801C20E0` compara por endereco. Sem ela o jogo usava as
+  duas luzes padrao de `Ground_803E06C8`. `quake_model_set` e um
+  `DynamicModelDesc` (joint e as tabelas de animacao, de material e de forma,
+  terminadas em NULL) que `grlib.c` carrega num tremor. `itemdata` e a tabela
+  `{tipo, Article*}` dos itens do estagio que `Ground_801C0754` cria; os
+  `Article` saem de `item_article`, com a memoria de itens zerada a cada
+  traducao, e sem os atributos por tipo, como os de `itPublicData`. Em
+  `GrSh.dat` a tabela de itens e so o terminador, as luzes sao tres listas e o
+  modelo de tremor tem uma animacao.
+  `--sweep-archives`: `game_data` passa de 662 de 664 para 882 de 884 e os
+  simbolos sem traducao de 4745 para 4525; as 4 falhas sao as de antes (luzes
+  que seguem joint em `GrIz.dat`, `GrNLa.dat` e `TyLight.dat`). Teste unitario
+  com um arquivo sintetico (uma lista de luz ambiente, um modelo com uma
+  animacao e uma tabela de itens vazia), conferido pelos tipos do jogo em
+  `stage_data_check.c`. Na rota de estoque o trace segue igual. No frame 850 o
+  ceu, que nao e iluminado, nao muda nenhum pixel; mudam o muro do castelo
+  (diferenca media de 20,7), a grama (11,4) e os dois Fox (24,9 e 19,8, ate
+  112), e as sombras dos dois deixam de compartilhar a projecao (duas views de
+  468 triangulos no lugar de uma de 936). Na rota cancelada o `640:SHADOW`
+  acha as duas texturas I4 com 6852 bytes nao brancos. Sob ASan a suite passa
+  19/19, sem relato do ASan e com os mesmos 31 pontos do UBSan.
 
 ## Em andamento
 
@@ -2292,7 +2318,7 @@ Atualizado em 15 de setembro de 2026.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
   codigo do jogo, com a imagem conferida em BMP e som; faltam jogar na janela
-  com entrada real e os dados de estagio ainda sem traducao.
+  com entrada real e `ALDYakuAll` e `yakumono_param`.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2548,9 +2574,13 @@ Atualizado em 15 de setembro de 2026.
   uma imagem por outro meio continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
   carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam`,
-  `coll_data` e `map_head` (69 de 71), mas nao `itemdata`, `ALDYakuAll`,
-  `yakumono_param`, `map_plit` nem `quake_model_set`. Os 71 arquivos
-  `Gr*.dat` trazem os tres primeiros desses; 67 trazem os dois ultimos.
+  `coll_data`, `map_head` (69 de 71), `map_plit`, `quake_model_set` e
+  `itemdata`, mas nao `ALDYakuAll` nem `yakumono_param`. `yakumono_param` tem
+  um layout por estagio (Hyrule Temple guarda o ponteiro e nao le);
+  `ALDYakuAll` troca os scripts de estado dos itens aleatorios e, em
+  `GrSh.dat`, nao e uma tabela simples (a entrada 1 aponta para dentro de
+  `yakumono_param`). Os itens de estagio criados de `itemdata` param com nome
+  onde o item precisa dos atributos por tipo.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.

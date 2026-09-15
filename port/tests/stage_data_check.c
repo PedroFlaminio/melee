@@ -14,6 +14,8 @@ int melee_host_test_check_stage_map_head(void* translated, char* message,
                                          size_t size);
 int melee_host_test_check_stage_coll_data(void* translated, char* message,
                                           size_t size);
+int melee_host_test_check_stage_extras(void* plit, void* quake, void* items,
+                                       char* message, size_t size);
 
 /* ground.c declares these records locally; game_data_translators.c keeps the
  * same declarations. */
@@ -143,5 +145,30 @@ int melee_host_test_check_stage_map_head(void* translated, char* message,
     CHECK(dat->unk2C == 1);
     CHECK(dat->unk28 != NULL && dat->unk28[0] != NULL);
     CHECK(dat->unk28[0]->unk4 == 0x12);
+    return 1;
+}
+
+int melee_host_test_check_stage_extras(void* plit, void* quake, void* items,
+                                       char* message, size_t size)
+{
+    LightList** const lists = plit;
+    const DynamicModelDesc* const model = quake;
+    struct GroundItemData** const entries = items;
+
+    /* One light list naming an ambient light, then the terminator. */
+    CHECK(lists != NULL && lists[0] != NULL && lists[1] == NULL);
+    CHECK(lists[0]->desc != NULL);
+    CHECK(lists[0]->desc->color.r == 0x11 && lists[0]->desc->color.g == 0x22 &&
+          lists[0]->desc->color.b == 0x33);
+    CHECK(lists[0]->anims == NULL);
+
+    /* The quake model: a bare joint and one animation. */
+    CHECK(model != NULL && model->joint != NULL);
+    CHECK(model->anims != NULL && model->anims[0] != NULL &&
+          model->anims[1] == NULL);
+    CHECK(model->matanims == NULL && model->shapeanims == NULL);
+
+    /* No stage items, as in Hyrule Temple. */
+    CHECK(entries != NULL && entries[0] == NULL);
     return 1;
 }

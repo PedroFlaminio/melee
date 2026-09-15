@@ -1319,6 +1319,47 @@ TEST_CASE("a stage's map_head translates with its lights shared by address")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+extern "C" int melee_host_test_check_stage_extras(void* plit, void* quake,
+                                                  void* items, char* message,
+                                                  std::size_t size);
+
+TEST_CASE("a stage's map_plit, quake_model_set and itemdata translate")
+{
+    // A light table of one list naming an ambient light; a quake model with a
+    // bare joint and a table of one animation; and a stage item table that is
+    // only its terminator, as Hyrule Temple's.  stage_data_check.c reads them
+    // back.
+    ArchiveBuilder builder(0x200);
+    builder.pointer(0x000, 0x010);
+    builder.pointer(0x010, 0x020);
+    builder.u8(0x02C, 0x11);
+    builder.u8(0x02D, 0x22);
+    builder.u8(0x02E, 0x33);
+    builder.u8(0x02F, 0xFF);
+    builder.pointer(0x080, 0x100);
+    builder.pointer(0x084, 0x0A0);
+    builder.pointer(0x0A0, 0x160);
+    builder.public_symbol(0x000, "map_plit");
+    builder.public_symbol(0x080, "quake_model_set");
+    builder.public_symbol(0x0C0, "itemdata");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    void* const plit = HSD_ArchiveGetPublicAddress(&archive, "map_plit");
+    void* const quake =
+        HSD_ArchiveGetPublicAddress(&archive, "quake_model_set");
+    void* const items = HSD_ArchiveGetPublicAddress(&archive, "itemdata");
+    REQUIRE(plit != nullptr);
+    REQUIRE(quake != nullptr);
+    REQUIRE(items != nullptr);
+    char message[256] = {};
+    REQUIRE(melee_host_test_check_stage_extras(plit, quake, items, message,
+                                               sizeof(message)) == 1);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 extern "C" int melee_host_test_check_fighter_common_data(void* translated,
                                                         char* message,
                                                         std::size_t size);
