@@ -250,7 +250,24 @@
 /* 16895C */ void gm_8016895C(HSD_JObj*, DynamicModelDesc*, int idx);
 /* 1689E4 */ void fn_801689E4(HSD_JObj*, DynamicModelDesc*, int);
 /* 168A6C */ void fn_80168A6C(void*, void*, s32);
+#ifdef MELEE_HOST
+/* gm_80168B34 assigns base only for Zelda, Sheik, Popo and the characters
+ * after Sheik.  MWCC keeps base in r3 with ckind, so for every other
+ * character the console returns ckind + arg2 * 30; the host read the stack
+ * (the results screen's portraits and the winner's background). */
+#define GM_80168B34_BASE(ckind) base = (ckind)
+#else
+#define GM_80168B34_BASE(ckind) base
+#endif
 /* 168B34 */ float gm_80168B34(CharacterKind, int, int);
+#ifdef MELEE_HOST
+/* gm_80168BF8 ends without a return: the console returns the float
+ * gm_80168B34 leaves in f1, and the HUD's stock icons use it.  A host ABI
+ * keeps no such value, so the host returns the call. */
+#define GM_80168BF8_RESULT return gm_80168B34
+#else
+#define GM_80168BF8_RESULT gm_80168B34
+#endif
 /* 168BF8 */ float gm_80168BF8(int);
 /* 168C5C */ void gm_80168C5C(u32);
 /* 168E54 */ UNK_RET fn_80168E54(s8, s8, u8, u8);

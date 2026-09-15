@@ -6,6 +6,10 @@ extern "C" {
 #include <melee/lb/lbtime.h>
 #include <melee/lb/lbvector.h>
 #include <sysdolphin/baselib/random.h>
+
+/* gm_1601.h pulls in the fighter and HSD headers, which C++ cannot include;
+ * the CharacterKind parameter is an int-sized enum. */
+float gm_80168B34(int ckind, int arg1, int arg2);
 }
 
 TEST_CASE("original HSD random generator runs natively")
@@ -25,6 +29,39 @@ TEST_CASE("original HSD random float stays in its expected range")
     REQUIRE(value == 41.0F / 65536.0F);
     REQUIRE(value >= 0.0F);
     REQUIRE(value < 1.0F);
+}
+
+TEST_CASE("character icon frames follow the console's register reuse")
+{
+    /* The frames the console's gm_80168B34 returns.  Its C assigns base only
+     * for Zelda, Sheik, Popo and the characters after Sheik; MWCC keeps base
+     * in r3 with ckind, so the rest return ckind.  The HUD, the stock icons
+     * and the results screen's portraits pick their image by this frame. */
+    constexpr int kCaptain = 0x00;
+    constexpr int kFox = 0x02;
+    constexpr int kZelda = 0x12;
+    constexpr int kSeak = 0x13;
+    constexpr int kFalco = 0x14;
+    constexpr int kGanon = 0x19;
+    constexpr int kMasterHand = 0x1A;
+    constexpr int kBoy = 0x1B;
+    constexpr int kGigaBowser = 0x1D;
+    constexpr int kCrazyHand = 0x1E;
+    constexpr int kSandbag = 0x1F;
+    constexpr int kPopo = 0x20;
+    REQUIRE(gm_80168B34(kCaptain, 0, 0) == 0.0F);
+    REQUIRE(gm_80168B34(kFox, 0, 0) == 2.0F);
+    REQUIRE(gm_80168B34(kFox, 3, 1) == 32.0F);
+    REQUIRE(gm_80168B34(kZelda, 0, 0) == 18.0F);
+    REQUIRE(gm_80168B34(kSeak, 7, 2) == 85.0F);
+    REQUIRE(gm_80168B34(kFalco, 0, 1) == 49.0F);
+    REQUIRE(gm_80168B34(kGanon, 0, 0) == 24.0F);
+    REQUIRE(gm_80168B34(kPopo, 0, 1) == 44.0F);
+    REQUIRE(gm_80168B34(kMasterHand, 0, 1) == 28.0F);
+    REQUIRE(gm_80168B34(kBoy, 0, 0) == 26.0F);
+    REQUIRE(gm_80168B34(kGigaBowser, 0, 0) == 58.0F);
+    REQUIRE(gm_80168B34(kCrazyHand, 0, 0) == 27.0F);
+    REQUIRE(gm_80168B34(kSandbag, 0, 0) == 59.0F);
 }
 
 TEST_CASE("original bounded time arithmetic runs natively")

@@ -3914,7 +3914,7 @@ void fn_80168A6C(void* arg0, void* arg1, s32 idx)
 
 f32 gm_80168B34(CharacterKind ckind, int arg1, int arg2)
 {
-    int base;
+    int GM_80168B34_BASE(ckind);
     if (ckind == CKind_GKoops) {
         return 58.0F;
     }
@@ -3947,7 +3947,7 @@ float gm_80168BF8(int arg0)
 {
     CharacterKind ckind = Player_GetPlayerCharacter(arg0);
     u32 costume = Player_GetCostumeId(arg0);
-    gm_80168B34(ckind, Player_80036394(arg0), costume);
+    GM_80168BF8_RESULT(ckind, Player_80036394(arg0), costume);
 }
 
 void gm_80168C5C(u32 arg0)
