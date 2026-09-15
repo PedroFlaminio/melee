@@ -372,8 +372,16 @@ void lbMemory_8001564C(void)
 
     _p(a_arenaLo) = (void*) ARAlloc(0x20);
     ARFree(&size[2]);
+#ifdef MELEE_HOST
+    /* Unlike the console's streaming loader, the host keeps translated
+     * descriptors and animation archives resident across the VS handoff.
+     * Use the host ARAM backing in full so a Link animation can coexist with
+     * the common banks. */
+    _p(a_arenaHi) = (void*) ARGetSize();
+#else
     _p(a_arenaHi) =
         (void*) ((ARGetSize() > 0x01000000U) ? 0x01000000U : ARGetSize());
+#endif
 
     _p(free_mem) = (Handle*) &_p(x8_mem)[0];
     for (i = 0; i < 0x82; i++) {

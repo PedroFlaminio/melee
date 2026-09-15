@@ -27,7 +27,12 @@
  * and only ARQ transfers move bytes in or out.  Allocations are deterministic
  * and keep the console's 32-byte DMA alignment contract.
  */
-#define MELEE_HOST_ARAM_SIZE (16U * 1024U * 1024U)
+/* The retail console has 16 MiB of ARAM.  The host keeps scene archives and
+ * asynchronously-read animation files resident longer than the console's
+ * loader, so the two-player Link route needs headroom for PlLkAJ.dat after
+ * the common banks are loaded.  ARAM addresses remain 32-bit offsets and the
+ * matching build never sees this host-only backing store. */
+#define MELEE_HOST_ARAM_SIZE (24U * 1024U * 1024U)
 
 /* ARAM is a stack in the SDK: ARFree releases the most recent block and
  * reports its length, so the lengths are kept in allocation order. */

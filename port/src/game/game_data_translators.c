@@ -2620,17 +2620,51 @@ static void* fighter_item_article(MeleeHostHsdReader* reader, mh_u32 at)
 struct FighterItemAttrs {
     const mh_u32* sizes;
     mh_u32 count;
+    /* Some fighter lists also carry a model joint rather than an item
+     * Article.  Link's slot 6 is the sword model that ftParts installs while
+     * the fighter is created. */
+    const mh_u8* direct_joint_slots;
+    mh_u32 direct_joint_count;
 };
+
+static bool fighter_item_is_direct_joint(const struct FighterItemAttrs* attrs,
+                                         mh_u32 slot)
+{
+    mh_u32 i;
+
+    for (i = 0; i < attrs->direct_joint_count; i++) {
+        if (attrs->direct_joint_slots[i] == slot) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static void** fighter_items(MeleeHostHsdReader* reader, mh_u32 at,
                             const struct FighterItemAttrs* attrs)
 {
-    void** const table = per_entry_table(reader, at, fighter_item_article);
     const mh_u32 length = melee_host_hsd_reader_extent(reader, at) / 4;
+    void** const table = melee_host_hsd_reader_allocate(
+        reader, sizeof(*table) * length, alignof(void*));
     mh_u32 slot;
 
-    if (table == NULL) {
+    if (table == NULL || length == 0) {
         return NULL;
+    }
+    for (slot = 0; slot < length; slot++) {
+        bool present;
+        const mh_u32 target = target_of(reader, at + slot * 4, &present);
+
+        table[slot] = NULL;
+        if (!present) {
+            continue;
+        }
+        table[slot] = fighter_item_is_direct_joint(attrs, slot)
+                          ? melee_host_hsd_reader_joint(reader, target)
+                          : fighter_item_article(reader, target);
+        if (melee_host_hsd_reader_failed(reader)) {
+            return NULL;
+        }
     }
     for (slot = 0; slot < attrs->count && slot < length; slot++) {
         bool present;
@@ -2801,6 +2835,8 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
         fighter_fox_item_attr_sizes,
         sizeof(fighter_fox_item_attr_sizes) /
             sizeof(fighter_fox_item_attr_sizes[0]),
+        NULL,
+        0,
     };
 
     return fighter_data(reader, root, fighter_fox_attrs, &items);
@@ -2808,16 +2844,24 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
 
 static void* fighter_data_mario(MeleeHostHsdReader* reader, mh_u32 root)
 {
-    static const struct FighterItemAttrs no_special_items = { NULL, 0 };
+    static const struct FighterItemAttrs no_special_items = {
+        NULL, 0, NULL, 0
+    };
 
     return fighter_data(reader, root, fighter_mario_attrs, &no_special_items);
 }
 
 static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
 {
-    static const struct FighterItemAttrs no_special_items = { NULL, 0 };
+    static const mh_u8 link_direct_joint_slots[] = { 6 };
+    static const struct FighterItemAttrs link_items = {
+        NULL,
+        0,
+        link_direct_joint_slots,
+        sizeof(link_direct_joint_slots) / sizeof(link_direct_joint_slots[0]),
+    };
 
-    return fighter_data(reader, root, fighter_link_attrs, &no_special_items);
+    return fighter_data(reader, root, fighter_link_attrs, &link_items);
 }
 
 /* A character's demo motions (ftDemoResultMotionFileFox in GmRstMFx.dat and
