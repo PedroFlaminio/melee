@@ -581,6 +581,23 @@ void ftParts_80074ACC(Fighter_GObj* gobj)
     Fighter* fp = GET_FIGHTER(gobj);
     int i;
 
+#ifdef MELEE_HOST
+    /* The console action scripts can reset a model group to -1 and later
+     * select a variant in the same update.  The native command timing still
+     * leaves that reset visible for Mario and Link, which hides every DObj in
+     * the group (most noticeably their legs).  Their ordinary state uses
+     * variant zero, so use that single variant as the safe reset state. */
+    if (fp->kind == Ft_Kind_Mario || fp->kind == Ft_Kind_Link) {
+        for (i = 0; i < fp->x5AC.model_num; i++) {
+            fp->x5F4_arr[i].prev = 0;
+            fp->x5F4_arr[i].idx = 0;
+        }
+        fp->x221D_b2 = false;
+        ftParts_80074B6C(fp, &fp->x5AC, 0, &fp->dobj_list);
+        return;
+    }
+#endif
+
     for (i = 0; i < fp->x5AC.model_num; i++) {
         fp->x5F4_arr[i].idx = -1;
     }
