@@ -73,6 +73,12 @@ typedef struct MeleeHostGxDrawState {
     mh_u32 alpha_op;
     mh_u8 alpha_ref_0;
     mh_u8 alpha_ref_1;
+    /* GXSetZTexture.  With GX_ZT_REPLACE the texel a Z texture yields becomes
+     * the fragment's depth, which is how HSD's erase puts the far plane
+     * back. */
+    mh_u32 z_texture_op;
+    mh_u32 z_texture_format;
+    mh_u32 z_texture_bias;
 } MeleeHostGxDrawState;
 
 typedef struct MeleeHostGxCapturedVertex {
@@ -163,6 +169,46 @@ bool melee_host_gx_copy_efb_to_i4(void* destination, mh_u16 source_left,
                                   mh_u16 source_height,
                                   mh_u16 destination_width,
                                   mh_u16 destination_height);
+/* The EFB copies GXCopyTex makes in a colour format, RGB5A3, RGB565 or RGBA8,
+ * of what the frame has drawn so far.  The host has no EFB, so the copy
+ * rasterises the frame's captured draws on the CPU over the source rectangle,
+ * in order, each with its projection, viewport and scissor: culling, the
+ * depth test and update (a GX_ZT_REPLACE Z8 texture writes its depth), the TEV
+ * program on filtered texels, the alpha test and blending, from the display
+ * copy's clear colour and depth and through the clears earlier copies of the
+ * frame asked for.  HSD renders to an RGB8_Z24 EFB, which has no alpha, so a
+ * copy is opaque.  Returns false for another format. */
+bool melee_host_gx_copy_efb_to_texture(void* destination, mh_u32 format,
+                                       mh_u16 source_left, mh_u16 source_top,
+                                       mh_u16 source_width,
+                                       mh_u16 source_height,
+                                       mh_u16 destination_width,
+                                       mh_u16 destination_height,
+                                       const mh_u8 clear_color[4],
+                                       mh_u32 clear_depth);
+/* A GXCopyTex that clears: the rectangle goes back to the clear colour and
+ * depth for the draws that follow in the frame. */
+void melee_host_gx_note_efb_clear(mh_u16 left, mh_u16 top, mh_u16 width,
+                                  mh_u16 height, const mh_u8 clear_color[4],
+                                  mh_u32 clear_depth);
+/* The clears of the frame so far, in order, for a presenter that draws the
+ * capture: each applies before triangle `triangle` of the capture. */
+typedef struct MeleeHostGxEfbClear {
+    size_t triangle;
+    mh_u16 left;
+    mh_u16 top;
+    mh_u16 width;
+    mh_u16 height;
+    mh_u8 color[4];
+    mh_u32 depth;
+} MeleeHostGxEfbClear;
+size_t melee_host_gx_efb_clear_count(void);
+bool melee_host_gx_efb_clear_at(size_t index, MeleeHostGxEfbClear* output);
+/* How many EFB copies have written to an image.  The game copies into the
+ * same buffer every frame, so a cache that knows a texture by its address
+ * decodes it again when this changes. */
+void melee_host_gx_note_texture_copy(const void* destination);
+mh_u32 melee_host_gx_texture_copy_generation(const void* image);
 size_t melee_host_gx_command_count(void);
 bool melee_host_gx_command_at(size_t index, MeleeHostGxCommand* output);
 size_t melee_host_gx_triangle_count(void);

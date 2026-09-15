@@ -22,6 +22,9 @@ struct TextureImage {
     /* The texture asked for bilinear magnification.  Mipmaps are not decoded,
      * so minification follows the same choice. */
     bool linear_filter;
+    /* Bumped when the image is decoded again at the same address, as an EFB
+     * copy the game makes every frame is; the presenter uploads it again. */
+    std::uint32_t generation = 0;
 };
 
 /* Images in the order of the captured texture table, which is the space the

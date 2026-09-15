@@ -28,6 +28,17 @@ add_library(melee_host STATIC
     src/os/dvd.cpp
 )
 
+# The GX capture runs for every vertex the game draws, and the EFB copies run
+# the TEV for every fragment of a copied rectangle.  Unoptimized, the results
+# screen's portrait copies alone took a minute of the cancelled VS route; with
+# these two files optimized the route is back under half a minute.  They keep
+# their debug information.
+if(NOT MSVC)
+    set_source_files_properties(src/gx/command_recorder.cpp src/gx/tev.cpp
+        PROPERTIES COMPILE_OPTIONS "-O2")
+endif()
+
+
 target_include_directories(melee_host
     PUBLIC include
     PRIVATE
@@ -708,13 +719,13 @@ if(MELEE_HOST_BUILD_TESTS)
                     460:RIGHT 480:DOWN 490:LEFT 510:LEFT 520:RULES 540:B
                     600:START 640-641:SX=-127 645-659:SY=127 665:A
                     860:FALLS 861-1120:SX=-127 925:X 1150:FALLS
-                    1300:RESULT
+                    1300:RESULT 1450:EFBCOPY
                     1466:START 1606:START 1606:START@2 1706-1906:B
         )
         set_tests_properties(melee-host-vs-stock-match-asset PROPERTIES
             TIMEOUT 3600
             PASS_REGULAR_EXPRESSION
-                "rules frame 520: mode 1 time 2 stock 1\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(460\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
+                "rules frame 520: mode 1 time 2 stock 1\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*efb copy frame 1450: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(460\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_property(TEST melee-host-title-mode-asset

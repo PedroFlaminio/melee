@@ -836,12 +836,20 @@ public:
         images.reserve(count);
         for (mh_u32 id = 0; id < count; ++id) {
             const TextureKey key = key_of(id);
+            const mh_u32 generation = generation_of(id);
             auto found = images_.find(key);
             if (found == images_.end()) {
                 bool decoded = false;
                 found =
                     images_.emplace(key, decode_captured_texture(id, &decoded))
                         .first;
+                found->second.generation = generation;
+            } else if (found->second.generation != generation) {
+                /* An EFB copy wrote the image again: decode it in place, so
+                 * the presenter keeps the address it knows it by. */
+                bool decoded = false;
+                found->second = decode_captured_texture(id, &decoded);
+                found->second.generation = generation;
             }
             images.push_back(&found->second);
         }
@@ -851,6 +859,14 @@ public:
 private:
     /* The image and palette data, then size, formats, wrap and filter. */
     using TextureKey = std::array<mh_u64, 6>;
+
+    static mh_u32 generation_of(mh_u32 id)
+    {
+        MeleeHostGxTextureDesc desc{};
+        return melee_host_gx_captured_texture_at(id, &desc)
+                   ? melee_host_gx_texture_copy_generation(desc.image)
+                   : 0;
+    }
 
     static TextureKey key_of(mh_u32 id)
     {
@@ -2207,7 +2223,7 @@ int main(int argc, char** argv)
              * held for three drawn frames, so a scene sees the buttons go down
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
-             * the headless diagnostics SHADOW, FIGHTERS, MOVE, ACTION,
+             * the headless diagnostics SHADOW, EFBCOPY, FIGHTERS, MOVE, ACTION,
              * FALLS, RULES, RESULT and TRACE=PATH. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
@@ -2254,6 +2270,7 @@ int main(int argc, char** argv)
                 std::vector<ScriptedTrace> traces;
                 std::vector<ScriptedWav> wavs;
                 std::vector<mh_u32> shadow_checks;
+                std::vector<mh_u32> efb_copy_checks;
                 std::vector<mh_u32> fighter_traces;
                 std::vector<mh_u32> action_traces;
                 std::vector<mh_s32> action_samples;
@@ -2281,6 +2298,7 @@ int main(int argc, char** argv)
 #endif
                 bool shot_failed = false;
                 bool shadow_check_failed = false;
+                bool efb_copy_check_failed = false;
                 bool movement_check_requested = false;
                 std::string shot_error;
             };
@@ -2328,6 +2346,16 @@ int main(int argc, char** argv)
                 }
                 const std::string frames = entry.substr(0, colon);
                 std::string inputs = entry.substr(colon + 1);
+                if (inputs == "EFBCOPY") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:EFBCOPY, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.efb_copy_checks.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
                 if (inputs == "SHADOW") {
                     if (frames.find('-') != std::string::npos) {
                         std::cerr << "expected FRAME:SHADOW, got " << entry
@@ -2692,6 +2720,74 @@ int main(int argc, char** argv)
                     }
                     std::fputc('\n', trace.file);
                 }
+                /* FRAME:EFBCOPY decodes the colour textures EFB copies wrote
+                 * that the frame drew with, and wants one of them to hold a
+                 * picture: at least 16 colours, where an empty copy is the
+                 * erase colour alone. */
+                for (const mh_u32 frame : state->efb_copy_checks) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::size_t copies = 0;
+                    std::size_t most_colours = 0;
+                    for (std::size_t index = 0;
+                         index < melee_host_gx_captured_texture_count();
+                         ++index)
+                    {
+                        MeleeHostGxTextureDesc texture{};
+                        if (!melee_host_gx_captured_texture_at(index,
+                                                               &texture) ||
+                            texture.image == nullptr ||
+                            texture.color_indexed || texture.format == 0 ||
+                            melee_host_gx_texture_copy_generation(
+                                texture.image) == 0)
+                        {
+                            continue;
+                        }
+                        try {
+                            const std::size_t bytes =
+                                melee::assets::gx_texture_data_size(
+                                    texture.width, texture.height,
+                                    texture.format);
+                            const melee::assets::DecodedTexture decoded =
+                                melee::assets::decode_gx_texture(
+                                    { static_cast<const std::byte*>(
+                                          texture.image),
+                                      bytes },
+                                    texture.width, texture.height,
+                                    texture.format);
+                            std::vector<mh_u32> colours;
+                            for (std::size_t p = 0;
+                                 p + 3 < decoded.rgba.size(); p += 4)
+                            {
+                                colours.push_back(
+                                    (static_cast<mh_u32>(decoded.rgba[p])
+                                     << 24U) |
+                                    (static_cast<mh_u32>(decoded.rgba[p + 1])
+                                     << 16U) |
+                                    (static_cast<mh_u32>(decoded.rgba[p + 2])
+                                     << 8U) |
+                                    decoded.rgba[p + 3]);
+                            }
+                            std::sort(colours.begin(), colours.end());
+                            const auto distinct = static_cast<std::size_t>(
+                                std::unique(colours.begin(), colours.end()) -
+                                colours.begin());
+                            ++copies;
+                            most_colours = std::max(most_colours, distinct);
+                        } catch (const std::exception&) {
+                            continue;
+                        }
+                    }
+                    const bool pictured = copies > 0 && most_colours >= 16;
+                    std::cout << "efb copy frame " << frame << ": " << copies
+                              << " copied texture(s), at most "
+                              << most_colours << " colour(s), "
+                              << (pictured ? "ok" : "empty") << '\n';
+                    if (!pictured) {
+                        state->efb_copy_check_failed = true;
+                    }
+                }
                 for (const mh_u32 frame : state->shadow_checks) {
                     if (frame != state->frames) {
                         continue;
@@ -3010,6 +3106,10 @@ int main(int argc, char** argv)
                               << input.shot_error << '\n';
                     failed = true;
                 }
+            }
+            if (input.efb_copy_check_failed) {
+                std::cerr << "a requested EFB copy held no picture\n";
+                failed = true;
             }
             if (input.shadow_check_failed) {
                 std::cerr << "a requested shadow copy was empty\n";

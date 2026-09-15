@@ -8,24 +8,32 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 15 de setembro de 2026
 
-**Estimativa: 94% (faixa de confiança: 90–95%).** A tabela descreve o estado
+**Estimativa: 95% (faixa de confiança: 91–96%).** A tabela descreve o estado
 de cada área hoje; o registro no fim guarda a evolução desde a linha de base
 de 13 de setembro.
 
 | Área | Estado | Peso no MVP |
 | --- | --- | --- |
 | Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, com D-pad e L e R digitais, cima positivo nos eixos do gamepad e o FPS no título; um teste manual achou o eixo Y invertido, já corrigido | 15% |
-| Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; faltam as cópias da EFB além da sombra (retratos dos resultados), texturas de profundidade, bump e fog | 20% |
+| Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; as cópias da EFB em cor (retratos dos resultados, bolha da lupa) são rasterizadas na CPU a partir da captura do frame, sem a bolha da lupa conferida na imagem; faltam texturas de profundidade no presenter, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox contra Fox em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP; os retratos dos painéis ficam pretos (cópias da EFB), e do estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e `quake_model_set` | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox contra Fox em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP, com os retratos dos painéis; do estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e `quake_model_set` | 30% |
 | Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); os barramentos aux (reverb e delay) não tocam; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
 
 ### Evidências verificadas
 
 - `ctest --preset host-debug`: 19/19 (os 14 curtos, os dois de banco de som, o
-  de áudio da rota e as duas rotas de VS, estas com as vozes ligadas); 217/217
-  testes unitários; a suíte toda em 59,6 s, com as rotas em 23,3 e 30,9 s.
+  de áudio da rota e as duas rotas de VS, estas com as vozes ligadas); 218/218
+  testes unitários; a suíte toda em 57,6 s, com as rotas em 29,8 e 24,8 s.
+- Cópias da EFB em cor: na rota de estoque, `1450:EFBCOPY` acha 3 texturas
+  copiadas com até 893 cores, e o BMP do frame 1450 mostra os retratos do 2º
+  (Fox na pose de derrota, fundo vermelho) e do 1º (o rosto, fundo azul), que
+  antes eram pretos. Na luta, a cópia de 64×64 da lupa (`ifmagnify.c`, que
+  copia em 0,0 com limpeza) tem 327, 347 e 341 cores nos frames 1078, 1085 e
+  1092; a bolha não aparece no BMP do frame 1085, e isso não foi investigado. O BMP do frame 1450 sai igual antes e depois
+  dos atalhos do rasterizador e com os arquivos quentes em `-O2`, e o trace do
+  build `-O2` segue igual nos 1739 frames.
 - `melee-host-route-audio-asset`: título → START → menu → B, gravando o mixer
   em WAV. A música `menu01.hps`, decodificada à parte, bate janela a janela
   (67 janelas de 4000 amostras, pior correlação 1,000000 nos dois canais,
@@ -38,10 +46,11 @@ de 13 de setembro.
 - `--play` (build `-O2`) com START roteirizado: `melee-pc` aparece no servidor
   de som como fluxo tocando (não pausado) durante a música do menu, e o título
   mostrou 60,1, 60,1 e 59,8 FPS.
-- `ctest --preset host-sanitize -V`: 19/19 com o áudio ligado, sem erro do
-  ASan, 217/217 unitários, a rota cancelada em 110,0 s, a de estoque em
-  147,0 s e a de áudio em 9,1 s. O UBSan só imprime: 31 pontos distintos,
-  quatro deles nos callbacks do áudio, descritos em `native_port_status.md`.
+- `ctest --preset host-sanitize -V`: 19/19 com o áudio e as cópias da EFB,
+  sem erro do ASan, 218/218 unitários, a rota cancelada em 109,2 s, a de
+  estoque em 95,3 s e a de áudio em 4,7 s. O UBSan só imprime: os mesmos 31
+  pontos distintos, quatro deles nos callbacks do áudio, descritos em
+  `native_port_status.md`.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
 - `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
@@ -79,8 +88,7 @@ de 13 de setembro.
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
 `--play`, que abre a janela, segue o ritmo do console, mapeia o pad inteiro e
-toca som, mas não foi jogado por uma pessoa; as cópias da EFB dos retratos dos
-resultados; os dados de estágio que faltam; e, no áudio, os barramentos aux
+toca som, mas não foi jogado por uma pessoa; os dados de estágio que faltam; e, no áudio, os barramentos aux
 (reverb e delay), que o mixer não mistura. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
@@ -102,7 +110,7 @@ Pendências encontradas no primeiro teste manual de `--play`:
 
 ### Limite operacional atual
 
-O `host-debug` roda as duas rotas de VS em 25 e 32 s, e o build `-O2`, que dá
+O `host-debug` roda as duas rotas de VS em 30 e 25 s, e o build `-O2`, que dá
 o mesmo trace, em poucos segundos. Os avisos desse build (177 variáveis possivelmente não inicializadas e 43
 funções sem `return`) são a lista de onde procurar valores que no console vêm
 de registrador, como os que estragavam os resultados. O roteiro de integração
@@ -172,3 +180,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 91% | O mixer AX do host decodifica as vozes reais igual à referência: `melee-pc --decode-sound-bank` e `ssm_to_wav.py --compare-host` dão as mesmas amostras nas 456 vozes de nove bancos (efeitos, personagens, Pokémon e as falas do título), e um desvio de uma unidade no Python aparece em todas as vozes comparadas. Dois testes com asset entram na suíte; `host-debug` 18/18 e, sob ASan, 213/213 unitários e os testes de banco sem relato novo. |
 | 2026-09-15 | 91% | Pendências do primeiro teste manual do `--play`: o gamepad SDL dá cima como negativo, e os dois eixos verticais passam a trocar de sinal antes de `PADStatus` (`gamepad_axis_y`, `port/src/render/play_window.hpp`), como o W do teclado; a janela visível mostra os frames por segundo no título duas vezes por segundo (60,0, 59,8 e 60,0 lidos com `wmctrl` no build `-O2`). Três testes unitários cobrem eixos, medidor e título; sem gamepad ligado, o eixo foi conferido só por eles. `host-debug` 18/18, 216/216 unitários. |
 | 2026-09-15 | 94% | O jogo toca efeitos e música. `synth.c` monta no host os descritores dos `.ssm` em largura de ponteiro (registro do arquivo e sons num bloco, readdress e deflag próprios), o `.sem` tem os fluxos de comando convertidos na carga, a razão de reamostragem deixa de ser gravada como uma palavra sobre dois `u16` e o stream `.hps` converte cabeçalho e blocos. O relógio AX roda um quadro de 5 ms por 5 ms de campo a cada retrace, as vozes ligam nas rotas e no `--play`, que toca no dispositivo de som e passa a esperar um campo NTSC por frame, e `WAV=` grava o mixer. Comparar a música com um decodificador à parte achou o mixer voltando ao início do bloco a cada amostra depois de laçar para o bloco seguinte (33 e 96 amostras repetidas): o fim agora dispara só no endereço seguinte ao fim, como o acelerador do DSP. `OSGetSoundMode` responde estéreo. Música por janela e efeito 118 com correlação 1,000000; trace igual com e sem som; `host-debug` 19/19, 217/217 unitários; sob ASan 19/19, sem relato do ASan e com 31 pontos do UBSan, quatro nos callbacks do áudio. |
+| 2026-09-15 | 95% | Cópias da EFB em cor. `GXCopyTex` em RGB5A3, RGB565 ou RGBA8 rasteriza na CPU a captura do frame até a cópia: cada draw com sua projeção, viewport e scissor, culling, teste e escrita de profundidade (o Z8 do apagamento do HSD grava o fundo), TEV por fragmento sobre texels filtrados, teste de alpha e blend, a partir da cor e profundidade de limpeza e das limpezas que cópias anteriores do frame pediram. Os resultados copiam dois retratos por jogador a cada frame (975 cópias na rota de estoque, 1944 na cancelada): os painéis mostram o Fox, antes preto, e `FRAME:EFBCOPY` confere que a cópia tem imagem. Os caches de textura decodificam de novo um endereço que uma cópia reescreveu, e o presenter aplica as limpezas no meio do frame, o que tira um retângulo vermelho de trás do Fox dos resultados. Um teste velho copiava 320×240 RGBA8 num vetor de 64 bytes e passou a estourar a pilha; ganhou o buffer do tamanho da textura. Sem otimização os retratos custavam 57 s à rota cancelada; começar na última limpeza que cobre a cópia, testar a profundidade antes do TEV quando o alpha sempre passa e compilar `command_recorder.cpp` e `tev.cpp` com `-O2` a trazem a 29,8 s. O clang do `host-sanitize` recusou cinco conversões de sinal do rasterizador que o GCC aceitava, corrigidas. `host-debug` 19/19, 218/218 unitários; sob ASan 19/19, sem relato do ASan e com os mesmos 31 pontos do UBSan. |

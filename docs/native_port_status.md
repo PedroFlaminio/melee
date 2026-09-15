@@ -2240,6 +2240,45 @@ Atualizado em 15 de setembro de 2026.
   subtraida (1,000000 nas duas vozes); com o teste de fim antigo as janelas
   caem a -0,66 e o teste falha. A rota de estoque da o mesmo trace com e sem
   som e no build `-O2`.
+- [x] Copias da EFB em cor. `GXCopyTex` em RGB5A3, RGB565 ou RGBA8 chama
+  `melee_host_gx_copy_efb_to_texture`, que rasteriza na CPU os triangulos
+  capturados no frame ate a copia, na ordem: projecao, viewport e scissor de
+  cada draw, culling, teste e escrita de profundidade, as coordenadas de
+  textura com correcao de perspectiva, texels com o filtro e o wrap do
+  presenter, `evaluate_tev`, `alpha_test_passes` e o blend do GX, sobre a cor
+  e a profundidade de limpeza da copia de display.  A lupa da luta usa o mesmo
+  caminho. O estado de draw capturado
+  ganhou `GXSetZTexture`: com `GX_ZT_REPLACE` o texel de uma textura Z vira a
+  profundidade, e o Z8 de 255 do `HSD_EraseRect` e lido como os bits altos
+  (o fundo). Uma copia com `clear` fica marcada na posicao do frame
+  (`melee_host_gx_note_efb_clear`) e as copias e o presenter seguintes a
+  aplicam. O HSD renderiza numa EFB RGB8, entao as copias saem opacas e em
+  blocos 4x4.
+  Os resultados copiam, a cada frame e por jogador, o retrato do painel (52x74
+  em 294,146), o compartilhado (100x152 em 270,124, com `clear`) e, na luta
+  cancelada, um de 80x110; a lupa da luta copia 64x64 em 0,0. O jogo escreve
+  no mesmo endereco todo frame, entao `melee_host_gx_texture_copy_generation`
+  conta as copias por destino e o cache de texturas de `main.cpp` e o
+  presenter decodificam e enviam de novo quando ela muda. `FRAME:EFBCOPY`
+  decodifica as copias em cor que o frame usa e exige uma com pelo menos 16
+  cores; `melee-host-vs-stock-match-asset` confere o frame 1450 (3 copias, ate
+  893 cores). No BMP os paineis de 2o e 1o mostram o Fox, e o presenter,
+  aplicando as limpezas do meio do frame, tira o retangulo vermelho que ficava
+  atras do Fox grande. Na luta, a copia de 64x64 da lupa (`ifmagnify.c:440`,
+  em 0,0 com limpeza) tem 327 a 347 cores nos frames 1078 a 1092, mas a bolha
+  nao aparece no BMP do frame 1085; por que, nao foi investigado.
+  O teste "EFB copies are recorded rather than silently producing pixels"
+  copiava 320x240 RGBA8 num `std::array` de 64 bytes e passou a estourar a
+  pilha; agora usa um buffer do tamanho da textura. Um teste novo desenha um
+  triangulo, copia, limpa um canto e copia de novo. Sem otimizacao as copias
+  levavam a rota cancelada de 23,3 s a 83,7 s (a de estoque a 50 s): comecar
+  pela ultima limpeza que cobre a copia e testar a profundidade antes do TEV
+  quando o alpha sempre passa deixam o BMP igual e a trazem a 56 s, e
+  `command_recorder.cpp` e `tev.cpp` em `-O2` a 29,8 s (a de estoque a 24,8 s).
+  O trace da rota de estoque no build `-O2` segue igual. O clang do
+  `host-sanitize` (`-Wsign-conversion` com `-Werror`) recusou cinco conversoes
+  de sinal do rasterizador que o GCC aceitava; corrigidas, a suite sob ASan
+  passa 19/19 sem relato do ASan e com os mesmos 31 pontos do UBSan.
 
 ## Em andamento
 
@@ -2252,9 +2291,8 @@ Atualizado em 15 de setembro de 2026.
   estagio e `ftData*` dos outros personagens.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
-  codigo do jogo, com a imagem conferida em BMP e som; faltam os retratos dos
-  resultados (copias da EFB), jogar na janela com entrada real e os dados de
-  estagio ainda sem traducao.
+  codigo do jogo, com a imagem conferida em BMP e som; faltam jogar na janela
+  com entrada real e os dados de estagio ainda sem traducao.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2278,8 +2316,8 @@ Atualizado em 15 de setembro de 2026.
    referencia.
 2. Ritmo com apresentacao: sem apresentar, a luta roda a cerca de 200 frames
    por segundo no build `-O2`; falta medir o presenter e a janela.
-3. Copias da EFB alem da sombra I4: os retratos dos resultados
-   (`HSD_ImageDescCopyFromEFB` em `gm_1798.c`) e a refracao.
+3. A refracao (`lbrefract.c`), a copia da EFB que resta sem imagem conferida;
+   as copias em cor ja saem do rasterizador da CPU.
 4. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
    que o apagamento de tela (`HSD_EraseRect`), as SObj e o menu de regras
    usam.
@@ -2358,8 +2396,9 @@ Atualizado em 15 de setembro de 2026.
 - `GXInitFogAdjTable` grava a tabela neutra (256, ou 1.0 em ponto fixo 8.8).
   A derivacao real a partir da projecao nao esta modelada, e o estado de fog
   reporta isso em `range_adjust_modelled`.
-- `GXCopyTex` e `GXCopyDisp` registram o pedido de copia mas nao produzem
-  pixels: nao ha framebuffer host ainda.
+- `GXCopyTex` produz as copias I4 (sombra) e em cor (RGB5A3, RGB565 e RGBA8)
+  rasterizando na CPU a captura do frame; as de outros formatos ficam so
+  registradas. `GXCopyDisp` so registra.
 - Na SDK o callback de draw-done tambem pode chegar por interrupcao, sem
   espera. O host nao reproduz isso: sem processador grafico assincrono, a
   fence so e entregue por `GXWaitDrawDone`, `GXDrawDone` ou pelo laco de
@@ -2420,11 +2459,12 @@ Atualizado em 15 de setembro de 2026.
   personagem e estagio escolhidos) e, na rota de estoque, pela imagem em BMP
   do menu de regras e da SSS; nenhum frame dessas cenas foi apresentado numa
   janela.
-- Os retratos dos paineis dos resultados ficam pretos: `gm_1798.c` desenha
-  cada lutador e copia a regiao da EFB (`HSD_ImageDescCopyFromEFB`, texturas
-  RGB5A3 de 52x74), e o host so produz a copia I4 da sombra. O conteudo
-  dessas texturas e memoria nao inicializada e muda entre execucoes do mesmo
-  binario: ao comparar BMPs dos resultados, descarte esses retangulos.
+- As copias da EFB em cor nao foram conferidas contra o console pixel a
+  pixel. O filtro das texturas e o do presenter (bilinear, sem mipmap), o Z8
+  do apagamento e lido como os bits altos da profundidade, `GXSetZCompLoc` nao
+  e modelado (a profundidade e testada depois do alpha, ou antes quando o
+  alpha sempre passa) e, se dois estagios do TEV amostram o mesmo mapa com
+  coordenadas diferentes, vale a do primeiro.
 - O pool SIS do host tem o dobro do tamanho que a cena pede. Isso garante que
   cada bloco cabe no dobro do que ocupava no console, mas a fragmentacao pode
   ser outra; um "Memory Empty" em outra cena deve ser medido com o retrato do
@@ -2503,8 +2543,9 @@ Atualizado em 15 de setembro de 2026.
 - `--view-title-scene` termina quando `gm_801A4D34` retorna: START encerra a
   cena, e a seguinte nao existe no host ainda.
 - O cache de texturas do titulo e o presenter reconhecem uma imagem pelo
-  endereco dos dados e da paleta; uma animacao que reescreva uma imagem no
-  mesmo endereco continua mostrando a primeira.
+  endereco dos dados e da paleta. Uma copia da EFB que reescreve o endereco e
+  decodificada de novo pela geracao da copia, mas uma animacao que reescreva
+  uma imagem por outro meio continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
   carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam`,
   `coll_data` e `map_head` (69 de 71), mas nao `itemdata`, `ALDYakuAll`,

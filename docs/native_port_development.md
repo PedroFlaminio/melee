@@ -398,12 +398,17 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   de suspeitar do esqueleto, confira no relatorio do `BMP=` as caixas das
   sequencias de draw e, no gdb, as matrizes dos joints: aqui as duas coisas
   apontaram para lados diferentes, e o erro estava entre elas.
-- Uma textura que o jogo preenche com `GXCopyTex` (sombra, refracao e a
-  copia de `tobj.c`) fica no host com o que havia na memoria, porque a copia
-  de EFB ainda nao produz pixels. O sintoma e uma area preta ou suja onde a
-  textura e aplicada. Para confirmar, encha o destino com uma cor fixa dentro
-  de `GXCopyTex`, sem commit, e veja se a area muda: foi assim que a faixa
-  preta da luta se mostrou a sombra.
+- Uma textura que o jogo preenche com `GXCopyTex` sai do rasterizador da CPU
+  (`melee_host_gx_copy_efb_to_i4` para a sombra, `..._to_texture` para as
+  cores), que desenha a captura do frame ate a copia e aplica as limpezas
+  pedidas antes dela. `FRAME:EFBCOPY` decodifica as copias em cor que o frame
+  usa e exige uma com pelo menos 16 cores, e um breakpoint em
+  `HSD_ImageDescCopyFromEFB` imprime quantas copias ha, de que tamanho e onde.
+  Uma area preta ou suja onde a textura e aplicada aponta para um formato que o
+  rasterizador nao faz ou para geometria que a captura nao tem. Para confirmar
+  que a area e uma copia, encha o destino com uma cor fixa dentro de
+  `GXCopyTex`, sem commit: foi assim que a faixa preta da luta se mostrou a
+  sombra.
 - Uma funcao pequena que devolve `int` pode estar lendo um ponteiro pelo
   layout do console: `mn_80231634` devolve o `child` de um JObj como o `int`
   em +10. O sintoma e SIGSEGV num JObj de endereco com cara de 32 bits
@@ -452,6 +457,15 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   somam o tempo na que as chama: `finish_draw_locked` levava 92% da rota com
   o laco de `transform_captured_draw_locked` dentro, que refazia todos os
   triangulos do frame ao fim de cada draw.
+- `port/src/gx/command_recorder.cpp` e `port/src/gx/tev.cpp` compilam com
+  `-O2` em todos os presets, com `-g`: a captura GX roda por vertice e as
+  copias da EFB por fragmento, e sem otimizacao a rota VS cancelada levava
+  83,7 s (29,8 s assim). No gdb, variaveis desses dois arquivos podem aparecer
+  como `<optimized out>`; para depurar um deles, tire a propriedade no
+  `port/CMakeLists.txt` localmente.
+- Sem perf, uma amostra de onde a rota gasta tempo sai de rodar sob
+  `timeout -s INT N gdb -batch -ex run -ex "bt 12"` com alguns N diferentes;
+  tres amostras bastaram para mostrar o TEV por fragmento das copias.
 - Para medir o ritmo por cena, rode a rota com `stdbuf -oL`: num pipe o
   `stdout` sai em bloco no fim, e as linhas `scene 0xNN from frame N` chegam
   todas juntas.

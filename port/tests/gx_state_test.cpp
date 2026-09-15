@@ -26,6 +26,7 @@ MELEE_HOST_TEST_HSD_END
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace {
 
@@ -389,11 +390,14 @@ TEST_CASE("fog records its parameters and flags range adjust as unmodelled")
     REQUIRE(!fog.range_adjust_modelled);
 }
 
-TEST_CASE("EFB copies are recorded rather than silently producing pixels")
+TEST_CASE("EFB copies are recorded and written to their destination")
 {
     melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
 
-    std::array<std::uint8_t, 64> destination{};
+    /* The whole texture: 320x240 RGBA8 is 4 bytes a texel.  With nothing
+     * drawn the copy is the clear colour, opaque. */
+    std::vector<std::uint8_t> destination(320U * 240U * 4U, 0x5A);
     GXSetTexCopySrc(0, 0, 640, 480);
     GXSetTexCopyDst(320, 240, GX_TF_RGBA8, GX_FALSE);
     GXCopyTex(destination.data(), GX_TRUE);
@@ -409,6 +413,8 @@ TEST_CASE("EFB copies are recorded rather than silently producing pixels")
     REQUIRE(copy.last_destination == destination.data());
     REQUIRE(copy.last_clear);
     REQUIRE(copy.texture_invalidate_count == 1);
+    REQUIRE(destination[3] == 0xFF);
+    REQUIRE(destination[destination.size() - 1] == 0xFF);
 }
 
 TEST_CASE("I4 EFB copies rasterize the recorded shadow mask")
@@ -451,6 +457,81 @@ TEST_CASE("I4 EFB copies rasterize the recorded shadow mask")
                         [](std::uint8_t byte) { return byte != 0xFFU; }));
     REQUIRE(std::any_of(destination.begin(), destination.end(),
                         [](std::uint8_t byte) { return byte != 0; }));
+}
+
+TEST_CASE("colour EFB copies rasterize the frame so far and keep its clears")
+{
+    melee_host_gx_state_reset();
+    melee_host_gx_reset_command_log();
+
+    Mtx44 projection;
+    MTXOrtho(projection, 1.0F, -1.0F, -1.0F, 1.0F, 0.0F, 1.0F);
+    GXSetProjection(projection, GX_ORTHOGRAPHIC);
+    Mtx identity;
+    PSMTXIdentity(identity);
+    GXLoadPosMtxImm(identity, GX_PNMTX0);
+    GXSetCurrentMtx(GX_PNMTX0);
+    GXSetViewport(0.0F, 0.0F, 8.0F, 8.0F, 0.0F, 1.0F);
+    GXSetCopyClear(GXColor{ 0, 0, 255, 255 }, 0x00FFFFFF);
+    /* With no colour channel the raster colour is the vertex colour. */
+    GXSetNumChans(0);
+    GXSetNumTevStages(1);
+    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL,
+                  GX_COLOR0A0);
+    GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GXSetCullMode(GX_CULL_NONE);
+    GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
+    GXSetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
+    GXSetColorUpdate(GX_TRUE);
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    /* The upper-left half of the 8x8 viewport, in red. */
+    GXBegin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    GXPosition3f32(-1.0F, 1.0F, 0.0F);
+    GXColor4u8(255, 0, 0, 255);
+    GXPosition3f32(1.0F, 1.0F, 0.0F);
+    GXColor4u8(255, 0, 0, 255);
+    GXPosition3f32(-1.0F, -1.0F, 0.0F);
+    GXColor4u8(255, 0, 0, 255);
+    GXEnd();
+
+    /* RGB5A3 in 4x4 blocks, big-endian, opaque texels. */
+    const auto texel = [](const std::uint8_t* image, int width, int x, int y) {
+        const int blocks_wide = (width + 3) / 4;
+        const int block = (y / 4) * blocks_wide + x / 4;
+        const auto at = static_cast<std::size_t>((block * 16 + (y % 4) * 4 + x % 4) * 2);
+        return static_cast<std::uint16_t>((image[at] << 8) | image[at + 1]);
+    };
+    constexpr std::uint16_t kRed = 0x8000 | (31 << 10);
+    constexpr std::uint16_t kBlue = 0x8000 | 31;
+
+    std::array<std::uint8_t, 128> frame{};
+    GXSetTexCopySrc(0, 0, 8, 8);
+    GXSetTexCopyDst(8, 8, GX_TF_RGB5A3, GX_FALSE);
+    GXCopyTex(frame.data(), GX_FALSE);
+    REQUIRE(texel(frame.data(), 8, 1, 1) == kRed);
+    REQUIRE(texel(frame.data(), 8, 5, 1) == kRed);
+    REQUIRE(texel(frame.data(), 8, 6, 6) == kBlue);
+
+    /* A copy that clears the upper-left 4x4: what is drawn later in the frame
+     * sees blue and the far plane there. */
+    std::array<std::uint8_t, 32> corner{};
+    GXSetTexCopySrc(0, 0, 4, 4);
+    GXSetTexCopyDst(4, 4, GX_TF_RGB5A3, GX_FALSE);
+    GXCopyTex(corner.data(), GX_TRUE);
+    REQUIRE(texel(corner.data(), 4, 1, 1) == kRed);
+
+    GXSetTexCopySrc(0, 0, 8, 8);
+    GXSetTexCopyDst(8, 8, GX_TF_RGB5A3, GX_FALSE);
+    GXCopyTex(frame.data(), GX_FALSE);
+    REQUIRE(texel(frame.data(), 8, 1, 1) == kBlue);
+    REQUIRE(texel(frame.data(), 8, 5, 1) == kRed);
+    REQUIRE(melee_host_gx_texture_copy_generation(frame.data()) == 2);
+    REQUIRE(melee_host_gx_texture_copy_generation(corner.data()) == 1);
 }
 
 TEST_CASE("projection helpers build the GX frustum and orthographic forms")

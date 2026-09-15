@@ -1356,6 +1356,7 @@ void GXCopyTex(void* dest, GXBool clear)
     copy_state.copy_count += 1;
     copy_state.last_destination = dest;
     copy_state.last_clear = clear != GX_FALSE;
+    melee_host_gx_note_texture_copy(dest);
     /* HSD shadows are I4 EFB copies.  Resolve that compact, untextured pass
      * now so the texture sampled by the later stage draw is defined. */
     if (copy_state.destination_format == GX_CTF_R4) {
@@ -1363,6 +1364,21 @@ void GXCopyTex(void* dest, GXBool clear)
             dest, copy_state.source_left, copy_state.source_top,
             copy_state.source_width, copy_state.source_height,
             copy_state.destination_width, copy_state.destination_height));
+    } else {
+        /* The results' portraits and the magnifier's close-up are colour
+         * copies of a fighter drawn over an erased rectangle. */
+        static_cast<void>(melee_host_gx_copy_efb_to_texture(
+            dest, copy_state.destination_format, copy_state.source_left,
+            copy_state.source_top, copy_state.source_width,
+            copy_state.source_height, copy_state.destination_width,
+            copy_state.destination_height, display_copy_state.clear_color,
+            display_copy_state.clear_depth));
+    }
+    if (clear != GX_FALSE) {
+        melee_host_gx_note_efb_clear(
+            copy_state.source_left, copy_state.source_top,
+            copy_state.source_width, copy_state.source_height,
+            display_copy_state.clear_color, display_copy_state.clear_depth);
     }
 }
 

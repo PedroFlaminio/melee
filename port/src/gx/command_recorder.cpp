@@ -1,7 +1,10 @@
 #include <melee_host/gx.h>
 
+#include "assets/gx_texture.hpp"
+#include "gx/tev.hpp"
 #include "gx/view.hpp"
 
+#include <dolphin/gx/GXEnum.h>
 #include <dolphin/gx/GXGeometry.h>
 #include <dolphin/gx/GXCommandList.h>
 #include <dolphin/gx/GXDispList.h>
@@ -14,6 +17,9 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include <span>
+#include <stdexcept>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -90,6 +96,22 @@ std::vector<MeleeHostGxViewState> captured_view_states;
 std::vector<MeleeHostGxTevState> captured_tev_states;
 /* The position matrix row each captured vertex was drawn with. */
 std::vector<mh_u32> captured_vertex_matrix_rows;
+
+/* A GXCopyTex that cleared, placed among the frame's triangles: the draws
+ * from `triangle` on see the rectangle at the clear colour and depth. */
+struct EfbClear {
+    std::size_t triangle = 0;
+    mh_u16 left = 0;
+    mh_u16 top = 0;
+    mh_u16 width = 0;
+    mh_u16 height = 0;
+    std::array<mh_u8, 4> color{};
+    mh_u32 depth = 0;
+};
+std::vector<EfbClear> efb_clears;
+
+/* EFB copies written to each image address, across frames. */
+std::unordered_map<const void*, mh_u32> texture_copy_generations;
 
 ActiveDraw active_draw;
 
@@ -225,7 +247,10 @@ bool same_draw_state(const MeleeHostGxDrawState& left,
            left.alpha_compare_1 == right.alpha_compare_1 &&
            left.alpha_op == right.alpha_op &&
            left.alpha_ref_0 == right.alpha_ref_0 &&
-           left.alpha_ref_1 == right.alpha_ref_1;
+           left.alpha_ref_1 == right.alpha_ref_1 &&
+           left.z_texture_op == right.z_texture_op &&
+           left.z_texture_format == right.z_texture_format &&
+           left.z_texture_bias == right.z_texture_bias;
 }
 
 /* Projects the modelled pixel state onto the fields that decide how a triangle
@@ -243,7 +268,8 @@ mh_u32 current_draw_state_id_locked()
         pixel.color_update_enable, pixel.alpha_update_enable,
         pixel.alpha_compare_0, pixel.alpha_compare_1,
         pixel.alpha_op,       pixel.alpha_ref_0,
-        pixel.alpha_ref_1,
+        pixel.alpha_ref_1,    pixel.z_texture_op,
+        pixel.z_texture_format, pixel.z_texture_bias,
     };
     for (std::size_t index = 0; index < captured_draw_states.size(); ++index) {
         if (same_draw_state(captured_draw_states[index], state)) {
@@ -1750,6 +1776,7 @@ extern "C" void melee_host_gx_reset_command_log(void)
     captured_vertex_matrix_rows.clear();
     captured_raw_vertices.clear();
     captured_texture_sets.clear();
+    efb_clears.clear();
     active_draw = {};
 }
 
@@ -1859,6 +1886,700 @@ extern "C" bool melee_host_gx_copy_efb_to_i4(
                     (static_cast<mh_u32>(output[offset]) & 0x0FU));
             } else {
                 output[offset] = static_cast<mh_u8>((output[offset] & 0xF0U) | value);
+            }
+        }
+    }
+    return true;
+}
+
+namespace {
+
+/* A texture of the capture as the CPU copy samples it: RGBA8 for a colour
+ * format, or 24-bit depth texels for a Z texture. */
+struct CopyTexture {
+    bool valid = false;
+    bool depth = false;
+    int width = 0;
+    int height = 0;
+    mh_u32 wrap_s = 0;
+    mh_u32 wrap_t = 0;
+    bool linear = false;
+    std::vector<mh_u8> rgba;
+    std::vector<mh_u32> z;
+};
+
+CopyTexture decode_copy_texture_locked(mh_u32 id)
+{
+    CopyTexture out;
+    if (id >= captured_textures.size()) {
+        return out;
+    }
+    const MeleeHostGxTextureDesc& desc = captured_textures[id];
+    if (desc.image == nullptr || desc.width == 0 || desc.height == 0) {
+        return out;
+    }
+    out.width = desc.width;
+    out.height = desc.height;
+    out.wrap_s = desc.wrap_s;
+    out.wrap_t = desc.wrap_t;
+    out.linear = desc.mag_filter != 0;
+    const auto* const bytes = static_cast<const mh_u8*>(desc.image);
+    const std::size_t count = static_cast<std::size_t>(desc.width) * desc.height;
+    if (desc.format == GX_TF_Z8 || desc.format == GX_TF_Z16 ||
+        desc.format == GX_TF_Z24X8)
+    {
+        /* Row by row, as the depth erase's 4x4 Z8 texture is laid out.  A Z8
+         * texel is taken as depth's top bits, so the erase's 255 is the far
+         * plane it puts back. */
+        out.z.resize(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            if (desc.format == GX_TF_Z8) {
+                out.z[i] = static_cast<mh_u32>(bytes[i]) * 0x010101U;
+            } else if (desc.format == GX_TF_Z16) {
+                const mh_u32 value = (static_cast<mh_u32>(bytes[i * 2]) << 8U) |
+                                     bytes[i * 2 + 1];
+                out.z[i] = value << 8U | value >> 8U;
+            } else {
+                out.z[i] = (static_cast<mh_u32>(bytes[i * 4]) << 16U) |
+                           (static_cast<mh_u32>(bytes[i * 4 + 1]) << 8U) |
+                           bytes[i * 4 + 2];
+            }
+        }
+        out.depth = true;
+        out.valid = true;
+        return out;
+    }
+    try {
+        const std::size_t size = melee::assets::gx_texture_data_size(
+            desc.width, desc.height, desc.format);
+        const std::span<const std::byte> data{
+            static_cast<const std::byte*>(desc.image), size
+        };
+        melee::assets::DecodedTexture decoded{};
+        if (desc.color_indexed) {
+            if (id >= captured_texture_tluts.size()) {
+                return out;
+            }
+            const MeleeHostGxTlutDesc& tlut = captured_texture_tluts[id];
+            if (!tlut.loaded || tlut.entries == nullptr) {
+                return out;
+            }
+            decoded = melee::assets::decode_gx_texture_with_tlut(
+                data, desc.width, desc.height, desc.format,
+                { static_cast<const std::byte*>(tlut.entries),
+                  static_cast<std::size_t>(tlut.entry_count) * 2 },
+                tlut.format);
+        } else {
+            decoded = melee::assets::decode_gx_texture(data, desc.width,
+                                                       desc.height,
+                                                       desc.format);
+        }
+        if (decoded.rgba.size() != count * 4) {
+            return out;
+        }
+        out.rgba = std::move(decoded.rgba);
+        out.valid = true;
+    } catch (const std::exception&) {
+    }
+    return out;
+}
+
+int wrap_texel(int index, int size, mh_u32 mode)
+{
+    switch (mode) {
+    case 1: // GX_REPEAT
+        return ((index % size) + size) % size;
+    case 2: { // GX_MIRROR
+        const int period = size * 2;
+        const int folded = ((index % period) + period) % period;
+        return folded < size ? folded : period - 1 - folded;
+    }
+    default: // GX_CLAMP
+        return std::clamp(index, 0, size - 1);
+    }
+}
+
+/* texture() on a GL_RGBA8 texture with the filter and wrap the presenter
+ * uploads, then round(x * 255) as the TEV shader does. */
+std::array<int, 4> sample_copy_texture(const CopyTexture& texture, float u,
+                                       float v)
+{
+    std::array<int, 4> out{ 255, 255, 255, 255 };
+    if (!texture.valid || texture.depth) {
+        return out;
+    }
+    const auto texel = [&](int x, int y, int channel) {
+        const int tx = wrap_texel(x, texture.width, texture.wrap_s);
+        const int ty = wrap_texel(y, texture.height, texture.wrap_t);
+        return static_cast<float>(
+            texture.rgba[(static_cast<std::size_t>(ty) *
+                              static_cast<std::size_t>(texture.width) +
+                          static_cast<std::size_t>(tx)) * 4 +
+                         static_cast<std::size_t>(channel)]);
+    };
+    const float x = u * static_cast<float>(texture.width);
+    const float y = v * static_cast<float>(texture.height);
+    for (int channel = 0; channel < 4; ++channel) {
+        float value = 0.0F;
+        if (texture.linear) {
+            const float fx = x - 0.5F;
+            const float fy = y - 0.5F;
+            const float x0 = std::floor(fx);
+            const float y0 = std::floor(fy);
+            const float ax = fx - x0;
+            const float ay = fy - y0;
+            const int ix = static_cast<int>(x0);
+            const int iy = static_cast<int>(y0);
+            value = (texel(ix, iy, channel) * (1.0F - ax) +
+                     texel(ix + 1, iy, channel) * ax) * (1.0F - ay) +
+                    (texel(ix, iy + 1, channel) * (1.0F - ax) +
+                     texel(ix + 1, iy + 1, channel) * ax) * ay;
+        } else {
+            value = texel(static_cast<int>(std::floor(x)),
+                          static_cast<int>(std::floor(y)), channel);
+        }
+        out[static_cast<std::size_t>(channel)] =
+            static_cast<int>(std::lround(std::clamp(value, 0.0F, 255.0F)));
+    }
+    return out;
+}
+
+/* Whether GX's pair of alpha comparisons passes whatever the alpha is, so
+ * the depth test can run before the TEV without changing what is drawn. */
+bool alpha_always_passes(const MeleeHostGxDrawState& state)
+{
+    constexpr mh_u32 kAlways = GX_ALWAYS;
+    const bool first = state.alpha_compare_0 == kAlways;
+    const bool second = state.alpha_compare_1 == kAlways;
+    switch (state.alpha_op) {
+    case GX_AOP_AND: return first && second;
+    case GX_AOP_OR: return first || second;
+    default: return false;
+    }
+}
+
+bool gx_depth_passes(mh_u32 function, float value, float stored)
+{
+    switch (function & 7U) {
+    case 0: return false;
+    case 1: return value < stored;
+    case 2: return value == stored;
+    case 3: return value <= stored;
+    case 4: return value > stored;
+    case 5: return value != stored;
+    case 6: return value >= stored;
+    default: return true;
+    }
+}
+
+/* A blend factor for one colour channel; the EFB has no alpha, so the
+ * destination's reads as one. */
+float gx_blend_factor(mh_u32 factor, bool source_side,
+                      const std::array<int, 4>& source,
+                      const std::array<int, 4>& destination, int channel)
+{
+    const auto unit = [](int value) { return static_cast<float>(value) / 255.0F; };
+    switch (factor) {
+    case 0: return 0.0F;
+    case 1: return 1.0F;
+    case 2:
+        return source_side ? unit(destination[static_cast<std::size_t>(channel)])
+                           : unit(source[static_cast<std::size_t>(channel)]);
+    case 3:
+        return 1.0F -
+               (source_side ? unit(destination[static_cast<std::size_t>(channel)])
+                            : unit(source[static_cast<std::size_t>(channel)]));
+    case 4: return unit(source[3]);
+    case 5: return 1.0F - unit(source[3]);
+    case 6: return 1.0F;
+    default: return 0.0F;
+    }
+}
+
+} // namespace
+
+extern "C" void melee_host_gx_note_efb_clear(mh_u16 left, mh_u16 top,
+                                             mh_u16 width, mh_u16 height,
+                                             const mh_u8 clear_color[4],
+                                             mh_u32 clear_depth)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    EfbClear clear;
+    clear.triangle = captured_triangle_indices.size();
+    clear.left = left;
+    clear.top = top;
+    clear.width = width;
+    clear.height = height;
+    for (std::size_t i = 0; i < 4; ++i) {
+        clear.color[i] = clear_color != nullptr ? clear_color[i] : 0;
+    }
+    clear.depth = clear_depth;
+    efb_clears.push_back(clear);
+}
+
+extern "C" size_t melee_host_gx_efb_clear_count(void)
+{
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    return efb_clears.size();
+}
+
+extern "C" bool melee_host_gx_efb_clear_at(size_t index,
+                                           MeleeHostGxEfbClear* output)
+{
+    if (output == nullptr) {
+        return false;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    if (index >= efb_clears.size()) {
+        return false;
+    }
+    const EfbClear& clear = efb_clears[index];
+    output->triangle = clear.triangle;
+    output->left = clear.left;
+    output->top = clear.top;
+    output->width = clear.width;
+    output->height = clear.height;
+    for (std::size_t i = 0; i < 4; ++i) {
+        output->color[i] = clear.color[i];
+    }
+    output->depth = clear.depth;
+    return true;
+}
+
+extern "C" void melee_host_gx_note_texture_copy(const void* destination)
+{
+    if (destination == nullptr) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    texture_copy_generations[destination] += 1;
+}
+
+extern "C" mh_u32 melee_host_gx_texture_copy_generation(const void* image)
+{
+    if (image == nullptr) {
+        return 0;
+    }
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    const auto found = texture_copy_generations.find(image);
+    return found == texture_copy_generations.end() ? 0 : found->second;
+}
+
+extern "C" bool melee_host_gx_copy_efb_to_texture(
+    void* destination, mh_u32 format, mh_u16 source_left, mh_u16 source_top,
+    mh_u16 source_width, mh_u16 source_height, mh_u16 destination_width,
+    mh_u16 destination_height, const mh_u8 clear_color[4],
+    mh_u32 clear_depth)
+{
+    if (destination == nullptr || source_width == 0 || source_height == 0 ||
+        destination_width == 0 || destination_height == 0 ||
+        (format != GX_TF_RGB5A3 && format != GX_TF_RGB565 &&
+         format != GX_TF_RGBA8))
+    {
+        return false;
+    }
+    const int width = source_width;
+    const int height = source_height;
+    const std::size_t pixel_count =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    std::vector<std::array<int, 4>> color(
+        pixel_count,
+        { clear_color != nullptr ? clear_color[0] : 0,
+          clear_color != nullptr ? clear_color[1] : 0,
+          clear_color != nullptr ? clear_color[2] : 0, 255 });
+    std::vector<float> depth(pixel_count,
+                             static_cast<float>(clear_depth & 0xFFFFFFU) /
+                                 16777215.0F);
+
+    const std::lock_guard<std::mutex> lock(command_mutex);
+    std::unordered_map<mh_u32, CopyTexture> textures;
+    const auto texture_of = [&](mh_u32 id) -> const CopyTexture& {
+        auto found = textures.find(id);
+        if (found == textures.end()) {
+            found = textures.emplace(id, decode_copy_texture_locked(id)).first;
+        }
+        return found->second;
+    };
+
+    /* One clip matrix per view, and whether the view's viewport and scissor
+     * reach the copy at all: most of a frame is drawn through views a
+     * close-up copy never sees. */
+    const float copy_left = static_cast<float>(source_left);
+    const float copy_top = static_cast<float>(source_top);
+    const float copy_right = static_cast<float>(source_left + width);
+    const float copy_bottom = static_cast<float>(source_top + height);
+    std::vector<melee::gx::ClipMatrix> clips(captured_view_states.size());
+    std::vector<bool> view_reaches_copy(captured_view_states.size(), false);
+    for (std::size_t index = 0; index < captured_view_states.size(); ++index) {
+        const MeleeHostGxViewState& view = captured_view_states[index];
+        clips[index] = melee::gx::clip_matrix(view);
+        float left = view.viewport_left;
+        float top = view.viewport_top;
+        float right = view.viewport_left + view.viewport_width;
+        float bottom = view.viewport_top + view.viewport_height;
+        if (view.scissor_width != 0 && view.scissor_height != 0) {
+            left = std::max(left, static_cast<float>(view.scissor_left));
+            top = std::max(top, static_cast<float>(view.scissor_top));
+            right = std::min(right, static_cast<float>(view.scissor_left + view.scissor_width));
+            bottom = std::min(bottom, static_cast<float>(view.scissor_top + view.scissor_height));
+        }
+        view_reaches_copy[index] = left < copy_right && right > copy_left &&
+                                   top < copy_bottom && bottom > copy_top;
+    }
+
+    std::size_t next_clear = 0;
+    const auto apply_clears = [&](std::size_t triangle) {
+        while (next_clear < efb_clears.size() &&
+               efb_clears[next_clear].triangle <= triangle)
+        {
+            const EfbClear& clear = efb_clears[next_clear++];
+            for (int y = 0; y < height; ++y) {
+                const int ey = source_top + y;
+                if (ey < clear.top || ey >= clear.top + clear.height) {
+                    continue;
+                }
+                for (int x = 0; x < width; ++x) {
+                    const int ex = source_left + x;
+                    if (ex < clear.left || ex >= clear.left + clear.width) {
+                        continue;
+                    }
+                    const std::size_t at =
+                        static_cast<std::size_t>(y) *
+                            static_cast<std::size_t>(width) +
+                        static_cast<std::size_t>(x);
+                    color[at] = { clear.color[0], clear.color[1],
+                                  clear.color[2], 255 };
+                    depth[at] = static_cast<float>(clear.depth & 0xFFFFFFU) /
+                                16777215.0F;
+                }
+            }
+        }
+    };
+
+    /* A clear that covers the whole copy resets its colour and depth, so
+     * nothing drawn before it can show: start there.  The results screen
+     * clears its shared portrait once per player, and every copy after the
+     * first would otherwise draw the whole screen again. */
+    std::size_t first_triangle = 0;
+    for (std::size_t index = 0; index < efb_clears.size(); ++index) {
+        const EfbClear& clear = efb_clears[index];
+        if (clear.triangle <= captured_triangle_indices.size() &&
+            clear.left <= source_left && clear.top <= source_top &&
+            clear.left + clear.width >= source_left + width &&
+            clear.top + clear.height >= source_top + height)
+        {
+            first_triangle = clear.triangle;
+            next_clear = index;
+        }
+    }
+
+    for (std::size_t triangle = first_triangle;
+         triangle < captured_triangle_indices.size(); ++triangle)
+    {
+        apply_clears(triangle);
+        const auto& indices = captured_triangle_indices[triangle];
+        if (indices[0] >= captured_vertices.size() ||
+            indices[1] >= captured_vertices.size() ||
+            indices[2] >= captured_vertices.size())
+        {
+            continue;
+        }
+        const std::array<const MeleeHostGxCapturedVertex*, 3> v{
+            &captured_vertices[indices[0]], &captured_vertices[indices[1]],
+            &captured_vertices[indices[2]]
+        };
+        const MeleeHostGxCapturedVertex& lead = *v[0];
+        if (lead.view_state >= captured_view_states.size() ||
+            lead.draw_state >= captured_draw_states.size() ||
+            lead.tev_state >= captured_tev_states.size() ||
+            !view_reaches_copy[lead.view_state])
+        {
+            continue;
+        }
+        const MeleeHostGxViewState& view = captured_view_states[lead.view_state];
+        const MeleeHostGxDrawState& state = captured_draw_states[lead.draw_state];
+        const MeleeHostGxTevState& tev = captured_tev_states[lead.tev_state];
+        if (state.cull_mode == 3) {
+            continue;
+        }
+        const melee::gx::ClipMatrix& clip = clips[lead.view_state];
+        std::array<float, 3> sx{};
+        std::array<float, 3> sy{};
+        std::array<float, 3> sz{};
+        std::array<float, 3> inverse_w{};
+        bool visible = true;
+        for (std::size_t k = 0; k < 3; ++k) {
+            const auto& p = v[k]->position;
+            const float w = clip[3] * p.x + clip[7] * p.y + clip[11] * p.z + clip[15];
+            if (!(w > 0.0F)) {
+                visible = false;
+                break;
+            }
+            const float nx = (clip[0] * p.x + clip[4] * p.y + clip[8] * p.z + clip[12]) / w;
+            const float ny = (clip[1] * p.x + clip[5] * p.y + clip[9] * p.z + clip[13]) / w;
+            const float nz = (clip[2] * p.x + clip[6] * p.y + clip[10] * p.z + clip[14]) / w;
+            sx[k] = view.viewport_left + (nx + 1.0F) * 0.5F * view.viewport_width;
+            sy[k] = view.viewport_top + (1.0F - ny) * 0.5F * view.viewport_height;
+            sz[k] = view.viewport_near +
+                    (nz + 1.0F) * 0.5F * (view.viewport_far - view.viewport_near);
+            inverse_w[k] = 1.0F / w;
+            if (!std::isfinite(sx[k]) || !std::isfinite(sy[k]) ||
+                !std::isfinite(sz[k]))
+            {
+                visible = false;
+                break;
+            }
+        }
+        if (!visible) {
+            continue;
+        }
+        if ((sx[0] < copy_left && sx[1] < copy_left && sx[2] < copy_left) ||
+            (sx[0] >= copy_right && sx[1] >= copy_right && sx[2] >= copy_right) ||
+            (sy[0] < copy_top && sy[1] < copy_top && sy[2] < copy_top) ||
+            (sy[0] >= copy_bottom && sy[1] >= copy_bottom && sy[2] >= copy_bottom))
+        {
+            continue;
+        }
+        const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) -
+                           (sy[1] - sy[0]) * (sx[2] - sx[0]);
+        if (std::abs(area) < 1.0e-9F) {
+            continue;
+        }
+        /* Clockwise on screen is GX's front face; with y down that is a
+         * positive area. */
+        const bool front = area > 0.0F;
+        if ((state.cull_mode == 1 && front) || (state.cull_mode == 2 && !front)) {
+            continue;
+        }
+        float left = static_cast<float>(source_left);
+        float top = static_cast<float>(source_top);
+        float right = static_cast<float>(source_left + width);
+        float bottom = static_cast<float>(source_top + height);
+        if (view.scissor_width != 0 && view.scissor_height != 0) {
+            left = std::max(left, static_cast<float>(view.scissor_left));
+            top = std::max(top, static_cast<float>(view.scissor_top));
+            right = std::min(right, static_cast<float>(view.scissor_left +
+                                                       view.scissor_width));
+            bottom = std::min(bottom, static_cast<float>(view.scissor_top +
+                                                         view.scissor_height));
+        }
+        const int min_x = std::max(static_cast<int>(std::floor(left)),
+                                   static_cast<int>(std::floor(std::min({ sx[0], sx[1], sx[2] }))));
+        const int max_x = std::min(static_cast<int>(std::ceil(right)) - 1,
+                                   static_cast<int>(std::ceil(std::max({ sx[0], sx[1], sx[2] }))));
+        const int min_y = std::max(static_cast<int>(std::floor(top)),
+                                   static_cast<int>(std::floor(std::min({ sy[0], sy[1], sy[2] }))));
+        const int max_y = std::min(static_cast<int>(std::ceil(bottom)) - 1,
+                                   static_cast<int>(std::ceil(std::max({ sy[0], sy[1], sy[2] }))));
+        if (min_x > max_x || min_y > max_y) {
+            continue;
+        }
+
+        TextureSet set{};
+        set.fill(MELEE_HOST_GX_NO_TEXTURE);
+        if (lead.texture_set < captured_texture_sets.size()) {
+            set = captured_texture_sets[lead.texture_set];
+        }
+        const std::size_t stages = std::min<std::size_t>(
+            tev.stage_count, MELEE_HOST_GX_MAX_TEVSTAGE);
+        const bool replaces_depth = state.z_texture_op == GX_ZT_REPLACE &&
+                                    stages > 0;
+        const bool early_depth = state.z_compare_enable && !replaces_depth &&
+                                 alpha_always_passes(state);
+
+        for (int py = min_y; py <= max_y; ++py) {
+            for (int px = min_x; px <= max_x; ++px) {
+                const float cx = static_cast<float>(px) + 0.5F;
+                const float cy = static_cast<float>(py) + 0.5F;
+                const float l0 = ((sx[1] - cx) * (sy[2] - cy) -
+                                  (sy[1] - cy) * (sx[2] - cx)) / area;
+                const float l1 = ((sx[2] - cx) * (sy[0] - cy) -
+                                  (sy[2] - cy) * (sx[0] - cx)) / area;
+                const float l2 = 1.0F - l0 - l1;
+                if (l0 < 0.0F || l1 < 0.0F || l2 < 0.0F) {
+                    continue;
+                }
+                const std::size_t at =
+                    static_cast<std::size_t>(py - source_top) *
+                        static_cast<std::size_t>(width) +
+                    static_cast<std::size_t>(px - source_left);
+                /* Window depth is linear on screen; the rest is perspective
+                 * correct, as GL interpolates it. */
+                float fragment_depth = l0 * sz[0] + l1 * sz[1] + l2 * sz[2];
+                const float p0 = l0 * inverse_w[0];
+                const float p1 = l1 * inverse_w[1];
+                const float p2 = l2 * inverse_w[2];
+                const float sum = p0 + p1 + p2;
+                if (!(sum > 0.0F)) {
+                    continue;
+                }
+                if (early_depth &&
+                    !gx_depth_passes(state.z_func, fragment_depth, depth[at]))
+                {
+                    continue;
+                }
+                const float b0 = p0 / sum;
+                const float b1 = p1 / sum;
+                const float b2 = p2 / sum;
+
+                melee::gx::TevFragmentInputs inputs{};
+                for (std::size_t channel = 0; channel < 2; ++channel) {
+                    for (std::size_t c = 0; c < 4; ++c) {
+                        const float value =
+                            b0 * v[0]->raster_color[channel][c] +
+                            b1 * v[1]->raster_color[channel][c] +
+                            b2 * v[2]->raster_color[channel][c];
+                        inputs.raster[channel][c] = static_cast<int>(
+                            std::lround(std::clamp(value, 0.0F, 255.0F)));
+                    }
+                }
+                std::array<bool, MELEE_HOST_GX_MAX_TEXMAP> sampled{};
+                mh_u32 depth_texel = 0;
+                bool have_depth_texel = false;
+                for (std::size_t index = 0; index < stages; ++index) {
+                    const MeleeHostGxTevStage& stage = tev.stages[index];
+                    if (stage.texmap >= MELEE_HOST_GX_MAX_TEXMAP ||
+                        tev.texcoord_gen_count == 0)
+                    {
+                        continue;
+                    }
+                    const bool last = index + 1 == stages;
+                    if (sampled[stage.texmap] && !(last && replaces_depth)) {
+                        continue;
+                    }
+                    float s = 0.0F;
+                    float t = 0.0F;
+                    if (stage.texcoord < tev.texcoord_gen_count &&
+                        stage.texcoord < MELEE_HOST_GX_MAX_TEXCOORD)
+                    {
+                        const float q = b0 * v[0]->texgen[stage.texcoord][2] +
+                                        b1 * v[1]->texgen[stage.texcoord][2] +
+                                        b2 * v[2]->texgen[stage.texcoord][2];
+                        const float divide = q == 0.0F ? 1.0F : q;
+                        s = (b0 * v[0]->texgen[stage.texcoord][0] +
+                             b1 * v[1]->texgen[stage.texcoord][0] +
+                             b2 * v[2]->texgen[stage.texcoord][0]) / divide;
+                        t = (b0 * v[0]->texgen[stage.texcoord][1] +
+                             b1 * v[1]->texgen[stage.texcoord][1] +
+                             b2 * v[2]->texgen[stage.texcoord][1]) / divide;
+                    }
+                    const mh_u32 id = set[stage.texmap];
+                    if (id == MELEE_HOST_GX_NO_TEXTURE) {
+                        inputs.texmap[stage.texmap] = { 255, 255, 255, 255 };
+                        sampled[stage.texmap] = true;
+                        continue;
+                    }
+                    const CopyTexture& texture = texture_of(id);
+                    if (texture.valid && texture.depth) {
+                        const int tx = wrap_texel(
+                            static_cast<int>(std::floor(s * static_cast<float>(texture.width))),
+                            texture.width, texture.wrap_s);
+                        const int ty = wrap_texel(
+                            static_cast<int>(std::floor(t * static_cast<float>(texture.height))),
+                            texture.height, texture.wrap_t);
+                        const mh_u32 z = texture.z[static_cast<std::size_t>(ty) *
+                                                       static_cast<std::size_t>(texture.width) +
+                                                   static_cast<std::size_t>(tx)];
+                        const int top_bits = static_cast<int>(z >> 16U);
+                        inputs.texmap[stage.texmap] = { top_bits, top_bits,
+                                                        top_bits, top_bits };
+                        if (last) {
+                            depth_texel = z;
+                            have_depth_texel = true;
+                        }
+                    } else {
+                        inputs.texmap[stage.texmap] =
+                            sample_copy_texture(texture, s, t);
+                    }
+                    sampled[stage.texmap] = true;
+                }
+                if (replaces_depth && have_depth_texel) {
+                    fragment_depth = static_cast<float>(std::min<mh_u32>(
+                                         depth_texel + state.z_texture_bias,
+                                         0xFFFFFFU)) /
+                                     16777215.0F;
+                }
+                const std::array<int, 4> produced =
+                    melee::gx::evaluate_tev(tev, inputs);
+                if (!melee::gx::alpha_test_passes(state, produced[3])) {
+                    continue;
+                }
+                if (state.z_compare_enable) {
+                    if (!gx_depth_passes(state.z_func, fragment_depth, depth[at])) {
+                        continue;
+                    }
+                    if (state.z_update_enable) {
+                        depth[at] = fragment_depth;
+                    }
+                }
+                if (!state.color_update_enable) {
+                    continue;
+                }
+                std::array<int, 4> source{};
+                for (std::size_t c = 0; c < 4; ++c) {
+                    source[c] = std::clamp(produced[c], 0, 255);
+                }
+                const std::array<int, 4>& target = color[at];
+                std::array<int, 4> result = source;
+                if (state.blend_mode == 1) {
+                    for (int c = 0; c < 3; ++c) {
+                        const float sf = gx_blend_factor(state.blend_src_factor,
+                                                         true, source, target, c);
+                        const float df = gx_blend_factor(state.blend_dst_factor,
+                                                         false, source, target, c);
+                        result[static_cast<std::size_t>(c)] = static_cast<int>(
+                            std::lround(std::clamp(
+                                static_cast<float>(source[static_cast<std::size_t>(c)]) * sf +
+                                    static_cast<float>(target[static_cast<std::size_t>(c)]) * df,
+                                0.0F, 255.0F)));
+                    }
+                } else if (state.blend_mode == 3) {
+                    for (std::size_t c = 0; c < 3; ++c) {
+                        result[c] = std::clamp(target[c] - source[c], 0, 255);
+                    }
+                }
+                color[at] = { result[0], result[1], result[2], 255 };
+            }
+        }
+    }
+    apply_clears(captured_triangle_indices.size());
+
+    /* Colour formats are laid out in 4x4 blocks; a texel past the image's
+     * edge repeats the edge. */
+    auto* const output = static_cast<mh_u8*>(destination);
+    const std::size_t blocks_wide = (static_cast<std::size_t>(destination_width) + 3U) / 4U;
+    const std::size_t blocks_high = (static_cast<std::size_t>(destination_height) + 3U) / 4U;
+    const std::size_t texel_bytes = format == GX_TF_RGBA8 ? 4U : 2U;
+    std::size_t offset = 0;
+    for (std::size_t by = 0; by < blocks_high; ++by) {
+        for (std::size_t bx = 0; bx < blocks_wide; ++bx) {
+            for (std::size_t y = 0; y < 4; ++y) {
+                for (std::size_t x = 0; x < 4; ++x) {
+                    const std::size_t dx = std::min<std::size_t>(bx * 4 + x, destination_width - 1U);
+                    const std::size_t dy = std::min<std::size_t>(by * 4 + y, destination_height - 1U);
+                    const std::size_t source_x = dx * static_cast<std::size_t>(width) / destination_width;
+                    const std::size_t source_y = dy * static_cast<std::size_t>(height) / destination_height;
+                    const std::array<int, 4>& pixel =
+                        color[source_y * static_cast<std::size_t>(width) + source_x];
+                    const auto r = static_cast<mh_u32>(pixel[0]);
+                    const auto g = static_cast<mh_u32>(pixel[1]);
+                    const auto b = static_cast<mh_u32>(pixel[2]);
+                    if (format == GX_TF_RGBA8) {
+                        output[offset] = static_cast<mh_u8>(r);
+                        output[offset + 1] = static_cast<mh_u8>(g);
+                        output[offset + 2] = static_cast<mh_u8>(b);
+                        output[offset + 3] = 0xFF;
+                    } else {
+                        const mh_u32 value =
+                            format == GX_TF_RGB565
+                                ? ((r >> 3U) << 11U) | ((g >> 2U) << 5U) | (b >> 3U)
+                                : 0x8000U | ((r >> 3U) << 10U) | ((g >> 3U) << 5U) |
+                                      (b >> 3U);
+                        output[offset] = static_cast<mh_u8>(value >> 8U);
+                        output[offset + 1] = static_cast<mh_u8>(value);
+                    }
+                    offset += texel_bytes;
+                }
             }
         }
     }

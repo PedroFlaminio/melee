@@ -431,6 +431,8 @@ struct DrawRun {
     mh_u32 view_state = 0;
     GLint first = 0;
     GLsizei count = 0;
+    /* The capture's index of the run's first triangle. */
+    std::size_t first_triangle = 0;
     bool blended = false;
 };
 
@@ -450,6 +452,17 @@ Capture read_capture(bool keep_draw_order = false)
 {
     Capture capture;
     const std::size_t triangle_count = melee_host_gx_triangle_count();
+    /* A run does not span an EFB clear the frame asked for between its
+     * triangles, so a presenter can clear between runs. */
+    std::vector<std::size_t> clear_positions;
+    for (std::size_t index = 0; index < melee_host_gx_efb_clear_count();
+         ++index)
+    {
+        MeleeHostGxEfbClear clear{};
+        if (melee_host_gx_efb_clear_at(index, &clear)) {
+            clear_positions.push_back(clear.triangle);
+        }
+    }
     capture.vertices.reserve(triangle_count * 3 * kFloatsPerVertex);
     std::vector<DrawRun> runs;
     for (std::size_t index = 0; index < triangle_count; ++index) {
@@ -467,7 +480,9 @@ Capture read_capture(bool keep_draw_order = false)
         if (!runs.empty() && runs.back().draw_state == lead.draw_state &&
             runs.back().tev_state == lead.tev_state &&
             runs.back().texture_set == lead.texture_set &&
-            runs.back().view_state == lead.view_state)
+            runs.back().view_state == lead.view_state &&
+            !std::binary_search(clear_positions.begin(),
+                                clear_positions.end(), index))
         {
             runs.back().count += 3;
             continue;
@@ -478,6 +493,7 @@ Capture read_capture(bool keep_draw_order = false)
         run.texture_set = lead.texture_set;
         run.view_state = lead.view_state;
         run.first = first;
+        run.first_triangle = index;
         run.count = 3;
         MeleeHostGxDrawState state{};
         run.blended = melee_host_gx_captured_draw_state_at(lead.draw_state,
@@ -1165,7 +1181,8 @@ struct FramePresenter::State {
     GLuint vertex_array = 0;
     GLuint vertex_buffer = 0;
     GLuint white_texture = 0;
-    std::map<const TextureImage*, GLuint> textures;
+    /* The GL texture of each image, and the generation it was uploaded at. */
+    std::map<const TextureImage*, std::pair<GLuint, std::uint32_t>> textures;
     SDL_Gamepad* gamepad = nullptr;
     SDL_AudioStream* audio = nullptr;
     int width = 0;
@@ -1183,7 +1200,7 @@ FramePresenter::~FramePresenter()
         return;
     }
     for (const auto& entry : state_->textures) {
-        glDeleteTextures(1, &entry.second);
+        glDeleteTextures(1, &entry.second.first);
     }
     glDeleteTextures(1, &state_->white_texture);
     glDeleteBuffers(1, &state_->vertex_buffer);
@@ -1296,12 +1313,49 @@ void FramePresenter::present(const std::vector<const TextureImage*>& images)
         }
         auto found = state.textures.find(image);
         if (found == state.textures.end()) {
-            found = state.textures.emplace(image, create_texture(*image)).first;
+            found = state.textures
+                        .emplace(image, std::make_pair(create_texture(*image),
+                                                       image->generation))
+                        .first;
+        } else if (found->second.second != image->generation) {
+            glDeleteTextures(1, &found->second.first);
+            found->second = { create_texture(*image), image->generation };
         }
-        textures.push_back(found->second);
+        textures.push_back(found->second.first);
     }
 
     const Capture capture = read_capture(true);
+    /* The clears the frame asked for between its draws, as GXCopyTex made
+     * them: a scissored clear of colour and depth before the first run that
+     * follows each. */
+    const std::size_t clear_count = melee_host_gx_efb_clear_count();
+    std::size_t next_clear = 0;
+    const auto clear_until = [&](std::size_t triangle) {
+        while (next_clear < clear_count) {
+            MeleeHostGxEfbClear clear{};
+            if (!melee_host_gx_efb_clear_at(next_clear, &clear) ||
+                clear.triangle > triangle)
+            {
+                return;
+            }
+            ++next_clear;
+            const melee::gx::WindowRect rect = melee::gx::window_rect(
+                clear.left, clear.top, clear.width, clear.height,
+                framebuffer_width, framebuffer_height, state.width,
+                state.height);
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(rect.x, rect.y, rect.width, rect.height);
+            glDepthMask(GL_TRUE);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glClearColor(static_cast<float>(clear.color[0]) / 255.0F,
+                         static_cast<float>(clear.color[1]) / 255.0F,
+                         static_cast<float>(clear.color[2]) / 255.0F,
+                         static_cast<float>(clear.color[3]) / 255.0F);
+            glClearDepth(static_cast<double>(clear.depth & 0xFFFFFFU) /
+                         16777215.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
+    };
     glBindVertexArray(state.vertex_array);
     glBindBuffer(GL_ARRAY_BUFFER, state.vertex_buffer);
     glBufferData(GL_ARRAY_BUFFER,
@@ -1309,6 +1363,7 @@ void FramePresenter::present(const std::vector<const TextureImage*>& images)
                                          sizeof(float)),
                  capture.vertices.data(), GL_STREAM_DRAW);
     for (const DrawRun& run : capture.runs) {
+        clear_until(run.first_triangle);
         MeleeHostGxViewState view{};
         if (!melee_host_gx_captured_view_state_at(run.view_state, &view)) {
             continue;
@@ -1338,6 +1393,7 @@ void FramePresenter::present(const std::vector<const TextureImage*>& images)
         draw_run(run, state.programs.get(), textures, state.white_texture,
                  melee::gx::clip_matrix(view), true);
     }
+    clear_until(std::numeric_limits<std::size_t>::max());
     restore_draw_defaults();
     glDisable(GL_SCISSOR_TEST);
     glDepthRange(0.0, 1.0);
