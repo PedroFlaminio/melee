@@ -457,10 +457,11 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   todas juntas.
 - Para jogar, `melee-pc --play assets-local` abre uma janela e roda os modos a
   partir do titulo a 60 frames por segundo, com o relogio do OS na hora do
-  host. Teclado como pad 1: WASD move o stick e as setas o C-stick; J da o A,
-  K o B, U o X, I o Y, Q o Z, H o L e L o R (so analogicos) e Enter o START;
-  Esc ou fechar a janela encerra o processo. O primeiro gamepad substitui o teclado
-  (o Back encerra). Um modo ou uma cena que o host nao tem, como o filme de
+  host. Teclado como pad 1: WASD move o stick, as setas o C-stick e o teclado
+  numerico (8, 4, 2, 6) o D-pad; J da o A, K o B, U o X, I o Y, Q o Z, H o L
+  e L o R (apertados ate o fim, com o clique digital) e Enter o START; Esc ou
+  fechar a janela encerra o processo. O primeiro gamepad substitui o teclado:
+  D-pad, gatilhos que clicam no fim do curso, e o Back encerra. Um modo ou uma cena que o host nao tem, como o filme de
   abertura que segue o titulo parado, volta ao titulo. Entradas de roteiro
   valem por cima do pad, e `MELEE_HOST_PLAY_HIDDEN=1` desenha num presenter
   escondido, onde `BMP=` funciona: e assim que o `--play` e conferido sem abrir

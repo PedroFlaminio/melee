@@ -2405,10 +2405,11 @@ Atualizado em 15 de setembro de 2026.
   entre near e far, em vez de limpar para o far; so esconde o que estiver
   alem dessa metade. As SObj que usam `GX_ZT_REPLACE` tem o mesmo desvio.
 - A janela do `--play` abriu e manteve 60 Hz no titulo, mas ninguem jogou
-  com teclado ou gamepad de verdade: a entrada foi conferida so por roteiro. O
-  teclado nao tem D-pad e da L e R so como analogicos, sem os bits digitais
-  que o L+R+A+START da pausa pede; o gamepad tambem nao mapeia o D-pad nem L e
-  R digitais. `--view-title-scene` segue com o caminho da janela sem uso.
+  com teclado ou gamepad de verdade: a entrada foi conferida so por roteiro,
+  que chega ao jogo pelo mesmo `PADRead`. O teclado numerico da o D-pad, H e L
+  dao o L e o R com o clique digital, e no gamepad o D-pad e os gatilhos no
+  fim do curso fazem o mesmo; nada disso foi apertado numa tecla real.
+  `--view-title-scene` segue com o caminho da janela sem uso.
 - `--view-title-scene` termina quando `gm_801A4D34` retorna: START encerra a
   cena, e a seguinte nao existe no host ainda.
 - O cache de texturas do titulo e o presenter reconhecem uma imagem pelo

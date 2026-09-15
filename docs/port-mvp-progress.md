@@ -14,7 +14,7 @@ de 13 de setembro.
 
 | Área | Estado | Peso no MVP |
 | --- | --- | --- |
-| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, sem D-pad nem L e R digitais | 15% |
+| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, com D-pad e L e R digitais, ainda sem ninguém ter jogado | 15% |
 | Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; faltam as cópias da EFB além da sombra (retratos dos resultados), texturas de profundidade, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
@@ -66,9 +66,8 @@ de 13 de setembro.
 
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida e rotas repetíveis. Falta, em ordem: o áudio (vozes AX, `.sem` e
-`.hps`; nada toca hoje); jogar de verdade no `--play`, que já abre a janela e
-mantém 60 Hz, mas não mapeia D-pad nem L e R digitais e não foi jogado por uma
-pessoa; as cópias da EFB dos retratos dos resultados; e os dados de estágio que
+`.hps`; nada toca hoje); jogar de verdade no `--play`, que já abre a janela,
+mantém 60 Hz e mapeia o pad inteiro, mas não foi jogado por uma pessoa; as cópias da EFB dos retratos dos resultados; e os dados de estágio que
 faltam. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
@@ -140,3 +139,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 90% | Rotas repetíveis, trace canônico e build `-O2`. `FIRST-LAST:TRACE=arquivo` grava por frame a cena, a semente e ação, animação, posição, velocidade, direção, chão ou ar, dano e estoques de cada lutador, e `port/tools/compare_match_trace.py` aponta o primeiro campo diferente. A primeira comparação achou a semente dependendo da hora: o título sorteia um `HSD_Rand` por segundo do minuto corrente, e o relógio congelava na hora do host, o que mudava a pose de vitória. As rotas roteirizadas congelam em 3/12/2001 00:00:00 (teste unitário), e a rota de estoque dá o mesmo trace nos 1739 frames entre execuções em horas diferentes e entre o `host-debug` e um build `-O2`. Esse build roda a rota em 57,6 s, mas a luta fica em 16,2 frames por segundo e os resultados em 15,1, um quarto dos 60 Hz; seus avisos listam 177 pontos de variável possivelmente não inicializada e 43 funções sem `return`, entre eles o `gm_80168B34` original. `host-debug` 16/16 (rota de estoque em 246,3 s) e 205/205 unitários. |
 | 2026-09-15 | 90% | A luta roda sem gargalo de CPU. Num build `-O2 -pg`, o `gprof` pôs 92% do tempo da rota de estoque em `finish_draw_locked`: ao fim de cada draw o recorder GX refazia as posições de todos os triângulos já capturados no frame, e não só as do draw que terminava, um custo quadrático num frame de luta com cerca de 25 mil triângulos. Cada draw guarda agora o seu primeiro triângulo. No `-O2` a rota cai de 57,6 s para 5,2 s, com a luta a 199,7 frames por segundo (eram 16,2) e os resultados a 226,5 (15,1); no `host-debug` a suíte inteira leva 32,2 s (a rota de estoque levava 246,3 s). Oito BMPs da rota, as contagens de triângulos e o trace saem iguais aos de antes, fora os retratos dos resultados, cópias da EFB sem conteúdo definido que já variavam entre execuções. `host-debug` 16/16 e 205/205 unitários. |
 | 2026-09-15 | 91% | Modo jogável. `melee-pc --play assets-local` roda os modos a partir do título numa janela a 60 Hz, com o teclado e o primeiro gamepad como pad 1 e o relógio do OS na hora do host; um modo ou uma cena que o host não tem (o filme de abertura que segue o título parado) volta ao título, e fechar a janela encerra o processo. Com presenter escondido (`MELEE_HOST_PLAY_HIDDEN=1`) e o roteiro de estoque, o build `-O2` faz título → menu → regras → SSS → luta → resultados → CSS → menu a 59,5–60 frames por segundo, com o mesmo desfecho e os BMPs gravados; a janela visível abriu e manteve o título a 60,02. Ninguém jogou com teclado ou gamepad ainda, e o mapa não tem D-pad nem L e R digitais. `host-debug` 16/16; sob ASan a suíte passou em 146 s, com os mesmos 28 pontos do UBSan. |
+| 2026-09-15 | 91% | O pad do `--play` fica completo: o teclado numérico (8, 4, 2, 6) dá o D-pad, H e L dão o L e o R com o clique digital que o L+R+A+START da pausa lê, e no gamepad o D-pad e os gatilhos no fim do curso fazem o mesmo. Os bits vão direto ao `PADStatus.button`; nenhuma tecla real foi apertada ainda. `host-debug` e build `-O2` compilam limpos, 205/205 unitários. |

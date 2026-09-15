@@ -706,6 +706,12 @@ MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
             (keys[SDL_SCANCODE_U] ? PAD_BUTTON_X : 0) |
             (keys[SDL_SCANCODE_I] ? PAD_BUTTON_Y : 0) |
             (keys[SDL_SCANCODE_Q] ? PAD_TRIGGER_Z : 0) |
+            (keys[SDL_SCANCODE_H] ? PAD_TRIGGER_L : 0) |
+            (keys[SDL_SCANCODE_L] ? PAD_TRIGGER_R : 0) |
+            (keys[SDL_SCANCODE_KP_8] ? PAD_BUTTON_UP : 0) |
+            (keys[SDL_SCANCODE_KP_2] ? PAD_BUTTON_DOWN : 0) |
+            (keys[SDL_SCANCODE_KP_4] ? PAD_BUTTON_LEFT : 0) |
+            (keys[SDL_SCANCODE_KP_6] ? PAD_BUTTON_RIGHT : 0) |
             (keys[SDL_SCANCODE_RETURN] ? PAD_BUTTON_START : 0)),
         .stick_x = axis(keys[SDL_SCANCODE_A], keys[SDL_SCANCODE_D]),
         .stick_y = axis(keys[SDL_SCANCODE_S], keys[SDL_SCANCODE_W]),
@@ -734,6 +740,10 @@ MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
         button(SDL_GAMEPAD_BUTTON_WEST, PAD_BUTTON_X) |
         button(SDL_GAMEPAD_BUTTON_NORTH, PAD_BUTTON_Y) |
         button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_Z) |
+        button(SDL_GAMEPAD_BUTTON_DPAD_UP, PAD_BUTTON_UP) |
+        button(SDL_GAMEPAD_BUTTON_DPAD_DOWN, PAD_BUTTON_DOWN) |
+        button(SDL_GAMEPAD_BUTTON_DPAD_LEFT, PAD_BUTTON_LEFT) |
+        button(SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PAD_BUTTON_RIGHT) |
         button(SDL_GAMEPAD_BUTTON_START, PAD_BUTTON_START));
     pad.stick_x =
         gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX));
@@ -747,6 +757,14 @@ MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
         SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
     pad.trigger_right = gamepad_trigger(
         SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+    /* A GameCube trigger clicks at the end of its travel, which is what the
+     * game's digital L and R read (the pause menu's L+R+A+START). */
+    if (pad.trigger_left >= 240U) {
+        pad.buttons = static_cast<mh_u16>(pad.buttons | PAD_TRIGGER_L);
+    }
+    if (pad.trigger_right >= 240U) {
+        pad.buttons = static_cast<mh_u16>(pad.buttons | PAD_TRIGGER_R);
+    }
 
     /* The preview has no gameplay loop yet, so the C-stick and triggers also
      * move the camera while the complete PAD state still reaches the host. */
