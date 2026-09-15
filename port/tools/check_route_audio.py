@@ -11,10 +11,17 @@ The music must match on both channels, window by window and at one lag, up to
 a gain: a sample dropped or repeated where the stream moves from one chunk to
 the next shows up as a window that no longer fits.  With the music subtracted,
 what remains where START was pressed must be the effect.
+
+Those comparisons run with MELEE_HOST_AUDIO_AUX=0, since the effect sends to
+the game's reverb.  A second run mixes the aux buses: the music, which sends
+nothing, must come out the same, and the difference between the two runs,
+the reverb's return, must be silent until the effect starts and then carry
+sound.
 """
 
 import argparse
 import math
+import os
 import struct
 import subprocess
 import sys
@@ -97,6 +104,27 @@ def fit(mix, reference, start, length):
     return xy / math.sqrt(xx * yy), xy / yy
 
 
+def record(melee_pc, assets, work, name, aux):
+    """The route's recording, or None with the reason printed."""
+    wav_path = Path(work) / name
+    environment = dict(os.environ, MELEE_HOST_AUDIO_AUX="1" if aux else "0")
+    run = subprocess.run(
+        [str(melee_pc), "--run-modes", str(assets), *ROUTE,
+         f"0-700:WAV={wav_path}"],
+        capture_output=True, text=True, env=environment)
+    if run.returncode != 0 or EXPECTED_ROUTE not in run.stdout:
+        print(run.stdout[-2000:] + run.stderr[-2000:])
+        print(f"melee-pc exited with {run.returncode} without the route")
+        return None
+    with wave.open(str(wav_path)) as wav:
+        if wav.getframerate() != RATE or wav.getnchannels() != 2:
+            print("the recording is not 32 kHz stereo")
+            return None
+        frames = wav.readframes(wav.getnframes())
+    pcm = struct.unpack(f"<{len(frames) // 2}h", frames)
+    return [pcm[0::2], pcm[1::2]]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("melee_pc", type=Path)
@@ -104,22 +132,10 @@ def main():
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as work:
-        wav_path = Path(work) / "route.wav"
-        run = subprocess.run(
-            [str(args.melee_pc), "--run-modes", str(args.assets), *ROUTE,
-             f"0-700:WAV={wav_path}"],
-            capture_output=True, text=True)
-        if run.returncode != 0 or EXPECTED_ROUTE not in run.stdout:
-            print(run.stdout[-2000:] + run.stderr[-2000:])
-            print(f"melee-pc exited with {run.returncode} without the route")
-            return 1
-        with wave.open(str(wav_path)) as wav:
-            if wav.getframerate() != RATE or wav.getnchannels() != 2:
-                print("the recording is not 32 kHz stereo")
-                return 1
-            frames = wav.readframes(wav.getnframes())
-    pcm = struct.unpack(f"<{len(frames) // 2}h", frames)
-    mix = [pcm[0::2], pcm[1::2]]
+        mix = record(args.melee_pc, args.assets, work, "dry.wav", aux=False)
+        wet = record(args.melee_pc, args.assets, work, "wet.wav", aux=True)
+    if mix is None or wet is None:
+        return 1
     print(f"recorded {len(mix[0])} stereo pairs ({len(mix[0]) / RATE:.2f} s)")
 
     first = next((i for i in range(len(mix[0]))
@@ -180,6 +196,27 @@ def main():
         print(f"effect 118 voice {side}: correlation {c:.6f} from sample "
               f"{first - 64 + best[1]}")
         failed = failed or c < 0.9999
+    # The aux buses: the music sends nothing to them, and the reverb returns
+    # only what the effect sent.
+    if len(wet[0]) != len(mix[0]):
+        print("the run with the aux buses recorded a different length")
+        return 1
+    worst_wet = 2.0
+    for start in range(music_start + 2 * RATE, end - MUSIC_WINDOW,
+                       MUSIC_WINDOW * 8):
+        offset = start - music_start
+        c, _ = fit(wet[0], music[0][offset:offset + MUSIC_WINDOW], start,
+                   MUSIC_WINDOW)
+        worst_wet = min(worst_wet, c)
+    before = sum(abs(wet[s][i] - mix[s][i])
+                 for s in range(2) for i in range(first))
+    after = max(abs(wet[s][i] - mix[s][i])
+                for s in range(2) for i in range(first, first + RATE // 2))
+    print(f"aux buses: music correlation {worst_wet:.6f} two seconds in, "
+          f"return {before} before the effect and up to {after} in the "
+          "half second after it")
+    failed = failed or before != 0 or after < 8
+
     if failed:
         print("the host's audio does not match the reference decoders")
         return 1

@@ -2576,6 +2576,12 @@ int main(int argc, char** argv)
                 const char* const audio = std::getenv("MELEE_HOST_AUDIO");
                 melee_host_ax_set_voices_enabled(
                     audio == nullptr || std::string(audio) != "0");
+                /* MELEE_HOST_AUDIO_AUX=0 leaves the game's reverb and delay
+                 * out of the mix, which is how a route's sound is compared
+                 * with reference decoders. */
+                const char* const aux = std::getenv("MELEE_HOST_AUDIO_AUX");
+                melee_host_ax_set_aux_enabled(aux == nullptr ||
+                                              std::string(aux) != "0");
             }
             /* What the AX mixer plays goes to the WAV entries whose range
              * holds the current frame and, in a play window, to the sound

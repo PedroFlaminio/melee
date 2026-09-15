@@ -5,10 +5,12 @@
 #include <melee_host/ax_mixer.h>
 
 #include <dolphin/ax.h>
+#include <dolphin/axfx.h>
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int melee_host_test_ax_decode(char* message, size_t size);
@@ -20,6 +22,8 @@ int melee_host_test_ax_voices_off(char* message, size_t size);
 int melee_host_test_ax_steal(char* message, size_t size);
 int melee_host_test_ax_setters(char* message, size_t size);
 int melee_host_test_ax_frame(char* message, size_t size);
+int melee_host_test_ax_reverb(char* message, size_t size);
+int melee_host_test_ax_aux_return(char* message, size_t size);
 
 #define CHECK(condition)                                                      \
     do {                                                                      \
@@ -258,5 +262,171 @@ int melee_host_test_ax_frame(char* message, size_t size)
         CHECK(stereo[i] == 0);
     }
     AXRegisterCallback(NULL);
+    return 1;
+}
+
+static void* reverb_alloc(unsigned long size)
+{
+    return malloc(size);
+}
+
+static void reverb_free(void* block)
+{
+    free(block);
+}
+
+/* The left channel of 20 frames of the game's standard reverb after an
+ * impulse, or 0 when a frame breaks the expectations below. */
+static int run_reverb(s32 left[3200], char* message, size_t size)
+{
+    struct AXFX_REVERBSTD reverb;
+    s32 buffer[480];
+    struct AXFX_BUFFERUPDATE update;
+    u32 frame;
+    u32 i;
+
+    memset(&reverb, 0, sizeof(reverb));
+    /* AXDriver_8038E37C's defaults, with lbAudioAx_8002838C's time. */
+    reverb.tempDisableFX = 0;
+    reverb.time = 1.88F;
+    reverb.preDelay = 0.002F;
+    reverb.damping = 0.64F;
+    reverb.coloration = 0.5F;
+    reverb.mix = 1.0F;
+    AXFXSetHooks(reverb_alloc, reverb_free);
+    CHECK(AXFXReverbStdInit(&reverb) == 1);
+    update.left = buffer;
+    update.right = buffer + 160;
+    update.surround = buffer + 320;
+    for (frame = 0; frame < 20; frame++) {
+        memset(buffer, 0, sizeof(buffer));
+        if (frame == 0) {
+            buffer[0] = 16384;
+        }
+        AXFXReverbStdCallback(&update, &reverb);
+        for (i = 0; i < 160; i++) {
+            left[frame * 160 + i] = buffer[i];
+            CHECK(buffer[160 + i] == 0 && buffer[320 + i] == 0);
+            CHECK(buffer[i] < (1 << 20) && buffer[i] > -(1 << 20));
+        }
+    }
+    CHECK(AXFXReverbStdShutdown(&reverb) == 1);
+    return 1;
+}
+
+int melee_host_test_ax_reverb(char* message, size_t size)
+{
+    static s32 first[3200];
+    static s32 second[3200];
+    int heard = 0;
+    u32 i;
+
+    if (!run_reverb(first, message, size) ||
+        !run_reverb(second, message, size))
+    {
+        return 0;
+    }
+    /* A fully wet reverb is silent until its shortest comb returns what the
+     * pre-delay line (63 samples) handed it 1789 samples before. */
+    for (i = 0; i < 1850; i++) {
+        CHECK(first[i] == 0);
+    }
+    for (i = 1850; i < 1900; i++) {
+        heard |= first[i] != 0;
+    }
+    CHECK(heard);
+    CHECK(memcmp(first, second, sizeof(first)) == 0);
+    return 1;
+}
+
+static u32 aux_callbacks;
+static s32 aux_send[MELEE_HOST_AX_FRAME_SAMPLES];
+
+/* Leaves the send as it is, so the return is the send, and keeps a copy of
+ * its left channel. */
+static void record_aux(void* data, void* context)
+{
+    const struct AX_AUX_DATA* const aux = data;
+    (void) context;
+    aux_callbacks += 1;
+    memcpy(aux_send, aux->l, sizeof(aux_send));
+}
+
+int melee_host_test_ax_aux_return(char* message, size_t size)
+{
+    s16 stereo[MELEE_HOST_AX_FRAME_SAMPLES * 2];
+    AXPBADDR addr;
+    AXPBADPCM adpcm;
+    AXPBSRC src;
+    AXPBVE ve;
+    AXPBMIX mix;
+    AXVPB* voice;
+    s32 returned[MELEE_HOST_AX_FRAME_SAMPLES];
+    u32 i;
+
+    melee_host_ax_set_voices_enabled(true);
+    melee_host_ax_set_aux_enabled(true);
+    AXInit();
+    AXRegisterAuxACallback(record_aux, NULL);
+    aux_callbacks = 0;
+    voice = AXAcquireVoice(15, NULL, 0);
+    CHECK(voice != NULL);
+    /* ARAM's last bytes, which no allocation reaches and no check writes, and
+     * a predictor of 1.0 over a history of 1000: every sample is 1000, sent
+     * to aux A's left at full volume and nowhere else. */
+    {
+        const u32 start = (melee_host_aram_size() - 0x100U) * 2U + 2U;
+        /* Room for both frames the check plays. */
+        const u32 end = start + 0x400U;
+        memset(&addr, 0, sizeof(addr));
+        addr.currentAddressHi = (u16) (start >> 16);
+        addr.currentAddressLo = (u16) start;
+        addr.endAddressHi = (u16) (end >> 16);
+        addr.endAddressLo = (u16) end;
+    }
+    memset(&adpcm, 0, sizeof(adpcm));
+    adpcm.a[0][0] = 2048;
+    adpcm.yn1 = 1000;
+    memset(&src, 0, sizeof(src));
+    src.ratioHi = 1;
+    memset(&ve, 0, sizeof(ve));
+    ve.currentVolume = 0x8000;
+    memset(&mix, 0, sizeof(mix));
+    mix.vAuxAL = 0x8000;
+    AXSetVoiceAddr(voice, &addr);
+    AXSetVoiceAdpcm(voice, &adpcm);
+    AXSetVoiceSrc(voice, &src);
+    AXSetVoiceVe(voice, &ve);
+    AXSetVoiceMix(voice, &mix);
+    AXSetVoiceState(voice, 1);
+
+    /* The send goes to the callback; nothing reaches the output yet. */
+    melee_host_ax_run_frame(stereo);
+    CHECK(aux_callbacks == 1);
+    for (i = 0; i < MELEE_HOST_AX_FRAME_SAMPLES * 2; i++) {
+        CHECK(stereo[i] == 0);
+    }
+    for (i = 0; i < MELEE_HOST_AX_FRAME_SAMPLES; i++) {
+        CHECK(aux_send[i] == 1000);
+        returned[i] = aux_send[i];
+    }
+    /* A frame later that return is the left channel. */
+    melee_host_ax_run_frame(stereo);
+    CHECK(aux_callbacks == 2);
+    for (i = 0; i < MELEE_HOST_AX_FRAME_SAMPLES; i++) {
+        CHECK(stereo[i * 2] == returned[i] && stereo[i * 2 + 1] == 0);
+    }
+    /* With the buses off the voice sends nothing and the callback waits. */
+    melee_host_ax_set_aux_enabled(false);
+    melee_host_ax_run_frame(stereo);
+    CHECK(aux_callbacks == 2);
+    for (i = 0; i < MELEE_HOST_AX_FRAME_SAMPLES * 2; i++) {
+        CHECK(stereo[i] == 0);
+    }
+    melee_host_ax_set_aux_enabled(true);
+    AXRegisterAuxACallback(NULL, NULL);
+    AXFreeVoice(voice);
+    melee_host_ax_set_voices_enabled(false);
+    AXInit();
     return 1;
 }

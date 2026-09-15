@@ -46,6 +46,12 @@ void melee_host_ax_advance_time(mh_u64 nanoseconds);
  * game's sound effect and music paths, which are not ready on the host. */
 void melee_host_ax_set_voices_enabled(bool enabled);
 bool melee_host_ax_voices_enabled(void);
+/* Whether the aux buses are mixed: each voice's sends to aux A and B, the
+ * callbacks AXRegisterAuxACallback and AXRegisterAuxBCallback registered (the
+ * game's reverb and delay) and their return into the main output.  On by
+ * default; off, the output is the voices' direct mix alone. */
+void melee_host_ax_set_aux_enabled(bool enabled);
+
 /* Voices acquired and not freed. */
 mh_u32 melee_host_ax_acquired_voices(void);
 

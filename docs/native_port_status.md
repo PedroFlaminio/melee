@@ -2305,6 +2305,37 @@ Atualizado em 15 de setembro de 2026.
   468 triangulos no lugar de uma de 936). Na rota cancelada o `640:SHADOW`
   acha as duas texturas I4 com 6852 bytes nao brancos. Sob ASan a suite passa
   19/19, sem relato do ASan e com os mesmos 31 pontos do UBSan.
+- [x] Barramentos aux do AX. `AXRegisterAuxACallback` e `...BCallback` guardam
+  callback e contexto; cada voz soma seu envio de aux A e B (esquerda, direita
+  e surround, com rampa quando `mixerCtrl` tem o bit 8) em buffers de 160
+  amostras por canal, contiguos como no DSP. `melee_host_ax_run_frame` mistura
+  na saida o retorno que o callback deixou no quadro anterior e entrega o
+  envio deste quadro ao callback, que o processa no lugar: o sinal de aux
+  chega um quadro depois. `lbAudioAx_8002838C` poe o reverb padrao no A e o
+  delay no B. O delay (`delay.c`) e C; `HandleReverb` (`reverb_std.c`) e
+  assembly PowerPC e no host parava com nome, e agora e C que segue a
+  assembly operacao por operacao: a pre-linha (que desloca uma amostra a menos
+  que o tamanho, porque a assembly volta ao inicio no ultimo slot), dois
+  pentes, passa-tudo, passa-baixa por `damping`, segundo passa-tudo e a
+  mistura `level * 0,6` do molhado com `0,6 - level * 0,6` do seco. As somas
+  fundidas `fmadds`/`fnmsubs` sao `fmaf`, que arredonda uma vez como elas, e o
+  `fctiwz` e um truncamento que satura. Os tres canais do buffer sao lidos em
+  sequencia a partir do esquerdo, como a assembly faz.
+  `MELEE_HOST_AUDIO_AUX=0` desliga os barramentos. `check_route_audio.py` roda
+  a rota duas vezes: sem aux compara musica e efeito com as referencias
+  (1,000000) e com aux exige a musica igual e o retorno zero antes do efeito
+  118, que envia ao reverb, e presente no meio segundo seguinte (ate 2564).
+  Testes em C: o impulso no reverb com os parametros do jogo fica mudo ate a
+  amostra 1852 (63 de pre-linha e 1789 do primeiro pente), tem som logo depois,
+  deixa direita e surround em zero e repete as amostras; uma voz enviada so ao
+  aux A nao aparece na saida no primeiro quadro, o callback recebe o envio e o
+  segundo quadro traz esse retorno na esquerda; desligados, nada e enviado. A
+  primeira versao do teste de retorno supunha a ARAM zerada no inicio e leu
+  bytes que o teste do devcom grava; a voz agora toca do fim da ARAM. Na rota de
+  estoque com aux o trace segue igual e o WAV tem 8 amostras saturadas entre 16
+  e 20 s. Sob ASan a suite passa 19/19 sem relato do ASan; o UBSan ganha um
+  ponto, `ax_mixer.c:588`, a chamada de `AXFXReverbStdCallback` pelo ponteiro
+  `void (*)(void*, void*)` com que `AXDriverSetupAux` o registra.
 
 ## Em andamento
 
@@ -2335,11 +2366,8 @@ Atualizado em 15 de setembro de 2026.
 
 ## Proximos gates
 
-1. Audio: os barramentos aux. `lbAudioAx_8002838C` configura reverb padrao
-   no A e delay no B, e cada efeito manda parte do som a eles; o mixer guarda o
-   envio e nao o mistura. Os nucleos AXFX sao C em `extern/dolphin` e podem
-   rodar sobre buffers aux do mixer, conferidos pela mesma comparacao com
-   referencia.
+1. Audio: o ITD (atraso entre ouvidos pelo pan) e o surround, que o mixer
+   registra e nao toca.
 2. Ritmo com apresentacao: sem apresentar, a luta roda a cerca de 200 frames
    por segundo no build `-O2`; falta medir o presenter e a janela.
 3. A refracao (`lbrefract.c`), a copia da EFB que resta sem imagem conferida;
@@ -2359,8 +2387,8 @@ Atualizado em 15 de setembro de 2026.
   permanece ignorado pelo Git e nao faz parte de builds ou artefatos publicos.
 - O executavel ainda nao chama `gmMain`.
 - CARD e THP ainda nao estao implementados. O AX do host toca vozes num mixer
-  de software, sem barramentos aux, ITD nem surround; PAD e DVD assincrono tem
-  pontes basicas.
+  de software com os barramentos aux, sem ITD nem surround; PAD e DVD
+  assincrono tem pontes basicas.
 - O estado GX e registrado, nao rasterizado pelo host: a imagem vem do preview
   SDL/OpenGL, que desenha a geometria capturada com o programa TEV de cada draw
   avaliado num shader gerado.
@@ -2463,10 +2491,10 @@ Atualizado em 15 de setembro de 2026.
 - O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue)
   e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao
   e selecionado.
-- Os barramentos aux nao tocam: o jogo configura reverb no A e delay no B e
-  manda parte de cada efeito a eles, e o host guarda o envio sem misturar. O
-  som sai mais seco que no console. O ITD (atraso entre ouvidos pelo pan) e
-  registrado e tambem nao e tocado.
+- O reverb e o delay nao foram comparados com o console amostra a amostra: o
+  port de `HandleReverb` segue a assembly, mas nao ha gravacao de referencia.
+  O ITD (atraso entre ouvidos pelo pan) e registrado e nao e tocado, e o chorus
+  e o reverb alto seguem sem port, porque o jogo nao os usa.
 - O modo de som do IPL nao vem de um SRAM: o host comeca em estereo, e o menu
   de som do jogo pode trocar.
 - Os alarmes seguem o relogio de parede, a nao ser que o host congele o
@@ -2542,9 +2570,10 @@ Atualizado em 15 de setembro de 2026.
   `fn_8026407C` de `mncharsel.c` (`gobj.c:154`). Desde que o teste atravessa a
   luta sao 17 pontos distintos; a lista esta na entrada de
   `melee-host-vs-match-asset`. Com a rota de estoque a suite mostrava 28 pontos
-  distintos; com o audio ligado sao 31, os mesmos em duas execucoes. Quatro
-  sao novos, chamadas por ponteiro de funcao de outro tipo nos callbacks do
-  audio: `devcom.c:84` (`HSD_SynthSFXGroupDataReaddressCallback`),
+  distintos; com o audio ligado eram 31, os mesmos em duas execucoes, e com
+  os barramentos aux sao 32 (o novo e `ax_mixer.c:588`, o callback do reverb).
+  Quatro vieram antes, chamadas por ponteiro de funcao de outro tipo nos
+  callbacks do audio: `devcom.c:84` (`HSD_SynthSFXGroupDataReaddressCallback`),
   `devcom.c:229` (`HSD_Synth_8038B120`), `devcom.c:255`
   (`HSD_SynthPStreamFirstHakoHeaderCallback`) e `synth.c:1610`
   (`fn_8038CC1C`). Os outros 27 sao dos anteriores; a chamada de `FogRelease`

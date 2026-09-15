@@ -8,7 +8,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 15 de setembro de 2026
 
-**Estimativa: 96% (faixa de confiança: 92–97%).** A tabela descreve o estado
+**Estimativa: 97% (faixa de confiança: 93–98%).** A tabela descreve o estado
 de cada área hoje; o registro no fim guarda a evolução desde a linha de base
 de 13 de setembro.
 
@@ -19,7 +19,7 @@ de 13 de setembro.
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
 | Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox contra Fox em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP, com os retratos dos painéis e as luzes do estágio (`map_plit`) nos lutadores; do estágio faltam `ALDYakuAll` e `yakumono_param`, que Hyrule Temple não lê | 30% |
-| Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); os barramentos aux (reverb e delay) não tocam; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
+| Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); o reverb e o delay do jogo tocam nos barramentos aux, com o `HandleReverb` portado da assembly para C; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
 
 ### Evidências verificadas
 
@@ -41,6 +41,15 @@ de 13 de setembro.
   pixel e mudam a geometria iluminada (muro do castelo com diferença média de
   20,7, grama 11,4, P1 24,9 e P2 19,8) e as sombras, que passam de uma view de
   936 triângulos a duas de 468.
+- Barramentos aux: `melee-host-route-audio-asset` compara as referências com
+  `MELEE_HOST_AUDIO_AUX=0` (música e efeito 118 com correlação 1,000000) e roda
+  de novo com o reverb e o delay: a música, que não envia nada, segue igual, e
+  a diferença entre as duas gravações é zero antes do efeito e chega a 2564 no
+  meio segundo depois dele. O impulso no reverb do jogo fica em silêncio até o
+  primeiro pente devolver o que a pré-linha entregou (amostra 1852) e dá as
+  mesmas amostras em duas execuções. Na rota de estoque com aux o trace segue
+  igual e o WAV tem 8 amostras saturadas entre 16 e 20 s, onde antes não
+  havia nenhuma.
 - `melee-host-route-audio-asset`: título → START → menu → B, gravando o mixer
   em WAV. A música `menu01.hps`, decodificada à parte, bate janela a janela
   (67 janelas de 4000 amostras, pior correlação 1,000000 nos dois canais,
@@ -53,11 +62,11 @@ de 13 de setembro.
 - `--play` (build `-O2`) com START roteirizado: `melee-pc` aparece no servidor
   de som como fluxo tocando (não pausado) durante a música do menu, e o título
   mostrou 60,1, 60,1 e 59,8 FPS.
-- `ctest --preset host-sanitize -V`: 19/19 com o áudio, as cópias da EFB e os
-  dados de estágio, sem erro do ASan, 219/219 unitários, a rota cancelada em
-  110,7 s, a de estoque em 95,6 s e a de áudio em 4,8 s. O UBSan só imprime: os mesmos 31
-  pontos distintos, quatro deles nos callbacks do áudio, descritos em
-  `native_port_status.md`.
+- `ctest --preset host-sanitize -V`: 19/19 com o áudio, o reverb e o delay, as
+  cópias da EFB e os dados de estágio, sem erro do ASan, 221/221 unitários, a
+  rota cancelada em 115,2 s, a de estoque em 102,3 s e a de áudio em 10,9 s. O
+  UBSan só imprime: 32 pontos distintos, cinco deles nos callbacks do áudio,
+  descritos em `native_port_status.md`.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
 - `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
@@ -96,8 +105,7 @@ O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
 `--play`, que abre a janela, segue o ritmo do console, mapeia o pad inteiro e
 toca som, mas não foi jogado por uma pessoa; `ALDYakuAll` e `yakumono_param`,
-que variam por estágio; e, no áudio, os barramentos aux
-(reverb e delay), que o mixer não mistura. Do modo VS faltam morte súbita,
+que variam por estágio. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
@@ -190,3 +198,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 94% | O jogo toca efeitos e música. `synth.c` monta no host os descritores dos `.ssm` em largura de ponteiro (registro do arquivo e sons num bloco, readdress e deflag próprios), o `.sem` tem os fluxos de comando convertidos na carga, a razão de reamostragem deixa de ser gravada como uma palavra sobre dois `u16` e o stream `.hps` converte cabeçalho e blocos. O relógio AX roda um quadro de 5 ms por 5 ms de campo a cada retrace, as vozes ligam nas rotas e no `--play`, que toca no dispositivo de som e passa a esperar um campo NTSC por frame, e `WAV=` grava o mixer. Comparar a música com um decodificador à parte achou o mixer voltando ao início do bloco a cada amostra depois de laçar para o bloco seguinte (33 e 96 amostras repetidas): o fim agora dispara só no endereço seguinte ao fim, como o acelerador do DSP. `OSGetSoundMode` responde estéreo. Música por janela e efeito 118 com correlação 1,000000; trace igual com e sem som; `host-debug` 19/19, 217/217 unitários; sob ASan 19/19, sem relato do ASan e com 31 pontos do UBSan, quatro nos callbacks do áudio. |
 | 2026-09-15 | 95% | Cópias da EFB em cor. `GXCopyTex` em RGB5A3, RGB565 ou RGBA8 rasteriza na CPU a captura do frame até a cópia: cada draw com sua projeção, viewport e scissor, culling, teste e escrita de profundidade (o Z8 do apagamento do HSD grava o fundo), TEV por fragmento sobre texels filtrados, teste de alpha e blend, a partir da cor e profundidade de limpeza e das limpezas que cópias anteriores do frame pediram. Os resultados copiam dois retratos por jogador a cada frame (975 cópias na rota de estoque, 1944 na cancelada): os painéis mostram o Fox, antes preto, e `FRAME:EFBCOPY` confere que a cópia tem imagem. Os caches de textura decodificam de novo um endereço que uma cópia reescreveu, e o presenter aplica as limpezas no meio do frame, o que tira um retângulo vermelho de trás do Fox dos resultados. Um teste velho copiava 320×240 RGBA8 num vetor de 64 bytes e passou a estourar a pilha; ganhou o buffer do tamanho da textura. Sem otimização os retratos custavam 57 s à rota cancelada; começar na última limpeza que cobre a cópia, testar a profundidade antes do TEV quando o alpha sempre passa e compilar `command_recorder.cpp` e `tev.cpp` com `-O2` a trazem a 29,8 s. O clang do `host-sanitize` recusou cinco conversões de sinal do rasterizador que o GCC aceitava, corrigidas. `host-debug` 19/19, 218/218 unitários; sob ASan 19/19, sem relato do ASan e com os mesmos 31 pontos do UBSan. |
 | 2026-09-15 | 96% | Dados de estágio. `map_plit` (a tabela de `LightList` que `ftCo_8009F4A4` dá aos lutadores por `Ground_801C49B4`), `quake_model_set` (um `DynamicModelDesc` com joint e três tabelas de animação) e `itemdata` (itens do estágio, `{tipo, Article*}`, vazia em Hyrule Temple) traduzem pelos leitores do host, com as luzes compartilhadas por endereço com as sobreposições do `map_head`, como `Ground_801C20E0` compara. Antes o jogo usava as duas luzes padrão de `Ground_803E06C8`. No frame 850 da rota de estoque o céu fica igual e a geometria iluminada e os lutadores mudam de tom; as sombras dos dois Fox passam a ter projeções próprias. Trace igual; `--sweep-archives` com 220 símbolos a mais traduzidos. `ALDYakuAll` e `yakumono_param` ficam de fora. `host-debug` 19/19, 219/219 unitários; sob ASan 19/19, sem relato do ASan e com os mesmos 31 pontos do UBSan. |
+| 2026-09-15 | 97% | Reverb e delay. O mixer AX guarda os callbacks de aux A e B, acumula o envio de cada voz (esquerda, direita e surround, com rampa), entrega o quadro ao callback e mistura o retorno na saída do quadro seguinte, como o DSP faz com o buffer que a CPU processou. O reverb padrão do jogo (aux A) chama `HandleReverb`, que no console é assembly PowerPC e no host parava com nome; agora é C, operação por operação: pré-linha, dois pentes, passa-tudo, passa-baixa, segundo passa-tudo e a mistura seca, com `fmaf` nas somas fundidas e o truncamento saturado do `fctiwz`, os três canais contíguos. O delay (aux B) já era C. `MELEE_HOST_AUDIO_AUX=0` desliga os barramentos; o verificador de áudio compara com eles desligados e confere com eles ligados que só o efeito ganha retorno (até 2564, zero antes). Testes do impulso do reverb e do retorno um quadro depois; um primeiro teste supunha a ARAM zerada e acertou bytes que outro teste gravou. Trace igual com aux. `host-debug` 19/19, 221/221 unitários; sob ASan 19/19, sem relato do ASan e com um ponto novo do UBSan, a chamada de `AXFXReverbStdCallback` pelo ponteiro `void (*)(void*, void*)` que o jogo registra. |

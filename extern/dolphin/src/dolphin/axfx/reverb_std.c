@@ -133,13 +133,108 @@ static int ReverbSTDModify(struct AXFX_REVSTD_WORK* rv, float coloration,
 }
 
 #ifdef MELEE_HOST
-/* The reverb loop is PowerPC assembly.  It runs from the mixer's aux
- * callback, and the host has no mixer yet; a portable version comes with it. */
+#include <math.h>
+
+/* fctiwz: a truncation toward zero that saturates, and a NaN reads as the
+ * most negative word. */
+static s32 HandleReverbTruncate(f32 value)
+{
+    if (value != value || value <= -2147483648.0f) {
+        return (s32) 0x80000000U;
+    }
+    if (value >= 2147483648.0f) {
+        return 0x7FFFFFFF;
+    }
+    return (s32) value;
+}
+
+static void HandleReverbAdvance(struct AXFX_REVSTD_DELAYLINE* dl, s32* point)
+{
+    *point += 4;
+    if (*point == dl->length) {
+        *point = 0;
+    }
+}
+
+/* The PowerPC assembly below, in C.  The aux buffer holds the left, right and
+ * surround channels contiguously, 160 samples each, and each goes through its
+ * pre-delay line, two combs, an all-pass, a low-pass by `damping`, a second
+ * all-pass and the mix of that wet signal with the dry input, in place.  The
+ * assembly's single-precision fused multiply-adds round once, as fmaf does,
+ * and the delay lines count their points in bytes. */
 static void HandleReverb(s32* sptr, struct AXFX_REVSTD_WORK* rv)
 {
-    (void) sptr;
-    (void) rv;
-    OSPanic(__FILE__, __LINE__, "reverb HandleReverb is not ported to the host");
+    const f32 allpass = rv->allPassCoeff;
+    const f32 damping = rv->damping;
+    const f32 wet = rv->level * 0.6f;
+    const f32 dry = 0.6f - wet;
+    int k;
+    int i;
+
+    for (k = 0; k < 3; k++) {
+        struct AXFX_REVSTD_DELAYLINE* const comb0 = &rv->C[k * 2];
+        struct AXFX_REVSTD_DELAYLINE* const comb1 = &rv->C[k * 2 + 1];
+        struct AXFX_REVSTD_DELAYLINE* const pass0 = &rv->AP[k * 2];
+        struct AXFX_REVSTD_DELAYLINE* const pass1 = &rv->AP[k * 2 + 1];
+        const f32 coef0 = rv->combCoef[k * 2];
+        const f32 coef1 = rv->combCoef[k * 2 + 1];
+        f32* const line = rv->preDelayLine[k];
+        f32* pre = rv->preDelayPtr[k];
+        f32 lowpass = rv->lpLastout[k];
+
+        for (i = 0; i < 160; i++) {
+            const f32 input = (f32) sptr[i];
+            f32 delayed = input;
+            f32 feed0;
+            f32 feed1;
+            f32 value;
+            f32 through;
+
+            if (rv->preDelayTime != 0) {
+                delayed = *pre;
+                *pre = input;
+                pre++;
+                /* The assembly wraps on reaching the last slot, so the line
+                 * delays by one sample less than its length. */
+                if (pre == line + (rv->preDelayTime - 1)) {
+                    pre = line;
+                }
+            }
+
+            feed0 = fmaf(coef0, comb0->lastOutput, delayed);
+            feed1 = fmaf(coef1, comb1->lastOutput, delayed);
+            comb0->inputs[comb0->inPoint >> 2] = feed0;
+            HandleReverbAdvance(comb0, &comb0->inPoint);
+            comb1->inputs[comb1->inPoint >> 2] = feed1;
+            comb0->lastOutput = comb0->inputs[comb0->outPoint >> 2];
+            HandleReverbAdvance(comb0, &comb0->outPoint);
+            comb1->lastOutput = comb1->inputs[comb1->outPoint >> 2];
+            HandleReverbAdvance(comb1, &comb1->inPoint);
+            HandleReverbAdvance(comb1, &comb1->outPoint);
+
+            value = fmaf(allpass, pass0->lastOutput,
+                         comb0->lastOutput + comb1->lastOutput);
+            pass0->inputs[pass0->inPoint >> 2] = value;
+            through = fmaf(-allpass, value, pass0->lastOutput);
+            HandleReverbAdvance(pass0, &pass0->inPoint);
+            pass0->lastOutput = pass0->inputs[pass0->outPoint >> 2];
+            HandleReverbAdvance(pass0, &pass0->outPoint);
+
+            through = fmaf(damping, lowpass, through * 0.3f);
+            value = fmaf(allpass, pass1->lastOutput, through);
+            lowpass = through;
+            pass1->inputs[pass1->inPoint >> 2] = value;
+            through = fmaf(-allpass, value, pass1->lastOutput);
+            pass1->lastOutput = pass1->inputs[pass1->outPoint >> 2];
+            HandleReverbAdvance(pass1, &pass1->inPoint);
+            HandleReverbAdvance(pass1, &pass1->outPoint);
+
+            sptr[i] = HandleReverbTruncate(fmaf(wet, through, dry * input));
+        }
+        rv->lpLastout[k] = lowpass;
+        rv->preDelayPtr[k] = pre;
+        sptr += 160;
+    }
 }
 #else
 const static float value0_3 = 0.3f;

@@ -23,6 +23,14 @@ static mh_u32 ax_acquisitions;
 static bool ax_ready;
 static bool ax_voices_on;
 static void (*ax_frame_callback)(void);
+/* The aux buses: the callback and context each has registered, and the
+ * buffer the callback processed last frame, left, right and surround in a
+ * row.  The DSP mixes that return into the output of the frame after the
+ * send, so the aux signal arrives one frame late. */
+static void (*ax_aux_callbacks[2])(void*, void*);
+static void* ax_aux_contexts[2];
+static mh_s32 ax_aux_return[2][MELEE_HOST_AX_FRAME_SAMPLES * 3];
+static bool ax_aux_on = true;
 static MeleeHostAxOutputSink ax_output_sink;
 static void* ax_output_data;
 static mh_u64 ax_pending_nanoseconds;
@@ -95,6 +103,14 @@ void AXInit(void)
     ax_reset_voices();
     ax_frame_callback = NULL;
     ax_pending_nanoseconds = 0;
+    memset(ax_aux_callbacks, 0, sizeof(ax_aux_callbacks));
+    memset(ax_aux_contexts, 0, sizeof(ax_aux_contexts));
+    memset(ax_aux_return, 0, sizeof(ax_aux_return));
+}
+
+void melee_host_ax_set_aux_enabled(bool enabled)
+{
+    ax_aux_on = enabled;
 }
 
 AXVPB* AXAcquireVoice(u32 priority, void (*callback)(void*), u32 userContext)
@@ -171,18 +187,16 @@ void AXSetVoicePriority(AXVPB* voice, u32 priority)
     voice->priority = (int) priority;
 }
 
-/* The aux buses run the reverb and chorus, whose DSP cores are PowerPC
- * assembly the host does not have; nothing is sent to them. */
 void AXRegisterAuxACallback(void (*callback)(void*, void*), void* context)
 {
-    (void) callback;
-    (void) context;
+    ax_aux_callbacks[0] = callback;
+    ax_aux_contexts[0] = context;
 }
 
 void AXRegisterAuxBCallback(void (*callback)(void*, void*), void* context)
 {
-    (void) callback;
-    (void) context;
+    ax_aux_callbacks[1] = callback;
+    ax_aux_contexts[1] = context;
 }
 
 void AXRegisterCallback(void (*callback)(void))
@@ -404,9 +418,24 @@ static bool ax_decode(AXPB* pb, const mh_u8* aram, mh_u32 aram_size,
     return true;
 }
 
+/* One voice into the main mix and, when `aux` is given, into the aux buses:
+ * aux[bus] holds left, right and surround of `count` samples each. */
+static void ax_render_voice_sends(AXPB* pb, const mh_u8* aram,
+                                  mh_u32 aram_size, mh_s32* left,
+                                  mh_s32* right, mh_s32* aux[2],
+                                  mh_u32 count);
+
 void melee_host_ax_render_voice(struct _AXPB* pb, const mh_u8* aram,
                                 mh_u32 aram_size, mh_s32* left,
                                 mh_s32* right, mh_u32 count)
+{
+    ax_render_voice_sends(pb, aram, aram_size, left, right, NULL, count);
+}
+
+static void ax_render_voice_sends(AXPB* pb, const mh_u8* aram,
+                                  mh_u32 aram_size, mh_s32* left,
+                                  mh_s32* right, mh_s32* aux[2],
+                                  mh_u32 count)
 {
     /* The DSP keeps its resampler's history in last_samples.  The host's
      * linear resampler keeps there whether the voice has started ([0]),
@@ -423,6 +452,18 @@ void melee_host_ax_render_voice(struct _AXPB* pb, const mh_u8* aram,
     const mh_s32 volume_delta = pb->ve.currentDelta;
     mh_s32 mix_left = pb->mix.vL;
     mh_s32 mix_right = pb->mix.vR;
+    /* Aux A and B, each left, right and surround, with their ramps. */
+    mh_s32 send[2][3] = { { pb->mix.vAuxAL, pb->mix.vAuxAR, pb->mix.vAuxAS },
+                          { pb->mix.vAuxBL, pb->mix.vAuxBR,
+                            pb->mix.vAuxBS } };
+    const mh_s32 send_delta[2][3] = {
+        { (s16) pb->mix.vDeltaAuxAL, (s16) pb->mix.vDeltaAuxAR,
+          (s16) pb->mix.vDeltaAuxAS },
+        { (s16) pb->mix.vDeltaAuxBL, (s16) pb->mix.vDeltaAuxBR,
+          (s16) pb->mix.vDeltaAuxBS }
+    };
+    const bool sends[2] = { aux != NULL && (pb->mixerCtrl & 1U) != 0,
+                            aux != NULL && (pb->mixerCtrl & 2U) != 0 };
     const bool ramp = (pb->mixerCtrl & 8U) != 0;
     mh_u32 n;
 
@@ -449,6 +490,24 @@ void melee_host_ax_render_voice(struct _AXPB* pb, const mh_u8* aram,
         }
         if (right != NULL) {
             right[n] += (mh_s32) (((mh_s64) played * mix_right) >> 15);
+        }
+        {
+            mh_u32 bus;
+            mh_u32 channel;
+            for (bus = 0; bus < 2; bus++) {
+                if (!sends[bus]) {
+                    continue;
+                }
+                for (channel = 0; channel < 3; channel++) {
+                    aux[bus][channel * count + n] += (mh_s32) (
+                        ((mh_s64) played * send[bus][channel]) >> 15);
+                    if (ramp) {
+                        send[bus][channel] = ax_clamp(
+                            send[bus][channel] + send_delta[bus][channel], 0,
+                            0xFFFF);
+                    }
+                }
+            }
         }
         volume = ax_clamp(volume + volume_delta, 0, 0xFFFF);
         if (ramp) {
@@ -478,23 +537,58 @@ void melee_host_ax_render_voice(struct _AXPB* pb, const mh_u8* aram,
     pb->ve.currentVolume = (u16) volume;
     pb->mix.vL = (u16) mix_left;
     pb->mix.vR = (u16) mix_right;
+    if (sends[0]) {
+        pb->mix.vAuxAL = (u16) send[0][0];
+        pb->mix.vAuxAR = (u16) send[0][1];
+        pb->mix.vAuxAS = (u16) send[0][2];
+    }
+    if (sends[1]) {
+        pb->mix.vAuxBL = (u16) send[1][0];
+        pb->mix.vAuxBR = (u16) send[1][1];
+        pb->mix.vAuxBS = (u16) send[1][2];
+    }
 }
 
 void melee_host_ax_run_frame(mh_s16* stereo)
 {
     mh_s32 left[MELEE_HOST_AX_FRAME_SAMPLES];
     mh_s32 right[MELEE_HOST_AX_FRAME_SAMPLES];
+    mh_s32 send[2][MELEE_HOST_AX_FRAME_SAMPLES * 3];
+    mh_s32* sends[2] = { send[0], send[1] };
     const mh_u8* const aram = melee_host_aram_bytes();
     const mh_u32 aram_size = melee_host_aram_size();
     mh_u32 i;
+    mh_u32 bus;
 
     memset(left, 0, sizeof(left));
     memset(right, 0, sizeof(right));
+    memset(send, 0, sizeof(send));
     for (i = 0; i < AX_MAX_VOICES; i++) {
         if (ax_voice_used[i] && ax_voices[i].pb.state == 1) {
-            melee_host_ax_render_voice(&ax_voices[i].pb, aram, aram_size,
-                                       left, right,
-                                       MELEE_HOST_AX_FRAME_SAMPLES);
+            ax_render_voice_sends(&ax_voices[i].pb, aram, aram_size, left,
+                                  right, ax_aux_on ? sends : NULL,
+                                  MELEE_HOST_AX_FRAME_SAMPLES);
+        }
+    }
+    if (ax_aux_on) {
+        for (bus = 0; bus < 2; bus++) {
+            /* Last frame's return, then this frame's send to the callback,
+             * which processes it in place for the next frame. */
+            for (i = 0; i < MELEE_HOST_AX_FRAME_SAMPLES; i++) {
+                left[i] += ax_aux_return[bus][i];
+                right[i] += ax_aux_return[bus][MELEE_HOST_AX_FRAME_SAMPLES + i];
+            }
+            if (ax_aux_callbacks[bus] != NULL) {
+                struct AX_AUX_DATA data;
+
+                memcpy(ax_aux_return[bus], send[bus], sizeof(send[bus]));
+                data.l = ax_aux_return[bus];
+                data.r = ax_aux_return[bus] + MELEE_HOST_AX_FRAME_SAMPLES;
+                data.s = ax_aux_return[bus] + MELEE_HOST_AX_FRAME_SAMPLES * 2;
+                ax_aux_callbacks[bus](&data, ax_aux_contexts[bus]);
+            } else {
+                memset(ax_aux_return[bus], 0, sizeof(ax_aux_return[bus]));
+            }
         }
     }
     if (stereo != NULL) {

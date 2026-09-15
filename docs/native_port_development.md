@@ -490,7 +490,9 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   toca enquanto os frames desenhados estao no intervalo, 16 bits estereo a
   32 kHz; o cabecalho e escrito quando o intervalo termina, entao um processo
   parado depois (o menu principal parado nunca sai sozinho) deixa um WAV
-  valido.
+  valido. `MELEE_HOST_AUDIO_AUX=0` deixa o reverb e o delay do jogo fora da
+  mistura; e assim que o som de uma rota se compara com decodificadores de
+  referencia, porque os efeitos enviam parte do som ao reverb.
 - `port/tools/check_route_audio.py build/host-debug/port/melee-pc assets-local`
   roda titulo → menu → titulo gravando WAV e confere a musica `menu01.hps` e o
   efeito 118 de `main.ssm` contra decodificadores que nao passam pelo mixer:
