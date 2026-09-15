@@ -37,9 +37,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -2085,6 +2087,33 @@ int main(int argc, char** argv)
                                    run.last_frame_triangles > 0;
             return timed_out ? 0 : 1;
         }
+        /* --play ROOT [ENTRY...] is --run-modes from the title on, presented
+         * in a window at 60 frames a second with the keyboard and the first
+         * gamepad as pad 1, for as long as the window stays open.  The OS
+         * clock starts at the host's time, as on the console.  Script entries
+         * still apply over the window's pad; MELEE_HOST_PLAY_HIDDEN draws
+         * into a hidden presenter instead, which lets BMP= entries save
+         * frames. */
+        std::vector<std::string> play_storage;
+        std::vector<char*> play_argv;
+        bool play = false;
+        if (argc >= 3 && std::string(argv[1]) == "--play") {
+#if !defined(MELEE_HOST_SDL_RENDERER)
+            std::cerr << "--play needs the SDL renderer\n";
+            return 2;
+#endif
+            play = true;
+            play_storage = { argv[0], "--run-modes", argv[2], "0",
+                             "0xFFFFFFFF" };
+            for (int i = 3; i < argc; ++i) {
+                play_storage.emplace_back(argv[i]);
+            }
+            for (std::string& argument : play_storage) {
+                play_argv.push_back(argument.data());
+            }
+            argc = static_cast<int>(play_argv.size());
+            argv = play_argv.data();
+        }
         if (argc >= 5 && std::string(argv[1]) == "--run-modes") {
             /* FRAME[-LAST]:INPUT[+INPUT][@PORT].  Without LAST a press is
              * held for three drawn frames, so a scene sees the buttons go down
@@ -2145,6 +2174,11 @@ int main(int argc, char** argv)
                 TitleTextureCache* textures = nullptr;
                 melee::render::FramePresenter* presenter = nullptr;
                 bool presenter_open = false;
+                /* --play: the presenter shows every frame, and the keyboard
+                 * and the gamepad it reads become pad 1. */
+                bool play = false;
+                MeleeHostPadState window_pad{};
+                std::chrono::steady_clock::time_point play_mark{};
 #endif
                 bool shot_failed = false;
                 bool shadow_check_failed = false;
@@ -2368,8 +2402,12 @@ int main(int argc, char** argv)
             MeleeHostContext* context = nullptr;
             const std::string root = argv[2];
             const MeleeHostConfig config{ .resource_root = root.c_str(),
-                                          .headless = true };
-            freeze_scripted_clock();
+                                          .headless = !play };
+            if (play) {
+                melee_host_os_time_freeze();
+            } else {
+                freeze_scripted_clock();
+            }
             if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
                 melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
                 melee_host_activate_pad_backend(context) != MELEE_HOST_OK ||
@@ -2381,6 +2419,22 @@ int main(int argc, char** argv)
                 return 1;
             }
             input.context = context;
+#if defined(MELEE_HOST_SDL_RENDERER)
+            if (play) {
+                const char* const hidden = std::getenv("MELEE_HOST_PLAY_HIDDEN");
+                if (!shot_presenter.open(hidden != nullptr && hidden[0] != '\0',
+                                         &input.shot_error))
+                {
+                    std::cerr << "could not open the presenter: "
+                              << input.shot_error << '\n';
+                    melee_host_destroy(context);
+                    return 1;
+                }
+                input.presenter_open = true;
+                input.play = true;
+                input.play_mark = std::chrono::steady_clock::now();
+            }
+#endif
             /* The connected pads, holding whatever the script presses on this
              * frame.  The state reaches PADRead at the host step before the
              * next pad sample. */
@@ -2401,6 +2455,29 @@ int main(int argc, char** argv)
                               << kDigits[scene & 0xF] << " from frame "
                               << state->frames << '\n';
                 }
+#if defined(MELEE_HOST_SDL_RENDERER)
+                if (state->play) {
+                    state->presenter->present(
+                        state->textures->images_for_frame());
+                    if (!state->presenter->poll(&state->window_pad)) {
+                        /* The game has no way to quit: closing the window
+                         * ends the process where it is. */
+                        std::cout << "window closed at frame "
+                                  << state->frames << '\n'
+                                  << std::flush;
+                        std::_Exit(0);
+                    }
+                    if (state->frames % 600 == 0) {
+                        const auto now = std::chrono::steady_clock::now();
+                        const std::chrono::duration<double> elapsed =
+                            now - state->play_mark;
+                        std::cout << "frame " << state->frames << ": "
+                                  << 600.0 / elapsed.count()
+                                  << " frames a second\n";
+                        state->play_mark = now;
+                    }
+                }
+#endif
                 for (const ScriptedTrace& trace : state->traces) {
                     if (state->frames < trace.first ||
                         state->frames > trace.last)
@@ -2582,8 +2659,10 @@ int main(int argc, char** argv)
                             continue;
                         }
                     }
-                    state->presenter->present(
-                        state->textures->images_for_frame());
+                    if (!state->play) {
+                        state->presenter->present(
+                            state->textures->images_for_frame());
+                    }
                     shot.written = state->presenter->save_bmp(
                         shot.path.c_str(), &state->shot_error);
                     state->shot_failed = !shot.written;
@@ -2604,6 +2683,11 @@ int main(int argc, char** argv)
                 }
 #endif
                 MeleeHostPadState pads[4]{};
+#if defined(MELEE_HOST_SDL_RENDERER)
+                if (state->play) {
+                    pads[0] = state->window_pad;
+                }
+#endif
                 for (const ScriptedPress& press : state->presses) {
                     if (state->frames < press.first ||
                         state->frames > press.last)
@@ -2628,6 +2712,11 @@ int main(int argc, char** argv)
                     static_cast<void>(melee_host_submit_pad_state(
                         state->context, port, &pads[port]));
                 }
+#if defined(MELEE_HOST_SDL_RENDERER)
+                if (state->play) {
+                    state->presenter->pace(1'000'000'000ULL / 60ULL);
+                }
+#endif
             };
             if (melee_host_game_begin(first_mode) != MELEE_HOST_OK) {
                 std::cerr << "mode " << hex_byte(first_mode)
@@ -2648,6 +2737,16 @@ int main(int argc, char** argv)
                     scripted_pad, &input, &report);
                 input.report = nullptr;
                 if (ran == MELEE_HOST_UNSUPPORTED) {
+                    /* Left alone on the title the game moves to the opening
+                     * movie; --play starts over at the title instead of
+                     * ending there. */
+                    if (play && melee_host_game_begin(0) == MELEE_HOST_OK) {
+                        std::cout << "mode " << hex_byte(report.mode)
+                                  << " is not in the host's mode table; "
+                                     "back to the title\n";
+                        route += " " + hex_byte(0);
+                        continue;
+                    }
                     std::cout << "stopped: mode " << hex_byte(report.mode)
                               << " is not in the host's mode table\n";
                     break;
@@ -2672,6 +2771,15 @@ int main(int argc, char** argv)
                 }
                 route += " (" + std::to_string(report.drawn_frames) +
                          " frames) ";
+                if (report.stopped_at_missing_scene && play &&
+                    melee_host_game_begin(0) == MELEE_HOST_OK)
+                {
+                    std::cout << "scene " << hex_byte(report.missing_scene)
+                              << " is not in the host's scene table; back "
+                                 "to the title\n";
+                    route += "back to 0x00";
+                    continue;
+                }
                 if (report.stopped_at_missing_scene) {
                     std::cout << "stopped: scene "
                               << hex_byte(report.missing_scene)

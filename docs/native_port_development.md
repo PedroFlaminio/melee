@@ -455,6 +455,17 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
 - Para medir o ritmo por cena, rode a rota com `stdbuf -oL`: num pipe o
   `stdout` sai em bloco no fim, e as linhas `scene 0xNN from frame N` chegam
   todas juntas.
+- Para jogar, `melee-pc --play assets-local` abre uma janela e roda os modos a
+  partir do titulo a 60 frames por segundo, com o relogio do OS na hora do
+  host. Teclado como pad 1: WASD move o stick e as setas o C-stick; J da o A,
+  K o B, U o X, I o Y, Q o Z, H o L e L o R (so analogicos) e Enter o START;
+  Esc ou fechar a janela encerra o processo. O primeiro gamepad substitui o teclado
+  (o Back encerra). Um modo ou uma cena que o host nao tem, como o filme de
+  abertura que segue o titulo parado, volta ao titulo. Entradas de roteiro
+  valem por cima do pad, e `MELEE_HOST_PLAY_HIDDEN=1` desenha num presenter
+  escondido, onde `BMP=` funciona: e assim que o `--play` e conferido sem abrir
+  janela. O build `-O2` e o indicado; o `host-debug` roda a luta abaixo de
+  60 Hz. O SDL transforma SIGTERM em fechar a janela.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

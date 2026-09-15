@@ -2137,6 +2137,20 @@ Atualizado em 15 de setembro de 2026.
   (15,1), SSS a 266 e o resto acima de 1400. Os BMPs de oito frames da rota,
   as contagens de triangulos e o trace saem iguais aos de antes, fora os
   retratos dos resultados, que ja variavam entre execucoes do mesmo binario.
+  Sob ASan a suite leva 146 s: a rota cancelada 108,8 s (era 763,8 s) e a de
+  estoque 145,6 s (1130,3 s), sem erro do ASan e com os mesmos 28 pontos do
+  UBSan.
+- [x] Modo jogavel: `melee-pc --play ROOT` e o `--run-modes` a partir do
+  titulo com o presenter visivel, um `present` por frame, o teclado e o
+  primeiro gamepad como pad 1 (`FramePresenter::poll`), ritmo de 60 Hz
+  (`pace`) e o relogio do OS na hora do host. Um modo ou uma cena fora das
+  tabelas do host volta ao titulo (parado, o titulo segue para
+  `GM_OPENING_MV`, 0x18), e fechar a janela encerra o processo. Com
+  `MELEE_HOST_PLAY_HIDDEN=1` e o roteiro de estoque, o build `-O2` percorre
+  titulo, menu, regras, SSS, luta e resultados com o mesmo desfecho a 59,5-60
+  frames por segundo (55,9 no trecho da carga da luta) e grava os BMPs. A
+  janela visivel abriu no Wayland e rodou o titulo a 60,02 frames por segundo;
+  parado, o titulo volta a si mesmo a cada 621 frames.
 
 ## Em andamento
 
@@ -2390,10 +2404,11 @@ Atualizado em 15 de setembro de 2026.
   titulo desenha seu quad com a profundidade da propria geometria, na metade
   entre near e far, em vez de limpar para o far; so esconde o que estiver
   alem dessa metade. As SObj que usam `GX_ZT_REPLACE` tem o mesmo desvio.
-- A janela, o ritmo de 60 Hz e a entrada de teclado e gamepad de
-  `--view-title-scene` foram escritos, mas so o caminho escondido, que grava o
-  BMP, foi executado e conferido; o que muda na janela e a troca de buffer e a
-  leitura de eventos.
+- A janela do `--play` abriu e manteve 60 Hz no titulo, mas ninguem jogou
+  com teclado ou gamepad de verdade: a entrada foi conferida so por roteiro. O
+  teclado nao tem D-pad e da L e R so como analogicos, sem os bits digitais
+  que o L+R+A+START da pausa pede; o gamepad tambem nao mapeia o D-pad nem L e
+  R digitais. `--view-title-scene` segue com o caminho da janela sem uso.
 - `--view-title-scene` termina quando `gm_801A4D34` retorna: START encerra a
   cena, e a seguinte nao existe no host ainda.
 - O cache de texturas do titulo e o presenter reconhecem uma imagem pelo

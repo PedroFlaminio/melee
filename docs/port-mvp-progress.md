@@ -8,26 +8,28 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 15 de setembro de 2026
 
-**Estimativa: 90% (faixa de confiança: 85–93%).** A tabela descreve o estado
+**Estimativa: 91% (faixa de confiança: 86–93%).** A tabela descreve o estado
 de cada área hoje; o registro no fim guarda a evolução desde a linha de base
 de 13 de setembro.
 
 | Área | Estado | Peso no MVP |
 | --- | --- | --- |
-| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem | 15% |
+| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, sem D-pad nem L e R digitais | 15% |
 | Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; faltam as cópias da EFB além da sombra (retratos dos resultados), texturas de profundidade, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
 | Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox contra Fox em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP; os retratos dos painéis ficam pretos (cópias da EFB), e do estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e `quake_model_set` | 30% |
-| Áudio, distribuição e regressão end-to-end | sem áudio (o host não entrega voz AX); duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug` | 10% |
+| Áudio, distribuição e regressão end-to-end | sem áudio (o host não entrega voz AX); duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
 
 ### Evidências verificadas
 
 - `ctest --preset host-debug`: 16/16 (os 14 curtos e as duas rotas de VS);
   205/205 testes unitários; a suíte toda em 32,2 s.
-- `ctest --preset host-sanitize -V`: 16/16 no commit `a39aed989`, sem erro do
-  ASan, com a rota cancelada em 794,7 s e a de estoque em 1175,7 s. O UBSan só
-  imprime: 28 pontos distintos, descritos em `native_port_status.md`.
+- `ctest --preset host-sanitize -V`: 16/16 no commit `93f508a6a`, sem erro do
+  ASan, a suíte em 146 s, com a rota cancelada em 108,8 s e a de estoque em
+  145,6 s (antes da correção do recorder, 763,8 s e 1130,3 s). O UBSan só
+  imprime: 28 pontos distintos, os mesmos desde a rota de estoque, descritos em
+  `native_port_status.md`.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
 - `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
@@ -54,6 +56,9 @@ de 13 de setembro.
   unitários; a rota de estoque em 5,2 s sem apresentar, com a luta a 199,7
   frames por segundo, os resultados a 226,5, a SSS a 266 e o resto acima de
   1400.
+- `--play` (build `-O2`): com presenter escondido e o roteiro de estoque, a
+  rota inteira a 59,5–60 frames por segundo, com o mesmo desfecho; a janela
+  visível abriu no Wayland e rodou o título a 60,02.
 - `--diagnose-local-match` materializa dados de duas pessoas, regras e estágio,
   mas ainda não inicia a cena de combate.
 
@@ -61,10 +66,10 @@ de 13 de setembro.
 
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida e rotas repetíveis. Falta, em ordem: o áudio (vozes AX, `.sem` e
-`.hps`; nada toca hoje); a janela com entrada real e o ritmo de 60 Hz com o
-presenter, já que sem apresentar a luta roda a cerca de 200 frames por segundo
-no build `-O2`; as cópias da EFB dos retratos dos resultados; e os dados de
-estágio que faltam. Do modo VS faltam morte súbita,
+`.hps`; nada toca hoje); jogar de verdade no `--play`, que já abre a janela e
+mantém 60 Hz, mas não mapeia D-pad nem L e R digitais e não foi jogado por uma
+pessoa; as cópias da EFB dos retratos dos resultados; e os dados de estágio que
+faltam. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
@@ -134,3 +139,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 90% | Resultados e HUD com a imagem certa. Capturas BMP da rota de estoque conferem o menu de regras, a SSS (que não sai mais azul), a luta e o "Game!"; nos resultados o título dizia "NO CONTEST" numa luta concluída, os retratos eram ruído, o Fox fazia outra pose e o HUD mostrava outro emblema. A causa é `gm_80168B34`, que dá o frame das animações de textura de nome, emblema, retrato e ícone de estoque: seu C só atribui `base` para Zelda, Sheik, Popo e os personagens depois de Sheik, e o código de máquina do DOL (o arquivo é `Matching`) usa no caminho restante o `r3` que ainda guarda `ckind`. No host o valor vinha da pilha (frames 33554432 e 21845 sob gdb). Sob `MELEE_HOST` `base` começa em `ckind`, e `gm_80168BF8`, que termina sem `return` e no host devolvia o `eax` como float aos ícones de estoque, devolve a chamada; as macros ficam em `gm_1601.h` e o arquivo pré-processa igual sem o define. O título mostra "FOX", os painéis o nome e a colocação, e o HUD o emblema da Star Fox; os retratos ficam pretos, porque são cópias da EFB (`gm_1798.c`) que o host não produz. Teste unitário com os casos lidos do código de máquina. |
 | 2026-09-15 | 90% | Rotas repetíveis, trace canônico e build `-O2`. `FIRST-LAST:TRACE=arquivo` grava por frame a cena, a semente e ação, animação, posição, velocidade, direção, chão ou ar, dano e estoques de cada lutador, e `port/tools/compare_match_trace.py` aponta o primeiro campo diferente. A primeira comparação achou a semente dependendo da hora: o título sorteia um `HSD_Rand` por segundo do minuto corrente, e o relógio congelava na hora do host, o que mudava a pose de vitória. As rotas roteirizadas congelam em 3/12/2001 00:00:00 (teste unitário), e a rota de estoque dá o mesmo trace nos 1739 frames entre execuções em horas diferentes e entre o `host-debug` e um build `-O2`. Esse build roda a rota em 57,6 s, mas a luta fica em 16,2 frames por segundo e os resultados em 15,1, um quarto dos 60 Hz; seus avisos listam 177 pontos de variável possivelmente não inicializada e 43 funções sem `return`, entre eles o `gm_80168B34` original. `host-debug` 16/16 (rota de estoque em 246,3 s) e 205/205 unitários. |
 | 2026-09-15 | 90% | A luta roda sem gargalo de CPU. Num build `-O2 -pg`, o `gprof` pôs 92% do tempo da rota de estoque em `finish_draw_locked`: ao fim de cada draw o recorder GX refazia as posições de todos os triângulos já capturados no frame, e não só as do draw que terminava, um custo quadrático num frame de luta com cerca de 25 mil triângulos. Cada draw guarda agora o seu primeiro triângulo. No `-O2` a rota cai de 57,6 s para 5,2 s, com a luta a 199,7 frames por segundo (eram 16,2) e os resultados a 226,5 (15,1); no `host-debug` a suíte inteira leva 32,2 s (a rota de estoque levava 246,3 s). Oito BMPs da rota, as contagens de triângulos e o trace saem iguais aos de antes, fora os retratos dos resultados, cópias da EFB sem conteúdo definido que já variavam entre execuções. `host-debug` 16/16 e 205/205 unitários. |
+| 2026-09-15 | 91% | Modo jogável. `melee-pc --play assets-local` roda os modos a partir do título numa janela a 60 Hz, com o teclado e o primeiro gamepad como pad 1 e o relógio do OS na hora do host; um modo ou uma cena que o host não tem (o filme de abertura que segue o título parado) volta ao título, e fechar a janela encerra o processo. Com presenter escondido (`MELEE_HOST_PLAY_HIDDEN=1`) e o roteiro de estoque, o build `-O2` faz título → menu → regras → SSS → luta → resultados → CSS → menu a 59,5–60 frames por segundo, com o mesmo desfecho e os BMPs gravados; a janela visível abriu e manteve o título a 60,02. Ninguém jogou com teclado ou gamepad ainda, e o mapa não tem D-pad nem L e R digitais. `host-debug` 16/16; sob ASan a suíte passou em 146 s, com os mesmos 28 pontos do UBSan. |
