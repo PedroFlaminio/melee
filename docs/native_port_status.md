@@ -2117,14 +2117,26 @@ Atualizado em 15 de setembro de 2026.
   -fno-strict-aliasing -fwrapv`, sem `-Werror`): liga, 205/205 testes
   unitarios e a rota de estoque em 57,6 s sem apresentar, com a suite sanitize
   ocupando dois nucleos. Por cena: titulo e menu a cerca de 1000 frames por
-  segundo, CSS 407, SSS 237, luta 16,2 e resultados 15,1; a luta fica a um
-  quarto dos 60 Hz mesmo otimizada. Os avisos listam 215
+  segundo, CSS 407, SSS 237, luta 16,2 e resultados 15,1, antes da correcao
+  do recorder GX da entrada seguinte. Os avisos listam 215
   `-Wmaybe-uninitialized` (177 pontos distintos na decomp) e 43
   `-Wreturn-type`; o `gm_80168B34` original esta entre eles. Na rota ha
   funcoes sem `return` ainda nao conferidas: `ftAnim_8006F3DC` e
   `ftAnim_8006F994`, `fn_8017A318` (`gm_1798.c`), `Player_SetFlagsAEBit1`,
   `pl_80037B2C`, `lb_8000CDC0`, `lb_800138EC`, `mn_8022BFBC` e `mn_8022C010`;
   o retorno de `fn_80174920` e ignorado.
+- [x] O recorder GX refazia, ao fim de cada draw, as posicoes de todos os
+  triangulos ja capturados no frame (`transform_captured_draw_locked`), e nao
+  so as do draw que terminava; um frame de luta, com cerca de 25 mil
+  triangulos, custava tempo quadratico no numero de draws. Medido com `gprof`
+  num build `-O2 -pg`: 92% do tempo da rota de estoque em
+  `finish_draw_locked`, 52,4 s em 1.666.039 chamadas. Cada draw guarda agora
+  o seu primeiro triangulo (`triangle_start`), porque os anteriores sao de
+  draws cujos vertices ele nao move. No build `-O2` a rota cai de 57,6 s para
+  5,2 s: luta a 199,7 frames por segundo (eram 16,2), resultados a 226,5
+  (15,1), SSS a 266 e o resto acima de 1400. Os BMPs de oito frames da rota,
+  as contagens de triangulos e o trace saem iguais aos de antes, fora os
+  retratos dos resultados, que ja variavam entre execucoes do mesmo binario.
 
 ## Em andamento
 
@@ -2137,10 +2149,9 @@ Atualizado em 15 de setembro de 2026.
   estagio e `ftData*` dos outros personagens.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
-  codigo do jogo, com a imagem conferida em BMP; faltam o audio, o ritmo (a
-  luta roda a 16 frames por segundo no build `-O2`), os retratos dos
-  resultados (copias da EFB), a janela com entrada real e os dados de estagio
-  ainda sem traducao.
+  codigo do jogo, com a imagem conferida em BMP; faltam o audio, os retratos
+  dos resultados (copias da EFB), a janela com entrada real a 60 Hz e os dados
+  de estagio ainda sem traducao.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2162,8 +2173,8 @@ Atualizado em 15 de setembro de 2026.
    comando do `.sem` e o cabecalho `.hps`, ainda lidos como big-endian.
    Validar primeiro com uma voz sintetica e depois gravando WAV de um som do
    jogo, antes de ligar uma saida em tempo real.
-2. Ritmo: a luta e os resultados rodam a 15-16 frames por segundo no build
-   `-O2` sem apresentar. Medir onde vai o tempo antes de otimizar.
+2. Ritmo com apresentacao: sem apresentar, a luta roda a cerca de 200 frames
+   por segundo no build `-O2`; falta medir o presenter e a janela.
 3. Copias da EFB alem da sombra I4: os retratos dos resultados
    (`HSD_ImageDescCopyFromEFB` em `gm_1798.c`) e a refracao.
 4. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
@@ -2307,7 +2318,9 @@ Atualizado em 15 de setembro de 2026.
   janela.
 - Os retratos dos paineis dos resultados ficam pretos: `gm_1798.c` desenha
   cada lutador e copia a regiao da EFB (`HSD_ImageDescCopyFromEFB`, texturas
-  RGB5A3 de 52x74), e o host so produz a copia I4 da sombra.
+  RGB5A3 de 52x74), e o host so produz a copia I4 da sombra. O conteudo
+  dessas texturas e memoria nao inicializada e muda entre execucoes do mesmo
+  binario: ao comparar BMPs dos resultados, descarte esses retangulos.
 - O pool SIS do host tem o dobro do tamanho que a cena pede. Isso garante que
   cada bloco cabe no dobro do que ocupava no console, mas a fragmentacao pode
   ser outra; um "Memory Empty" em outra cena deve ser medido com o retrato do

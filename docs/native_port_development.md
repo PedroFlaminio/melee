@@ -444,6 +444,17 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   (`--ignore campo` passa por uma diferenca ja entendida). Serve para comparar
   duas execucoes, o `host-debug` com o build `-O2`, ou uma rota com e sem
   `BMP=`.
+- Para achar onde vai o tempo ha `gprof` (a maquina nao tem `perf` nem
+  valgrind). Configure `build/host-profile` com `-O2 -g -pg
+  -fno-strict-aliasing -fwrapv` nas flags de C e C++ e `-pg` no link, rode a
+  rota numa pasta de trabalho (o `gmon.out` sai no diretorio corrente quando o
+  processo termina) e leia `gprof -b -p melee-pc gmon.out`. Funcoes embutidas
+  somam o tempo na que as chama: `finish_draw_locked` levava 92% da rota com
+  o laco de `transform_captured_draw_locked` dentro, que refazia todos os
+  triangulos do frame ao fim de cada draw.
+- Para medir o ritmo por cena, rode a rota com `stdbuf -oL`: num pipe o
+  `stdout` sai em bloco no fim, e as linhas `scene 0xNN from frame N` chegam
+  todas juntas.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

@@ -31,6 +31,9 @@ struct ActiveDraw {
     mh_u8 vertex_format = 0;
     mh_u16 expected_vertices = 0;
     std::size_t captured_vertex_start = 0;
+    /* The first captured triangle of the draw.  Every triangle before it
+     * belongs to an earlier draw, whose vertices this draw never moves. */
+    std::size_t triangle_start = 0;
     /* The position matrix the draw starts from, and the one the next vertex
      * will use.  They differ when the stream carries GX_VA_PNMTXIDX, which is
      * how a skinned PObj addresses a different joint per vertex. */
@@ -597,7 +600,11 @@ void transform_captured_draw_locked()
         }
         transform_vertex_locked(captured_vertices[index], matrix);
     }
-    for (std::size_t index = 0; index < triangles.size(); ++index) {
+    /* Only this draw's triangles: refreshing every triangle of the frame at
+     * the end of each draw made a match frame's recording quadratic in its
+     * draws. */
+    for (std::size_t index = active_draw.triangle_start;
+         index < triangles.size(); ++index) {
         const auto& indices = captured_triangle_indices[index];
         triangles[index] = { { captured_vertices[indices[0]].position,
                                captured_vertices[indices[1]].position,
@@ -850,6 +857,7 @@ void begin_locked(mh_u8 primitive, mh_u8 vertex_format,
     active_draw.vertex_format = vertex_format;
     active_draw.expected_vertices = vertex_count;
     active_draw.captured_vertex_start = captured_vertices.size();
+    active_draw.triangle_start = triangles.size();
     /* The state layer models the matrix memory and the bound textures, so the
      * draw reads what the game set rather than keeping a second copy. */
     MeleeHostGxTransformState transform{};
