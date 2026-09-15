@@ -2,6 +2,7 @@
  * API translated from the archive hsd_host_archive_test.cpp builds, which
  * C++ cannot include the item headers to read. */
 
+#include <melee/it/itCommonItems.h>
 #include <melee_host/boot.h>
 
 #include <melee/it/forward.h>
@@ -72,6 +73,18 @@ int melee_host_test_check_item_public_data(void* translated, char* message,
 
     /* What the host leaves out points at the marker. */
     CHECK(first->x4_specialAttributes == &melee_host_item_data_left_out);
+    /* The Bob-omb's attributes are all floats: the disc block, and the z of
+     * its last Vec3, which the block does not hold, left at zero. */
+    CHECK(data->x4[6] != NULL);
+    {
+        const itBombHeiAttributes* const bomb =
+            data->x4[6]->x4_specialAttributes;
+        CHECK(bomb != NULL &&
+              (void*) bomb != (void*) &melee_host_item_data_left_out);
+        CHECK(bomb->x0 == 3.0f);
+        CHECK(bomb->x20.x == 0.8f && bomb->x20.y == 0.7f);
+        CHECK(bomb->x20.z == 0.0f);
+    }
     CHECK(first->x14_dynamics == NULL);
     CHECK(character->x4_specialAttributes == NULL);
     CHECK((void*) character->x14_dynamics ==

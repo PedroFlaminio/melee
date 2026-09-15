@@ -64,6 +64,15 @@ static GameScene host_scenes[] = {
         gm_Scene_Vs_OnExit,
         NULL,
     },
+    /* A timed match that ends tied: the same fight scene, entered with the
+     * sudden death rules. */
+    {
+        GS_SUDDEN_DEATH,
+        gm_Scene_Vs_OnFrame,
+        gm_Scene_SuddenDeath_OnEnter,
+        gm_Scene_Vs_OnExit,
+        NULL,
+    },
     {
         GS_RESULTS,
         NULL,

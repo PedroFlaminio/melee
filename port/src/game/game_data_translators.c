@@ -22,6 +22,7 @@
 #include <melee/it/forward.h>
 #include <melee/it/it_3F14.h>
 #include <melee/it/itCharItems.h>
+#include <melee/it/itCommonItems.h>
 #include <melee/it/types.h>
 #include <melee/lb/types.h>
 #include <melee/mp/types.h>
@@ -1189,6 +1190,67 @@ static Article* item_article(MeleeHostHsdReader* reader, mh_u32 at)
     return melee_host_hsd_reader_failed(reader) ? NULL : article;
 }
 
+/* The special attributes of common items whose game struct holds only 4-byte
+ * scalars, by kind: the bytes the disc block holds and the struct's size.
+ * item_article leaves every item's special attributes out because the layout
+ * depends on the kind; a kind listed here gets its block, and any other keeps
+ * the stop by name in Item_80267978.  The Bob-omb's block ends before the z of
+ * its last Vec3, which itbombhei.c never reads; the struct keeps the room. */
+static const struct {
+    mh_u32 kind;
+    mh_u32 disc_size;
+    mh_u32 host_size;
+} item_scalar_attributes[] = {
+    { It_Kind_BombHei, 0x28, sizeof(itBombHeiAttributes) },
+};
+
+static void item_common_scalar_attributes(MeleeHostHsdReader* reader,
+                                          mh_u32 table, Article** articles)
+{
+    mh_u32 i;
+
+    for (i = 0; i < sizeof(item_scalar_attributes) /
+                        sizeof(item_scalar_attributes[0]);
+         i++)
+    {
+        const mh_u32 kind = item_scalar_attributes[i].kind;
+        const mh_u32 disc_size = item_scalar_attributes[i].disc_size;
+        bool present;
+        const mh_u32 article = target_of(reader, table + kind * 4, &present);
+        mh_u32 special;
+        mh_u32 word;
+        void* block;
+
+        if (!present || articles[kind] == NULL) {
+            continue;
+        }
+        special = target_of(reader, article + 0x04, &present);
+        if (!present) {
+            continue;
+        }
+        if (melee_host_hsd_reader_extent(reader, special) < disc_size) {
+            melee_host_hsd_reader_fail(
+                reader, "an item's special attributes are shorter than their "
+                        "host layout");
+            return;
+        }
+        for (word = 0; word < disc_size; word += 4) {
+            if (melee_host_hsd_reader_has_pointer(reader, special + word)) {
+                melee_host_hsd_reader_fail(
+                    reader, "an item's special attributes hold a pointer");
+                return;
+            }
+        }
+        block = melee_host_hsd_reader_allocate(
+            reader, item_scalar_attributes[i].host_size, alignof(f32));
+        if (block == NULL) {
+            return;
+        }
+        copy_words(reader, special, block, 0, disc_size);
+        articles[kind]->x4_specialAttributes = block;
+    }
+}
+
 static Article** item_article_table(MeleeHostHsdReader* reader, mh_u32 at,
                                     mh_u32 count)
 {
@@ -1276,6 +1338,9 @@ static void* item_public_data(MeleeHostHsdReader* reader, mh_u32 root)
     }
     data->x0 = item_common_data(reader, tables[0]);
     data->x4 = item_article_table(reader, tables[1], It_Kind_Kuriboh);
+    if (data->x4 != NULL) {
+        item_common_scalar_attributes(reader, tables[1], data->x4);
+    }
     data->x8 = item_article_table(reader, tables[2],
                                   It_PKind_Start - It_Kind_Kuriboh);
     data->xC = item_article_table(reader, tables[3],

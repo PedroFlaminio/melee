@@ -1080,6 +1080,12 @@ TEST_CASE("the common item data translates, leaving out per-kind layouts")
     // Article tables.
     builder.pointer(0x180, 0x500);
     builder.pointer(0x184, 0x500);
+    // The Bob-omb, kind 6, whose attributes are all floats.
+    builder.pointer(0x198, 0x700);
+    builder.pointer(0x704, 0x740);
+    builder.f32(0x740, 3.0F);
+    builder.f32(0x760, 0.8F);
+    builder.f32(0x764, 0.7F);
     builder.pointer(0x22C + 117 * 4, 0x540);
     // it_804D6D40_t.
     builder.u32(0x4C0, 3);
