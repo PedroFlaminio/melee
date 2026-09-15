@@ -2151,6 +2151,18 @@ Atualizado em 15 de setembro de 2026.
   frames por segundo (55,9 no trecho da carga da luta) e grava os BMPs. A
   janela visivel abriu no Wayland e rodou o titulo a 60,02 frames por segundo;
   parado, o titulo volta a si mesmo a cada 621 frames.
+- [x] Formato dos bancos `.ssm` levantado e conferido nos 110 arquivos de
+  `audio/`: quatro palavras big-endian (tamanho do cabecalho, tamanho das
+  amostras, numero de sons, primeiro id), depois, por som, vozes e taxa e um
+  bloco de 0x40 bytes por voz com `AXPBADDR` (enderecos em nibbles a partir do
+  inicio das amostras), `AXPBADPCM` e `AXPBADPCMLOOP`, exatamente o `struct foo`
+  que `synth.c` monta; as amostras comecam no tamanho do cabecalho mais 0x10,
+  arredondado a 32. Em `bigblue.ssm`, `main.ssm` e `nr_title.ssm` o
+  `pred_scale` das 280 vozes e o byte de cabecalho do quadro ADPCM no
+  endereco corrente. `port/tools/ssm_to_wav.py` decodifica cada voz em WAV
+  como referencia para o mixer: nenhuma satura (so 1 e 2 amostras nas duas
+  falas longas do titulo), com picos de 8,7 mil a 32,7 mil e duracoes de
+  efeito e fala coerentes.
 
 ## Em andamento
 

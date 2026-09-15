@@ -467,6 +467,10 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   escondido, onde `BMP=` funciona: e assim que o `--play` e conferido sem abrir
   janela. O build `-O2` e o indicado; o `host-debug` roda a luta abaixo de
   60 Hz. O SDL transforma SIGTERM em fechar a janela.
+- `port/tools/ssm_to_wav.py assets-local/audio/main.ssm --out dir` decodifica
+  as vozes ADPCM de um banco de sons em WAV e mede pico, RMS, saturacao e passo
+  medio. E a referencia do mixer AX do host: uma decodificacao errada aparece
+  como saturacao em massa.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:
