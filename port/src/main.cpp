@@ -33,6 +33,7 @@
 #include <melee_host/menu_native.h>
 #include <melee_host/scene_graphics.h>
 #include <melee_host/scene_runtime.h>
+#include <melee_host/sound_bank.h>
 #include <melee_host/video.h>
 
 #include <algorithm>
@@ -1102,6 +1103,53 @@ int view_title_scene(const std::string& root, const char* screenshot_path,
     return result;
 }
 
+/* Plays every voice of a .ssm sound bank once through the host's AX mixer
+ * and prints each one's sample count and an FNV-1a hash of its samples, which
+ * tools/ssm_to_wav.py --compare-host checks against its own decoder. */
+int decode_sound_bank(const char* path)
+{
+    std::ifstream file(path, std::ios::binary);
+    const std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
+                                  std::istreambuf_iterator<char>());
+    if (bytes.empty()) {
+        std::cerr << "cannot read " << path << '\n';
+        return 1;
+    }
+    std::vector<mh_u8> bank(bytes.size());
+    std::memcpy(bank.data(), bytes.data(), bytes.size());
+    const auto size = static_cast<mh_u32>(bank.size());
+    const mh_u32 voices = melee_host_sound_bank_voice_count(bank.data(), size);
+    std::vector<mh_s16> samples(1U << 22);
+    for (mh_u32 index = 0; index < voices; ++index) {
+        MeleeHostSoundBankVoice info{};
+        const mh_s32 count = melee_host_sound_bank_decode_voice(
+            bank.data(), size, index, &info, samples.data(),
+            static_cast<mh_u32>(samples.size()));
+        if (count < 0) {
+            std::cerr << "voice " << index << " did not decode\n";
+            return 1;
+        }
+        std::uint64_t hash = 0xcbf29ce484222325ULL;
+        for (mh_s32 i = 0; i < count; ++i) {
+            const auto value =
+                static_cast<std::uint16_t>(samples[static_cast<std::size_t>(i)]);
+            for (const std::uint8_t byte :
+                 { static_cast<std::uint8_t>(value & 0xFFU),
+                   static_cast<std::uint8_t>(value >> 8U) })
+            {
+                hash ^= byte;
+                hash *= 0x100000001b3ULL;
+            }
+        }
+        std::cout << "voice " << index << ": id 0x" << std::hex
+                  << info.sound_id << std::dec << " rate " << info.sample_rate
+                  << " samples " << count << " fnv 0x" << std::hex << hash
+                  << std::dec << '\n';
+    }
+    std::cout << voices << " voices\n";
+    return 0;
+}
+
 int view_scene(const char* path, const char* symbol, bool scene_model,
                mh_u32 model_index)
 {
@@ -1995,6 +2043,9 @@ int main(int argc, char** argv)
         if (argc >= 3 && std::string(argv[1]) == "--load-archive") {
             return load_archive(
                 argv[2], std::vector<const char*>(argv + 3, argv + argc));
+        }
+        if (argc == 3 && std::string(argv[1]) == "--decode-sound-bank") {
+            return decode_sound_bank(argv[2]);
         }
         if (argc == 3 && std::string(argv[1]) == "--sweep-archives") {
             return sweep_archives(argv[2]);

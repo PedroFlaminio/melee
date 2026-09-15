@@ -470,7 +470,9 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
 - `port/tools/ssm_to_wav.py assets-local/audio/main.ssm --out dir` decodifica
   as vozes ADPCM de um banco de sons em WAV e mede pico, RMS, saturacao e passo
   medio. E a referencia do mixer AX do host: uma decodificacao errada aparece
-  como saturacao em massa.
+  como saturacao em massa. Com `--compare-host build/host-debug/port/melee-pc`
+  ele roda `melee-pc --decode-sound-bank` no mesmo banco e exige as mesmas
+  amostras em cada voz.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

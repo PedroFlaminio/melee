@@ -12,10 +12,14 @@ synth copies to ARAM.
 
 This is a reference for the host's AX mixer: it decodes each voice from its
 current address through its end address, once, and prints what it measured.
+With --compare-host it runs melee-pc --decode-sound-bank on the same bank and
+requires every voice's samples to match.
 """
 
 import argparse
+import re
 import struct
+import subprocess
 import sys
 import wave
 from pathlib import Path
@@ -76,6 +80,53 @@ def decode(samples, voice):
     return out
 
 
+def fnv1a(pcm):
+    """FNV-1a over the samples as little-endian 16-bit words, as melee-pc
+    prints it."""
+    value = 0xcbf29ce484222325
+    for sample in pcm:
+        word = sample & 0xFFFF
+        for byte in (word & 0xFF, word >> 8):
+            value ^= byte
+            value = (value * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return value
+
+
+def compare_host(executable, bank_path, listed, samples):
+    run = subprocess.run([str(executable), "--decode-sound-bank", str(bank_path)],
+                         capture_output=True, text=True)
+    if run.returncode != 0:
+        print(run.stdout + run.stderr)
+        print(f"melee-pc exited with {run.returncode}")
+        return 1
+    host = {}
+    for line in run.stdout.splitlines():
+        match = re.match(r"voice (\d+): id 0x([0-9a-f]+) rate (\d+) "
+                         r"samples (\d+) fnv 0x([0-9a-f]+)$", line)
+        if match:
+            host[int(match.group(1))] = (int(match.group(2), 16),
+                                         int(match.group(3)),
+                                         int(match.group(4)),
+                                         int(match.group(5), 16))
+    differences = 0
+    compared = 0
+    for index, voice in enumerate(listed):
+        if voice["format"] != 0:
+            continue
+        pcm = decode(samples, voice)
+        expected = (voice["id"], voice["rate"], len(pcm), fnv1a(pcm))
+        compared += 1
+        if host.get(index) != expected:
+            differences += 1
+            if differences <= 5:
+                print(f"voice {index}: host {host.get(index)} "
+                      f"reference {expected}")
+    print(f"{bank_path.name}: {compared} ADPCM voices compared with the host "
+          f"mixer, {differences} differ; host decoded {len(host)} of "
+          f"{len(listed)}")
+    return 1 if differences or len(host) != len(listed) else 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bank", type=Path)
@@ -84,6 +135,8 @@ def main():
                         help="first voice to decode")
     parser.add_argument("--count", type=int, default=1 << 30,
                         help="voices to decode")
+    parser.add_argument("--compare-host", type=Path, metavar="MELEE_PC",
+                        help="compare every voice with melee-pc's AX mixer")
     args = parser.parse_args()
     bank = args.bank.read_bytes()
     generator = voices(bank)
@@ -94,6 +147,8 @@ def main():
     except StopIteration as stop:
         data, data_size = stop.value
     samples = bank[data:data + data_size]
+    if args.compare_host:
+        return compare_host(args.compare_host, args.bank, listed, samples)
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
     for voice in listed[args.first:args.first + args.count]:

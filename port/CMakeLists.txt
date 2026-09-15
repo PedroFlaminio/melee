@@ -19,6 +19,7 @@ add_library(melee_host STATIC
     src/os/alarm.c
     src/os/baselib_support.c
     src/os/ax_mixer.c
+    src/os/sound_bank.c
     src/os/dolphin_mtx.c
     src/os/dolphin_time.cpp
     src/os/interrupts.c
@@ -497,6 +498,26 @@ if(MELEE_HOST_BUILD_TESTS)
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )
         endif()
+    endif()
+    # The host's AX mixer against the reference decoder in
+    # tools/ssm_to_wav.py, sample for sample, over every voice of two sound
+    # banks: short effects at 32 and 8 kHz, some looping, and the title's long
+    # announcer lines at 12 kHz.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/audio/bigblue.ssm")
+        foreach(bank bigblue nr_title)
+            add_test(
+                NAME melee-host-sound-bank-${bank}-asset
+                COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_SOURCE_DIR}/port/tools/ssm_to_wav.py
+                        ${CMAKE_SOURCE_DIR}/assets-local/audio/${bank}.ssm
+                        --compare-host $<TARGET_FILE:melee-pc>
+            )
+            if(MELEE_HOST_ENABLE_SANITIZERS)
+                set_tests_properties(melee-host-sound-bank-${bank}-asset
+                    PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+                )
+            endif()
+        endforeach()
     endif()
     # The same data, loaded through the original object layer instead of the
     # read-only schema.  One menu scene and one character model, which is the

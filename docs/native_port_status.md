@@ -2182,6 +2182,16 @@ Atualizado em 15 de setembro de 2026.
   nao tem. Oito verificacoes em C (`ax_mixer_check.c`, porque `dolphin/ax.h`
   inclui `os.h`, que nao e C++ limpo): decodificacao, predicao, laco,
   reamostragem, vozes desligadas, roubo de voz, setters e quadro.
+- [x] O mixer bate bit a bit com `ssm_to_wav.py` nas vozes reais.
+  `melee-pc --decode-sound-bank BANCO` toca cada voz uma vez pelo mixer (taxa
+  propria, volume cheio, sem laco) e imprime amostras e um FNV-1a delas;
+  `ssm_to_wav.py BANCO --compare-host melee-pc` compara com o decodificador
+  Python. Iguais em todas as 456 vozes de `bigblue`, `nr_title`, `main`, `fox`,
+  `mario`, `nr_vs`, `nr_select`, `nr_1p` e `pokemon`; com o Python desviado em
+  uma unidade, as cinco vozes de `nr_title` diferem. Testes
+  `melee-host-sound-bank-bigblue-asset` e `melee-host-sound-bank-nr_title-asset`.
+  A primeira comparacao perdeu a ultima voz de cada banco: os registros vao de
+  0x10 ao tamanho do cabecalho mais 0x10, e nao ao tamanho do cabecalho.
 
 ## Em andamento
 
@@ -2213,8 +2223,7 @@ Atualizado em 15 de setembro de 2026.
 
 ## Proximos gates
 
-1. Audio. O mixer AX existe e passa nas verificacoes sinteticas; falta: conferir
-   bit a bit contra `ssm_to_wav.py` nas vozes dos bancos; montar no host os
+1. Audio. O mixer AX existe e decodifica igual a `ssm_to_wav.py`; falta: montar no host os
    descritores de amostra do `.ssm` e mandar as amostras a ARAM; converter os
    fluxos de comando do `.sem` na carga (a regiao depois das tabelas e so de
    palavras de 32 bits); rodar um quadro AX a cada 5 ms de tempo do OS; gravar
