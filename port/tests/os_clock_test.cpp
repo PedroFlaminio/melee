@@ -16,6 +16,19 @@ constexpr OSTime kFrameTicks = static_cast<OSTime>(OS_TIMER_CLOCK / 60U);
 
 } // namespace
 
+TEST_CASE("the f32 to u16 fast cast saturates and drops the fraction")
+{
+    // gm_80166378 reads each player's xE through this cast; with no host body
+    // the value was whatever the stack held.
+    REQUIRE(melee_host_os_f32_to_u16(12.9F) == 12);
+    REQUIRE(melee_host_os_f32_to_u16(0.5F) == 0);
+    REQUIRE(melee_host_os_f32_to_u16(-3.0F) == 0);
+    REQUIRE(melee_host_os_f32_to_u16(65535.0F) == 0xFFFF);
+    REQUIRE(melee_host_os_f32_to_u16(70000.0F) == 0xFFFF);
+    const float not_a_number = 0.0F / 0.0F;
+    REQUIRE(melee_host_os_f32_to_u16(not_a_number) == 0);
+}
+
 TEST_CASE("a frozen OS clock moves only when the host advances it")
 {
     melee_host_os_time_freeze();

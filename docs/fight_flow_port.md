@@ -378,6 +378,30 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   antes da correção de paleta e não foi olhada depois) e os dados de estágio
   que faltam (`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit`,
   `quake_model_set`). A tela de resultados (`onExitVs`) continua fora.
+- Executado em commits de 14/09/2026: a copia I4 da sombra, o stick deslocando
+  P1 e o botao A tirando P1 do `Wait`, todos conferidos pela rota do teste.
+- Resolvido: segurar o stick travava a luta no frame 670 com o processo
+  crescendo sem fim. O script da corrida girava porque a animacao nao repetia:
+  as flags de cada acao sao gravadas inteiras em `fp->x594_s32` e lidas por
+  bit-fields que o MWCC conta do bit mais alto. O host declara esses bits a
+  partir do menos significativo. Detalhes em `docs/native_port_status.md`.
+- Executado: a tela de resultados, pelo codigo do jogo. A rota do teste passa
+  por CSS, SSS, luta, resultados (406 frames) e volta a CSS, e B leva ao menu.
+  Saindo dela, o jogo ia para o aviso de premio por um trofeu concedido com
+  lixo: `fn_80166A8C`, a conversao de float para `u16` pelo fast cast do SDK,
+  so existe em assembly e nao gravava nada no host. Corrigido; detalhes em
+  `docs/native_port_status.md`.
+- Como a tela de resultados funciona no host. Com a tabela de estados do console e
+  `GS_RESULTS` na tabela de cenas, a luta cancelada entra em
+  `gm_Scene_Results_OnEnter` pelo proprio jogo (`fn_8016CF4C` com
+  `OUTCOME_NO_CONTEST`), e a cena roda seus frames: no proc `fn_80179350`, `x1`
+  vai de 0 a 3 em cerca de 120 frames, com duas paginas. No estado 3
+  (`fn_80178050`) cada jogador humano precisa apertar START na propria porta;
+  uma porta desconectada conta como pronta. A entrada passou por tres leituras
+  de estaticos em sequencia (camera, `ResultsDisplayLayout` e
+  `ftMapping_list`), corrigidas; detalhes em `docs/native_port_status.md`.
+  Numa luta que nao foi cancelada, o Fox de demo pode criar o blaster (item
+  74), cujos atributos proprios o host ainda nao traduz.
 - Levantado para o tradutor de `ftData*` (medido em `PlFx.dat` e nos 58
   arquivos de personagem em 14/09/2026):
   - `ftDataFox` tem 24 campos, todos preenchidos menos `x28`. Só escalares:

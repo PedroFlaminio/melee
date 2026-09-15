@@ -9,6 +9,38 @@ int melee_host_command_layout_failures(char* message, std::size_t size);
 int melee_host_command_layout_cases(void);
 void melee_host_test_read_script_event(unsigned word, unsigned* opcode,
                                        unsigned* value1);
+void melee_host_test_read_fighter_anim_flags(unsigned flags, unsigned* loop,
+                                             unsigned* first, unsigned* parts,
+                                             unsigned* bone, unsigned* kind);
+}
+
+TEST_CASE("fighter animation flags read from the bits MWCC gives them")
+{
+    // fighter.c stores an action's flags in Fighter's x594 union as one s32,
+    // and MWCC counts the union's bit-fields from the most significant bit,
+    // so the loop flag is 0x40000000.  Read from the low bits, Fox's Run
+    // stopped at its last frame, and its script, whose timers had all passed,
+    // spawned dust without end.
+    unsigned loop = 0;
+    unsigned first = 0;
+    unsigned parts = 0;
+    unsigned bone = 0;
+    unsigned kind = 0;
+    melee_host_test_read_fighter_anim_flags(0x40000000u, &loop, &first, &parts,
+                                            &bone, &kind);
+    REQUIRE(loop == 1);
+    REQUIRE(first == 0);
+    REQUIRE(parts == 0);
+    REQUIRE(bone == 0);
+    REQUIRE(kind == 0);
+    melee_host_test_read_fighter_anim_flags(
+        0x80000000u | (0x1ABCu << 9) | (5u << 6) | 0x2Au, &loop, &first, &parts,
+        &bone, &kind);
+    REQUIRE(loop == 0);
+    REQUIRE(first == 1);
+    REQUIRE(parts == 0x1ABC);
+    REQUIRE(bone == 5);
+    REQUIRE(kind == 0x2A);
 }
 
 TEST_CASE("fighter script opcode read from the word's top six bits")

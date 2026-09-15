@@ -1373,6 +1373,37 @@ struct Fighter {
     /*  fp+58C */ u32 x58C;
     /*  fp+590 */ FigaTree* x590;
     /*  fp+594 */ union {
+#ifdef MELEE_HOST
+        /* fighter.c and ftwaitanim.c store an action's x10_animCurrFlags here
+         * as a whole s32.  MWCC gives the bit-fields below bits counted from
+         * the most significant, and the host compilers count from the least
+         * significant, so the host read the loop flag from bit 1 instead of
+         * bit 30 and a looping animation such as Run stopped at its end.  The
+         * host declares the same bits from the least significant. */
+        struct {
+            u32 : 24;
+            /* fp+594:7 */ u32 x594_b7 : 1;
+            /* fp+594:6 */ u32 x594_b6 : 1;
+            /* fp+594:5 */ u32 x594_b5 : 1;
+            /* fp+594:4 */ u32 x594_b4 : 1;
+            /* fp+594:3 */ u32 x594_b3 : 1;
+            /* fp+594:2 */ u32 x594_b2 : 1;
+            /* fp+594:1 */ u32 x594_b1_loop : 1;
+            /* fp+594:0 */ u32 x594_b0 : 1;
+        };
+        /* fp+596 */ struct {
+            u32 : 6;
+            /* fp+596:7 */ u32 x7 : 3;
+            /* fp+596:0 */ u32 x0 : 7;
+            u32 : 16;
+        } x596_bits;
+        struct {
+            u32 x597_bits : 6; // FighterKind of this fighter's x590 FigaTree
+            u32 x594_pad2 : 3;
+            u32 x594_bits : 13;
+            u32 x594_pad : 10;
+        };
+#else
         struct {
             /* fp+594:0 */ u8 x594_b0 : 1;
             /* fp+594:1 */ u8 x594_b1_loop : 1;
@@ -1393,6 +1424,7 @@ struct Fighter {
             u32 x594_pad2 : 3;
             u32 x597_bits : 6; // FighterKind of this fighter's x590 FigaTree
         };
+#endif
         /* fp+594 */ s32 x594_s32;
     };
     /*  fp+598 */ FigaTree* x598;

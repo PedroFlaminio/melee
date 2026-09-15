@@ -312,4 +312,15 @@ void Player_SetFlagsAEBit0(s32 slot, u8 bit0);
 s32 Player_80033BB8(int slot);
 /* 4D6470 */ extern pl_804D6470_t* pl_804D6470;
 
+/* player.c reads ftMapping_list as the array 32 bytes past
+ * str_PdPmdat_start_of_data, where it follows the two strings in .data.  The
+ * host does not lay those objects out in sequence, so it reads the list by
+ * name.  Without the define this expands to the same tokens, and it lives here
+ * so player.c keeps its line numbers. */
+#ifdef MELEE_HOST
+#define PL_MAPPING(base, ckind) ((S8Vec3*) ftMapping_list)[ckind]
+#else
+#define PL_MAPPING(base, ckind) base->vec_arr[ckind]
+#endif
+
 #endif

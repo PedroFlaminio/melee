@@ -351,7 +351,7 @@ void Player_80032070(int slot, bool bool_arg)
     if (bool_arg == 0) {
         ftCo_800D4FF4(player->player_entity[player->transformed[0]]);
 
-        if (player->flags.b2 && unkStruct->vec_arr[player->ckind].z == 0 &&
+        if (player->flags.b2 && PL_MAPPING(unkStruct, player->ckind).z == 0 &&
             ftLib_8008701C(player->player_entity[player->transformed[1]]))
         {
             ftCo_800D4FF4(player->player_entity[player->transformed[1]]);
@@ -440,7 +440,7 @@ Gm_PKind Player_8003248C(s32 slot, bool arg1)
     player = &player_slots[slot];
 
     if (arg1 == 1) {
-        if (unk_struct->vec_arr[player->ckind].z == 0) {
+        if (PL_MAPPING(unk_struct, player->ckind).z == 0) {
             if (player->pkind == Gm_PKind_Human ||
                 player->pkind == Gm_PKind_Cpu)
             {
@@ -484,10 +484,10 @@ s8 Player_80032610(s32 slot, bool arg1)
     player = &player_slots[slot];
 
     if (arg1 == 0) {
-        return some_struct->vec_arr[player->ckind].x;
+        return PL_MAPPING(some_struct, player->ckind).x;
     }
     if (arg1 == 1) {
-        return some_struct->vec_arr[player->ckind].y;
+        return PL_MAPPING(some_struct, player->ckind).y;
     }
 
     return error_value;
@@ -1286,8 +1286,8 @@ s32 Player_GetFalls(s32 slot)
     Player_CheckSlot(slot);
     player = &player_slots[slot];
 
-    if (unkStruct->vec_arr[player->ckind].y != -1 &&
-        unkStruct->vec_arr[player->ckind].z != 0)
+    if (PL_MAPPING(unkStruct, player->ckind).y != -1 &&
+        PL_MAPPING(unkStruct, player->ckind).z != 0)
     {
         return player->falls[player->transformed[0]] +
                player->falls[player->transformed[1]];
@@ -2040,11 +2040,11 @@ void Player_80036E20(CharacterKind ckind, HSD_Archive* archive, s32 arg2)
 {
     struct Unk_Struct_w_Array* unkStruct =
         (struct Unk_Struct_w_Array*) &str_PdPmdat_start_of_data;
-    ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].x, archive, arg2);
-    if ((unkStruct->vec_arr[ckind].y != -1) &&
-        (unkStruct->vec_arr[ckind].z == 0))
+    ftDemo_SetArchiveData(PL_MAPPING(unkStruct, ckind).x, archive, arg2);
+    if ((PL_MAPPING(unkStruct, ckind).y != -1) &&
+        (PL_MAPPING(unkStruct, ckind).z == 0))
     {
-        ftDemo_SetArchiveData(unkStruct->vec_arr[ckind].y, archive, arg2);
+        ftDemo_SetArchiveData(PL_MAPPING(unkStruct, ckind).y, archive, arg2);
     }
 }
 

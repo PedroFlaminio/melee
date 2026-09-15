@@ -245,6 +245,11 @@ extern "C" MeleeHostHsdSymbolKind melee_host_hsd_symbol_kind(const char* symbol)
     {
         return MELEE_HOST_HSD_SYMBOL_SCENE_MODELS;
     }
+    /* The results screen's panel and film scenes (gmresult.c), SceneDescs
+     * that GmRst names without a kind suffix. */
+    if (name == "pnlsce" || name == "flmsce") {
+        return MELEE_HOST_HSD_SYMBOL_SCENE_DATA;
+    }
     /* sislib.c's text archives: SIS_MenuData, SIS_ToyData_E and the rest. */
     constexpr std::string_view kSisPrefix = "SIS_";
     if (name.size() > kSisPrefix.size() && name.starts_with(kSisPrefix)) {

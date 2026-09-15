@@ -13,6 +13,7 @@
 
 #include <melee/gm/gm_1A3F.h>
 #include <melee/gm/gmmenumode.h>
+#include <melee/gm/gmresult.h>
 #include <melee/gm/gmscdata.h>
 #include <melee/gm/gmtitle.h>
 #include <melee/gm/gmtitlemode.h>
@@ -61,6 +62,13 @@ static GameScene host_scenes[] = {
         gm_Scene_Vs_OnFrame,
         gm_Scene_Vs_OnEnter,
         gm_Scene_Vs_OnExit,
+        NULL,
+    },
+    {
+        GS_RESULTS,
+        NULL,
+        gm_Scene_Results_OnEnter,
+        gm_Scene_Results_OnExit,
         NULL,
     },
     {

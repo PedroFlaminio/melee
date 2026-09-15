@@ -40,10 +40,15 @@
 
 extern ResultsData lbl_8046DBE8;
 
+#ifdef MELEE_HOST
+/* See gmresultplayer.static.h. */
+ResultsDisplayLayout gm_HostResultsDisplay;
+#else
 ResultsDisplayData lbl_8046E1B0;
 HSD_GObj* lbl_8046E38C[4];
 HSD_JObj* lbl_8046E39C[4];
 lbl_8046E3AC_t lbl_8046E3AC;
+#endif
 
 static U32Pair lbl_804D3FD0 ATTRIBUTE_ALIGN(8) = { 0x00500050, 0x00460034 };
 static U32Pair lbl_804D3FD8 = { 0x006E0072, 0x0064004A };
@@ -364,6 +369,22 @@ void fn_8017A078(s32 arg0)
     GObj_SetupGXLinkMax(gobj, callbacks.funcs[arg0], 5);
 }
 
+#ifdef MELEE_HOST
+/* CameraKindData reads the .data block from gmResultPlayerColors to
+ * gmResultCameraDesc as one struct: kind[] is gmResultCharacterScaleData,
+ * slot_off is gmResultCharacterData.slot_off and cobj_desc is
+ * gmResultCameraDesc.  The host does not lay those objects out in sequence and
+ * reads each by name; without the define these expand to the same tokens. */
+#define RESULT_CAMERA_KIND(k) \
+    (*(CameraKindParams*) &gmResultCharacterScaleData[k])
+#define RESULT_SLOT_OFF(k) gmResultCharacterData.slot_off[k]
+#define RESULT_COBJ_DESC ((HSD_CObjDesc*) &gmResultCameraDesc)
+#else
+#define RESULT_CAMERA_KIND(k) data->kind[k]
+#define RESULT_SLOT_OFF(k) data->slot_off[k]
+#define RESULT_COBJ_DESC &data->cobj_desc
+#endif
+
 HSD_GObj* fn_8017A318(s32 arg0)
 {
     static Scissor const scissor_init = { 270, 370, 124, 276 };
@@ -401,7 +422,7 @@ HSD_GObj* fn_8017A318(s32 arg0)
     }
 
     gobj = GObj_Create(0x13, 0x14, 0);
-    cobj = HSD_CObjLoadDesc(&data->cobj_desc);
+    cobj = HSD_CObjLoadDesc(RESULT_COBJ_DESC);
     HSD_GObjObject_80390A70(gobj, HSD_GObj_CameraKind, cobj);
 
     {
@@ -416,28 +437,28 @@ HSD_GObj* fn_8017A318(s32 arg0)
 
     kind_data = disp->state.char_kind[arg0];
     (void) kind_data;
-    eye.y += data->kind[kind_data].y_off[vi];
+    eye.y += RESULT_CAMERA_KIND(kind_data).y_off[vi];
 
     vi = ((s32) variant <= 2) ? variant : 3;
-    interest.y += data->kind[kind_data].y_off[vi];
+    interest.y += RESULT_CAMERA_KIND(kind_data).y_off[vi];
 
     vi = ((s32) variant <= 2) ? variant : 3;
-    eye.x += data->kind[kind_data].x_off[vi];
+    eye.x += RESULT_CAMERA_KIND(kind_data).x_off[vi];
 
     {
         f32 interest_x;
         vi = ((s32) variant <= 2) ? variant : 3;
-        interest_x = interest.x + data->kind[kind_data].x_off[vi];
+        interest_x = interest.x + RESULT_CAMERA_KIND(kind_data).x_off[vi];
 
         {
             f32 x_off, y_off;
 
             interest.x = interest_x;
-            x_off = data->slot_off[kind_data][0][slot];
+            x_off = RESULT_SLOT_OFF(kind_data)[0][slot];
             eye.x += x_off;
             interest.x += x_off;
 
-            eye.y = eye.y + (y_off = data->slot_off[kind_data][1][slot]);
+            eye.y = eye.y + (y_off = RESULT_SLOT_OFF(kind_data)[1][slot]);
             interest.y += y_off;
         }
     }
@@ -447,12 +468,12 @@ HSD_GObj* fn_8017A318(s32 arg0)
     }
 
     vi = ((s32) variant <= 2) ? variant : 3;
-    if ((1.0f - data->kind[kind_data].z_scale[vi]) < 0.0f) {
+    if ((1.0f - RESULT_CAMERA_KIND(kind_data).z_scale[vi]) < 0.0f) {
         vi = ((s32) variant <= 2) ? variant : 3;
-        eye.z += 100.0f * (1.0f - data->kind[kind_data].z_scale[vi]);
+        eye.z += 100.0f * (1.0f - RESULT_CAMERA_KIND(kind_data).z_scale[vi]);
     } else {
         vi = ((s32) variant <= 2) ? variant : 3;
-        eye.z += 300.0f * (1.0f - data->kind[kind_data].z_scale[vi]);
+        eye.z += 300.0f * (1.0f - RESULT_CAMERA_KIND(kind_data).z_scale[vi]);
     }
 
     HSD_CObjSetEyePosition(cobj, &eye);

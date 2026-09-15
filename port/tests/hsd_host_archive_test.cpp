@@ -1649,6 +1649,38 @@ TEST_CASE("Fox's fighter data translates its records and tables")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+TEST_CASE("a character's demo motion file hands over its bytes as they are")
+{
+    // ftData_80085B98 adds each demo action's offset to this block's address
+    // and parses the nested archive there, so the bytes must stay big-endian.
+    ArchiveBuilder builder(0x40);
+    builder.u32(0x00, 0x00001234U);
+    builder.u32(0x04, 0xDEADBEEFU);
+    builder.u32(0x3C, 0x01020304U);
+    builder.public_symbol(0x00, "ftDemoResultMotionFileFox");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    REQUIRE(melee_host_hsd_symbol_kind("ftDemoResultMotionFileFox") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+    REQUIRE(melee_host_hsd_symbol_kind("ftDemoViWaitMotionFileMario") ==
+            MELEE_HOST_HSD_SYMBOL_GAME_DATA);
+    REQUIRE(melee_host_hsd_symbol_kind("ftDemoResultMotionFileNobody") ==
+            MELEE_HOST_HSD_SYMBOL_UNSUPPORTED);
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const block = static_cast<const std::uint8_t*>(
+        HSD_ArchiveGetPublicAddress(&archive, "ftDemoResultMotionFileFox"));
+    REQUIRE(block != nullptr);
+    const std::uint8_t expected_head[] = { 0x00, 0x00, 0x12, 0x34,
+                                           0xDE, 0xAD, 0xBE, 0xEF };
+    const std::uint8_t expected_tail[] = { 0x01, 0x02, 0x03, 0x04 };
+    REQUIRE(std::memcmp(block, expected_head, sizeof(expected_head)) == 0);
+    REQUIRE(std::memcmp(block + 0x3C, expected_tail, sizeof(expected_tail)) ==
+            0);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+}
+
 TEST_CASE("an effect table's particle banks load through the particle system")
 {
     // The table points at a command bank and a texture bank and is followed
@@ -1806,6 +1838,11 @@ TEST_CASE("symbol kinds follow the name's suffix, longest first")
             MELEE_HOST_HSD_SYMBOL_SCENE_MODELS);
     REQUIRE(melee_host_hsd_symbol_kind("lupe") ==
             MELEE_HOST_HSD_SYMBOL_SCENE_MODELS);
+    // The results screen's scenes, which GmRst names without a suffix.
+    REQUIRE(melee_host_hsd_symbol_kind("pnlsce") ==
+            MELEE_HOST_HSD_SYMBOL_SCENE_DATA);
+    REQUIRE(melee_host_hsd_symbol_kind("flmsce") ==
+            MELEE_HOST_HSD_SYMBOL_SCENE_DATA);
     // Text tables are named by a prefix instead.
     REQUIRE(melee_host_hsd_symbol_kind("SIS_MenuData") ==
             MELEE_HOST_HSD_SYMBOL_SIS_TABLE);

@@ -41,6 +41,10 @@
 #include <sysdolphin/baselib/sislib.h>
 #include <sysdolphin/baselib/video.h>
 
+#ifdef MELEE_HOST
+#include <melee_host/dolphin_os.h>
+#endif
+
 /* 166A8C */ static f32 fn_80166A8C(Vec3*, Vec3*);
 
 /// JP character names
@@ -3083,6 +3087,16 @@ float fn_80166A8C(register Vec3* src, register Vec3* dst)
 #ifdef MWERKS_GEKKO
     register float x = src->x;
     asm { psq_st x, Vec3.x(dst), 1, qr3 }
+    return x;
+#elif defined(MELEE_HOST)
+    /* The quantized store writes the float as a u16 into the first two bytes
+     * of dst, and gm_80166378 reads them back as a u16.  With no body here the
+     * host wrote nothing, each player's xE took what the stack held, and one
+     * cancelled match pushed the VS total over the 10,000 that awards trophy
+     * 0x10C and the prize screen. */
+    f32 x = src->x;
+
+    *(u16*) dst = melee_host_os_f32_to_u16(x);
     return x;
 #endif
 }

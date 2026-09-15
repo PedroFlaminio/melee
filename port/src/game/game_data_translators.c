@@ -12,6 +12,7 @@
 
 #include <melee/ft/fighter.h>
 #include <melee/ft/dobjlist.h>
+#include <melee/ft/ftdata.h>
 #include <melee/ft/ftwaitanim.h>
 #include <melee/ft/kinds/ftCommon/types.h>
 #include <melee/ft/kinds/ftFox/types.h>
@@ -2527,6 +2528,52 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
     return fighter_data(reader, root, fighter_fox_attrs);
 }
 
+/* A character's demo motions (ftDemoResultMotionFileFox in GmRstMFx.dat and
+ * the intro, ending and wait files named next to it in ftData_803C2468): the
+ * base of a block of nested archives, one per demo action.  ftData_80085B98
+ * adds each action's offset to the base and ftData_80085CD8 parses the archive
+ * there, as it does with an animation read from ARAM, so the host hands over
+ * the bytes as they are, up to the next address the file names. */
+static void* demo_motion_file(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 extent = melee_host_hsd_reader_extent(reader, root);
+
+    if (extent == 0) {
+        melee_host_hsd_reader_fail(reader, "the demo motion block is empty");
+        return NULL;
+    }
+    return melee_host_hsd_reader_payload(reader, root, extent);
+}
+
+static void register_demo_motion_files(void)
+{
+    int kind;
+
+    for (kind = 0; kind < Ft_Kind_Max; kind++) {
+        const Fighter_DemoStrings* const names = ftData_803C2468[kind];
+
+        if (names == NULL) {
+            continue;
+        }
+        if (names->result_filename != NULL) {
+            (void) melee_host_hsd_register_translator(names->result_filename,
+                                                      demo_motion_file);
+        }
+        if (names->intro_filename != NULL) {
+            (void) melee_host_hsd_register_translator(names->intro_filename,
+                                                      demo_motion_file);
+        }
+        if (names->ending_filename != NULL) {
+            (void) melee_host_hsd_register_translator(names->ending_filename,
+                                                      demo_motion_file);
+        }
+        if (names->vi_wait_filename != NULL) {
+            (void) melee_host_hsd_register_translator(
+                names->vi_wait_filename, demo_motion_file);
+        }
+    }
+}
+
 void melee_host_game_register_data_translators(void)
 {
     (void) melee_host_hsd_register_translator("ftDataFox", fighter_data_fox);
@@ -2564,4 +2611,5 @@ void melee_host_game_register_data_translators(void)
                                               card_icon_table);
     (void) melee_host_hsd_register_translator("MemSnapIconData",
                                               card_icon_table);
+    register_demo_motion_files();
 }

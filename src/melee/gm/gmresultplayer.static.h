@@ -118,9 +118,21 @@ extern u32 gmResultScoreTableInit[0x20 / sizeof(u32)];
 extern ResultsCharacterData gmResultCharacterData;
 extern HSD_CameraDescPerspective gmResultCameraDesc;
 
+#ifdef MELEE_HOST
+/* gm_1798.c reads these four objects, which follow each other in .bss, as one
+ * ResultsDisplayLayout.  The host does not lay them out in sequence, and
+ * HSD_ImageDesc holds a pointer, so the offsets would not agree anyway: the
+ * host keeps one ResultsDisplayLayout and names its parts. */
+extern ResultsDisplayLayout gm_HostResultsDisplay;
+#define lbl_8046E1B0 (*(ResultsDisplayData*) &gm_HostResultsDisplay)
+#define lbl_8046E38C gm_HostResultsDisplay.gobjs
+#define lbl_8046E39C gm_HostResultsDisplay.jobjs
+#define lbl_8046E3AC gm_HostResultsDisplay.state
+#else
 extern ResultsDisplayData lbl_8046E1B0;
 extern HSD_GObj* lbl_8046E38C[4];
 extern HSD_JObj* lbl_8046E39C[4];
 extern lbl_8046E3AC_t lbl_8046E3AC;
+#endif
 
 #endif

@@ -1869,6 +1869,144 @@ Atualizado em 13 de setembro de 2026.
   passo de sombra desenhou desde o inicio dele e gravar a copia no formato
   pedido.
 
+- [x] Registrado a partir dos commits de 14/09/2026 que nao passaram por este
+  documento: `GXCopyTex` rasteriza o passe de sombra e grava a copia I4
+  (`640:SHADOW` acha duas texturas de 256x256 com 7.338 bytes nao brancos); o
+  stick desloca P1 (`640:MOVE` e `660:MOVE`); A tira P1 de `ftCo_MS_Wait` (14)
+  no frame 640; e `mpFloorGetLeft`/`mpFloorGetRight` deixaram de truncar
+  `groundCollLine` para `int`. Na mesma rota, medido hoje no HEAD, a acao de P1
+  no frame 650 e 60, e nao 44 como o commit registrou; o teste so exige que
+  mude.
+- [x] Segurar o stick "esgotava memoria". Medido com amostras de `VmRSS`: sem
+  stick a rota fica em 159 MB ate o frame 760; com `641-1400:SX=127` a luta
+  chega ao frame 669, o frame 670 nao termina e o processo cresce cerca de
+  550 MB por segundo (12 GB em 71 s; uma execucao sob gdb chegou a 26,8 GB
+  com a maquina em 1,9 GB livres, e foi morta).
+- [x] Causa, medida sob gdb a partir do frame 669: `Fighter_8006A360` ->
+  `ftAnim_8006EBA4` -> `ftAction_80073240` repete `ftAction_80071028`, que
+  cria o efeito 1022 por `efAsync_Spawn` (48 bytes por volta). P1 esta na
+  corrida (`motion_id` 21) com o quadro em 20,097. O script da corrida e um
+  ciclo de timers assincronos (8, 13 e 20) com um goto de volta; o timer
+  assincrono vale `valor - frame_count`, e com o quadro alem de 20 todos ficam
+  negativos e o goto nao para. O AObj do esqueleto de animacao tinha
+  `AOBJ_NO_ANIM` sem `AOBJ_LOOP`, `end_frame` 20 e `curr_frame` 20,097: a
+  animacao terminou em vez de repetir.
+- [x] `AOBJ_LOOP` vem de `fp->x594_b1_loop` (`ftAnim_8006EBE8`).
+  `Fighter_ChangeMotionState` e `ftwaitanim.c` gravam a flag da acao inteira em
+  `fp->x594_s32`, e o jogo le pelos bit-fields do union: `x594_b0`..`x594_b7`,
+  `x596_bits` (o osso lido em `fighter.c:1237`), `x594_bits` (mascara de
+  partes) e `x597_bits` (o tipo de lutador da FigaTree). O MWCC conta esses
+  bits a partir do mais significativo, entao a flag de repeticao e 0x40000000,
+  o mesmo bit que o host ja da a `x10_b1` em `ftData_80085FD4_ret`; o host lia
+  o bit 1. Sob `MELEE_HOST` o union declara os mesmos bits a partir do menos
+  significativo. Teste unitario pelos tipos do jogo
+  (`port/tests/command_stream_run.c`). Nao conferido: com `x597_bits` errado o
+  host tomava o caminho de FigaTree de outro tipo de lutador
+  (`ftAnim_8006FCE4`), que e por onde `fn_8001E60C` recebeu a parte so de
+  trilhas de translacao.
+- [x] Medido depois da correcao: segurando o stick do frame 641 ao 1400, P1
+  corre de x -57,6 (frame 660) a 11,9 (700), desce a y -17,9 (720) e para em
+  x 42,3 a partir do 760; o processo fica em 162 MB ate o frame 1300, quando
+  a sonda o encerrou pelo limite de 240 s.
+- [x] Os outros seis walkers de extremidade de `mplib.c` (teto e paredes)
+  truncavam `groundCollLine` para `int` como os de piso; agora usam a mesma
+  macro. Nenhuma rota os alcanca ainda.
+- [x] Tela de resultados na rota. No console a luta cancelada tambem vai aos
+  resultados (`gm_Scene_Results_OnEnter` monta duas paginas em vez de tres).
+  `gm_Mode_Vs_States` passa a ser a tabela do console, sem o ramo do host, e
+  `GS_RESULTS` entra na tabela de cenas; morte subita, desafiante e premio
+  continuam fora da tabela de cenas e param com nome antes do preload, como
+  qualquer cena ausente (`findState` pegaria calado o estado seguinte se a
+  tabela de estados os omitisse).
+- [x] `pnlsce` e `flmsce` de `GmRst` traduzem como `SceneDesc` (118 e 29
+  objetos), e os blocos de movimento de demo de todos os personagens
+  (`ftDemoResultMotionFileFox` e os nomes de `ftData_803C2468`) sao entregues
+  como estao, ate o proximo endereco nomeado: `ftData_80085B98` soma o offset
+  de cada acao ao endereco do bloco e parseia o arquivo aninhado ali. Varredura:
+  `game_data` 662 de 664 (eram 339 de 341) e `scene_data` 47 de 47 (eram 43),
+  com as mesmas quatro falhas antigas. Testes unitarios dos tipos e dos bytes.
+- [x] A entrada dos resultados achou tres leituras pelo layout de estaticos em
+  sequencia, corrigidas sob `MELEE_HOST` (sem o define, os mesmos tokens):
+  - `fn_8017A318` le `gmResultCharacterScaleData`,
+    `gmResultCharacterData.slot_off` e `gmResultCameraDesc` como um
+    `CameraKindData` a partir de `gmResultPlayerColors`. Com ASLR, SIGSEGV em
+    `HSD_WObjInit`, com a camera tomada de `gmResultCameraEyeDesc+8`.
+  - `gm_1798.c` le `lbl_8046E1B0`, `lbl_8046E38C`, `lbl_8046E39C` e
+    `lbl_8046E3AC` como um `ResultsDisplayLayout`; `HSD_ImageDesc` tem
+    ponteiro, entao nem em sequencia os offsets bateriam. O host guarda um
+    `ResultsDisplayLayout` e da nome as partes. Antes disso o jogo lia um
+    `MatchEnd` errado: o Fox de demo nascia com a variante 1 e
+    `ftCo_800BED88` criava o blaster, cujos atributos proprios o host nao
+    traduz (parada com nome, item 74); com a correcao a luta cancelada marca
+    todos como perdedores e a variante e 4.
+  - `player.c` le `ftMapping_list` 32 bytes depois de
+    `str_PdPmdat_start_of_data`, em cinco funcoes. Nos resultados isso deu
+    `pairs_idx` 116 em `ftDemo_SetArchiveData` para o Fox (a tabela tem 33
+    entradas) e uma FigaTree de lixo (`0x5b700000001`) em
+    `ftAnim_8006F4C8`. Na luta a leitura errada passava sem sintoma visivel.
+- [x] Medido: 201/201 testes unitarios no `host-debug`. Sob ASan, a rota do
+  teste com a tabela nova passa pela luta sem erro do ASan, e o conjunto de
+  pontos distintos do UBSan e o mesmo do HEAD (24). Em 600 s, com a entrada e
+  os frames da tela de resultados, continua sem erro do ASan e ganha um ponto
+  da classe conhecida: `hsd_3A76.c:648` chama `fn_801749B8` (`gmresult.c`) por
+  um ponteiro de funcao de outro tipo.
+- [x] A tela de resultados sai pelo proprio jogo. Medido sob gdb, com
+  breakpoints que imprimem e continuam: a cena entra no frame 465 do modo VS,
+  o proc `fn_80179350` roda a cada frame, a introducao termina sozinha quando
+  `x8` chega a 0xA0, qualquer botao de uma porta humana passa do estado 2 ao 3
+  (`fn_80177920`), e no estado 3 cada humano marca pronto com START na propria
+  porta (`fn_80178050`); com todos prontos, `x1` vai a 4 e a cena pede o fim
+  (`gm_801A4B60`). Cada START de humano alterna pronto e nao pronto, e as
+  primeiras rotas ficaram presas por isso e por nao apertar START na porta 2.
+- [x] Ao sair dos resultados o jogo ia para `GS_PRIZE_INTERFACE` (0x27), o
+  aviso de premio, que o host nao tem (parada com nome). Medido sob gdb: nenhum
+  dos premios de 0 a 0x41 estava pendente; o que acendia era um trofeu novo, o
+  0x10C (`unk_44`, palavra 8, bit 0x1000), que `gm_80173EEC` concede quando o
+  total de VS `gmMainLib_8015EDBC()->x14` chega a 10.000. `x14` valia 50 na
+  entrada da luta e na entrada de `gmVsMelee_ExitResults`, e crescia la dentro,
+  em `gm_8016247C(gm_801688AC(...))`, que soma o `xE` de cada humano.
+  `gm_80166378` grava `xE` por `fn_80166A8C`, um `psq_st` pelo registrador de
+  quantizacao QR3, que o `OSInitFastCast` do SDK deixa como `u16` sem escala.
+  A funcao so existe em assembly: no host nao tinha corpo, nao gravava nada, e
+  `xE` ficava com o que havia na pilha. Sob `MELEE_HOST` ela grava o `u16` com
+  saturacao e sem a fracao (`melee_host_os_f32_to_u16` em
+  `melee_host/dolphin_os.h`, com teste unitario). A conversao nao foi conferida
+  contra o hardware.
+- [x] Com a correcao, a rota nao vai mais ao aviso de premio. O teste
+  `melee-host-vs-match-asset` passa pelos resultados: depois do L+R+A+START,
+  START na porta 1 no frame 960 tira a tela da abertura, START nas duas portas
+  no 1100 marca os dois prontos, e B segurado de 1200 a 1400 leva da CSS ao
+  menu. Cenas: titulo 122, menu 120, CSS 141, SSS 149, luta 175, resultados
+  406, CSS 120; o modo VS tem 991 frames e termina em `GM_MENU`. A copia da
+  sombra no frame 640 passou de 7.338 a 7.529 bytes nao brancos com a correcao
+  das flags de animacao; o teste so exige que nao seja vazia.
+- [x] Sem `MELEE_HOST`, os arquivos da decomp tocados nesta etapa
+  pre-processam com os mesmos tokens do HEAD (`gm_1601.c`, `gm_1798.c`,
+  `gmvsmode.c`, `player.c`, e `fighter.c`, `ftanim.c` e `gmresultplayer.c` pelos
+  headers), conferido com o compilador do host e as flags do build sem o
+  define. `mplib.c` difere do HEAD so pelos parenteses que a macro do commit
+  anterior punha em volta do offset e que sairam; contra a versao anterior a
+  macro, a unica diferenca e o `__LINE__` dos asserts do ramo que nao e MWCC,
+  deslocado pelas linhas da macro. O ramo do MWCC em `debug.h` passa a linha
+  explicita. A macro de `player.c` foi para `player.h` para nao deslocar o
+  `__LINE__` do arquivo. O build matching nao foi executado (sem `main.dol`).
+- [x] Sob ASan, a rota completa pelos resultados trouxe dois relatos do UBSan
+  no codigo do port: `state_recorder.cpp:447` e `:450` convertiam para
+  `unsigned char` uma cor de canal iluminado que saia `NaN`. `std::clamp` com
+  `NaN` devolve `NaN`, e a conversao e indefinida. A cor passa por
+  `to_channel`, que grava 0 para `NaN` e mantem o arredondamento de antes nos
+  outros valores (teste unitario com a atenuacao angular em `NaN`). O GX
+  ilumina em ponto fixo e nao tem `NaN`; a origem do valor nos resultados (luz
+  ou normal degenerada, ou `0 x infinito` na atenuacao) nao foi medida.
+- [x] Medido: `host-debug` com 203/203, ctest 15/15 e o teste da luta, agora
+  pelos resultados, em 160,8 s (antes da guarda do `NaN`, que so muda cores
+  `NaN`; depois dela, 203/203 e os 14 testes rapidos de novo).
+  `host-sanitize` com ctest 15/15 antes da guarda; depois dela, 203/203 e o
+  teste da luta de novo aprovado em 758,6 s, sem erro do ASan e sem os dois
+  relatos de `state_recorder.cpp`. O UBSan fica com 25 pontos distintos: os 24
+  do HEAD (o de `gm_1601.c` agora na linha 3026, deslocado pelo include novo) e
+  `hsd_3A76.c:648`.
+
 ## Em andamento
 
 - [ ] Compilar todo o codigo relevante sem assembly PPC.

@@ -341,6 +341,16 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
 
 - O frame e o global da rota, o mesmo das entradas de botao. A luta do teste
   vai do 533 ao 707, e a CSS do 243 ao 383; o 400 ja e SSS.
+- A tela de resultados so termina quando os quatro jogadores estao prontos
+  (`fn_80178050`): CPU e porta vazia ficam prontos sozinhos, e cada humano com
+  START na propria porta, depois que a animacao do painel passa do quadro 50.
+  Cada START de humano alterna entre pronto e nao pronto, entao um segundo
+  toque desfaz o primeiro. Um roteiro com START so na porta 1, ou com dois
+  START por porta, fica parado nos resultados para sempre, sem erro e sem
+  imprimir nada, porque `--run-modes` so escreve quando uma cena ou um modo
+  termina. Para ver onde uma rota parou, rode-a sob gdb com
+  breakpoints que imprimem e continuam (`commands` ... `continue`) nas funcoes
+  de entrada e no proc da cena.
 - Uma textura que o decodificador recusa imprime `texture N (format 0x..) not
   decoded` com o motivo, e o presenter a troca por uma textura branca. Antes de
   procurar geometria errada atras de quadrilateros brancos, confira se o mesmo
@@ -363,6 +373,24 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   sob `MELEE_HOST`, declare os bits na ordem inversa, como nos scripts de
   comando. O sintoma nao e crash, e uma flag que fica 0: foi o que impedia os
   lutadores de serem desenhados. Zerar pelo escalar nao depende da ordem.
+- O mesmo vale para um union de `s32` com bit-fields gravado inteiro a partir
+  dos dados: `fighter.c` copia `x10_animCurrFlags` de cada acao para
+  `fp->x594_s32` e le a flag de repeticao, as mascaras de partes e o tipo da
+  FigaTree pelos campos. No host a animacao da corrida parava no fim e o
+  script, com todos os timers ja vencidos, girava sem fim criando efeitos. O
+  sintoma e o processo crescendo centenas de MB por segundo num frame que nao
+  termina; nao e falta de memoria. Rode rotas longas amostrando `VmRSS` e
+  matando por PID acima de um limite, e pare no gdb no frame anterior com
+  `N:FIGHTERS` (breakpoint em `melee_host_match_fighter_position`) para ver o
+  backtrace das alocacoes.
+- Para conferir que um arquivo da decomp continua com os mesmos tokens sem
+  `MELEE_HOST`, pre-processe-o duas vezes com as flags do build tiradas de
+  `ninja -C build/host-debug -t compdb` sem o define: na arvore de trabalho e
+  num `git worktree` do HEAD, com os `-I` trocados para a raiz de cada arvore.
+  Troque o caminho do worktree pelo do repositorio antes de comparar, porque os
+  asserts embutem `__FILE__`. Um bloco novo antes de um assert desloca o
+  `__LINE__` do ramo que nao e MWCC; o ramo do MWCC passa a linha explicita,
+  mas prefira pôr macros novas num header para o arquivo manter as linhas.
 - O recorder GX guarda cada tipo de matriz onde o GX guarda: posicao e textura
   na memoria de matrizes, normal (3x3) a parte. Um PObj iluminado carrega
   posicao e normal no mesmo `GX_PNMTXn`, e juntar as duas faz o vertice perder

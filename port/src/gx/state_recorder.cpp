@@ -368,6 +368,18 @@ void normalize3(mh_f32 vector[3])
     }
 }
 
+/* A lit value rounded to a channel.  The hardware lights in fixed point and has
+ * no NaN, but a light or normal the game leaves degenerate can make the float
+ * evaluation one (the results screen does), and converting NaN to an integer is
+ * undefined: it stores 0. */
+mh_u8 to_channel(float value)
+{
+    if (!(value > 0.0F)) {
+        return 0;
+    }
+    return static_cast<mh_u8>(std::min(value, 255.0F) + 0.5F);
+}
+
 void evaluate_channel_locked(const MeleeHostGxCapturedVertex& vertex,
                              std::size_t color_channel,
                              std::size_t alpha_channel, mh_u8 out[4])
@@ -444,10 +456,10 @@ void evaluate_channel_locked(const MeleeHostGxCapturedVertex& vertex,
     for (std::size_t component = 0; component < 3; ++component) {
         const float value = static_cast<float>(material[component]) *
                             lit[component] / 255.0F;
-        out[component] = static_cast<mh_u8>(std::clamp(value, 0.0F, 255.0F) + 0.5F);
+        out[component] = to_channel(value);
     }
     const float alpha = static_cast<float>(alpha_material[3]) * lit[3] / 255.0F;
-    out[3] = static_cast<mh_u8>(std::clamp(alpha, 0.0F, 255.0F) + 0.5F);
+    out[3] = to_channel(alpha);
 }
 
 const void* combine_pointer(std::uint32_t low, std::uint32_t high)

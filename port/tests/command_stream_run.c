@@ -51,3 +51,23 @@ void melee_host_test_read_script_event(unsigned word, unsigned* opcode,
     *opcode = event->opcode;
     *value1 = event->value1;
 }
+
+void melee_host_test_read_fighter_anim_flags(unsigned flags, unsigned* loop,
+                                             unsigned* first, unsigned* parts,
+                                             unsigned* bone, unsigned* kind);
+
+/* fighter.c and ftwaitanim.c store an action's x10_animCurrFlags in Fighter's
+ * x594 union as one s32; ftanim.c and fighter.c read it back by field. */
+void melee_host_test_read_fighter_anim_flags(unsigned flags, unsigned* loop,
+                                             unsigned* first, unsigned* parts,
+                                             unsigned* bone, unsigned* kind)
+{
+    static Fighter fighter;
+
+    fighter.x594_s32 = (s32) flags;
+    *loop = fighter.x594_b1_loop;
+    *first = fighter.x594_b0;
+    *parts = fighter.x594_bits;
+    *bone = fighter.x596_bits.x7;
+    *kind = fighter.x597_bits;
+}

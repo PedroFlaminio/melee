@@ -612,10 +612,11 @@ if(MELEE_HOST_BUILD_TESTS)
         # START leaves for stage select, where pad 1 picks Hyrule Temple.  The
         # match runs Fox against Fox until pausing is allowed (frame 655),
         # pad 1 pauses and quits with L+R+A+START, which the match takes as no
-        # contest.  Without results the VS mode routes back to character
-        # select, where holding B returns to the main menu.  The selection is
-        # read back from the VS mode's data: stage 14, Fox (2) in slots 0
-        # and 1.
+        # contest.  The results screen follows: a button on pad 1 moves past
+        # its opening, and START on each human pad marks that player ready (a
+        # second START would unmark it), which returns to character select,
+        # where holding B returns to the main menu.  The selection is read back
+        # from the VS mode's data: stage 14, Fox (2) in slots 0 and 1.
         add_test(
             NAME melee-host-vs-match-asset
             COMMAND melee-pc --run-modes
@@ -627,11 +628,12 @@ if(MELEE_HOST_BUILD_TESTS)
                     380:START 420-421:SX=-127 425-439:SY=127 445:A
                     640:SHADOW 640:MOVE 640:ACTION 641:A 641-645:SX=127
                     650:ACTION 660:MOVE
-                    680:START 700-715:L+R+A 705-715:START 730-850:B
+                    680:START 700-715:L+R+A 705-715:START
+                    960:START 1100:START 1100:START@2 1200-1400:B
         )
         set_tests_properties(melee-host-vs-match-asset PROPERTIES
             PASS_REGULAR_EXPRESSION
-                "vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(175\\) 0x08 \\(56\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(521 frames\\) 0x01\n"
+                "vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(175\\) 0x05 \\(406\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(991 frames\\) 0x01\n"
         )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_property(TEST melee-host-title-mode-asset
