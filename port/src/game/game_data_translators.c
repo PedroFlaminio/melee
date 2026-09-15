@@ -16,6 +16,8 @@
 #include <melee/ft/ftwaitanim.h>
 #include <melee/ft/kinds/ftCommon/types.h>
 #include <melee/ft/kinds/ftFox/types.h>
+#include <melee/ft/kinds/ftLink/types.h>
+#include <melee/ft/kinds/ftMario/types.h>
 #include <melee/ft/types.h>
 #include <melee/gm/gmevent.h>
 #include <melee/gr/types.h>
@@ -2176,6 +2178,74 @@ static void* fighter_fox_attrs(MeleeHostHsdReader* reader, mh_u32 at)
     return attrs;
 }
 
+/* Mario's disk record is 0x80 bytes.  The host's s32 and ReflectDesc have
+ * wider alignment, so fill it member by member rather than copying the PPC
+ * offsets into the host struct. */
+static void* fighter_mario_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftMario_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftMario_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    attrs->specials.vel_x_decay = melee_host_hsd_reader_f32(reader, at + 0x00);
+    attrs->specials.vel.x = melee_host_hsd_reader_f32(reader, at + 0x04);
+    attrs->specials.vel.y = melee_host_hsd_reader_f32(reader, at + 0x08);
+    attrs->specials.grav = melee_host_hsd_reader_f32(reader, at + 0x0C);
+    attrs->specials.terminal_vel = melee_host_hsd_reader_f32(reader, at + 0x10);
+    attrs->specials.cape_kind = melee_host_hsd_reader_u32(reader, at + 0x14);
+    attrs->specialhi.freefall_mobility = melee_host_hsd_reader_f32(reader, at + 0x18);
+    attrs->specialhi.landing_lag = melee_host_hsd_reader_f32(reader, at + 0x1C);
+    attrs->specialhi.reverse_stick_range = melee_host_hsd_reader_f32(reader, at + 0x20);
+    attrs->specialhi.momentum_stick_range = melee_host_hsd_reader_f32(reader, at + 0x24);
+    attrs->specialhi.angle_diff = melee_host_hsd_reader_f32(reader, at + 0x28);
+    attrs->specialhi.vel_x = melee_host_hsd_reader_f32(reader, at + 0x2C);
+    attrs->specialhi.grav = melee_host_hsd_reader_f32(reader, at + 0x30);
+    attrs->specialhi.vel_mul = melee_host_hsd_reader_f32(reader, at + 0x34);
+    attrs->speciallw.vel_y = melee_host_hsd_reader_f32(reader, at + 0x38);
+    attrs->speciallw.momentum_x = melee_host_hsd_reader_f32(reader, at + 0x3C);
+    attrs->speciallw.air_momentum_x = melee_host_hsd_reader_f32(reader, at + 0x40);
+    attrs->speciallw.momentum_x_mul = melee_host_hsd_reader_f32(reader, at + 0x44);
+    attrs->speciallw.air_momentum_x_mul = melee_host_hsd_reader_f32(reader, at + 0x48);
+    attrs->speciallw.friction_end = melee_host_hsd_reader_f32(reader, at + 0x4C);
+    attrs->speciallw.unk0 = (s32) melee_host_hsd_reader_u32(reader, at + 0x50);
+    attrs->speciallw.tap_y_vel_max = melee_host_hsd_reader_f32(reader, at + 0x54);
+    attrs->speciallw.tap_grav = melee_host_hsd_reader_f32(reader, at + 0x58);
+    attrs->speciallw.landing_lag = (s32) melee_host_hsd_reader_u32(reader, at + 0x5C);
+    attrs->cape_reflection.x0_bone_id = melee_host_hsd_reader_u32(reader, at + 0x60);
+    attrs->cape_reflection.x4_max_damage = (s32) melee_host_hsd_reader_u32(reader, at + 0x64);
+    attrs->cape_reflection.x8_offset.x = melee_host_hsd_reader_f32(reader, at + 0x68);
+    attrs->cape_reflection.x8_offset.y = melee_host_hsd_reader_f32(reader, at + 0x6C);
+    attrs->cape_reflection.x8_offset.z = melee_host_hsd_reader_f32(reader, at + 0x70);
+    attrs->cape_reflection.x14_size = melee_host_hsd_reader_f32(reader, at + 0x74);
+    attrs->cape_reflection.x18_damage_mul = melee_host_hsd_reader_f32(reader, at + 0x78);
+    attrs->cape_reflection.x1C_speed_mul = melee_host_hsd_reader_f32(reader, at + 0x7C);
+    return attrs;
+}
+
+/* Link's host layout expands several s32 fields.  Loading the item kinds that
+ * OnLoad consumes explicitly is enough for neutral movement and attacks; the
+ * rest stays zero until its special-item layouts are ported. */
+static void* fighter_link_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftLk_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftLk_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    attrs->xC = (int) melee_host_hsd_reader_u32(reader, at + 0x0C);
+    attrs->x10 = (int) melee_host_hsd_reader_u32(reader, at + 0x10);
+    attrs->x2C = (int) melee_host_hsd_reader_u32(reader, at + 0x2C);
+    attrs->x48 = (int) melee_host_hsd_reader_u32(reader, at + 0x48);
+    attrs->xBC = (int) melee_host_hsd_reader_u32(reader, at + 0xBC);
+    attrs->xD8 = melee_host_hsd_reader_f32(reader, at + 0xD8);
+    return attrs;
+}
+
 static Fighter_WaitAnimData* fighter_actions(MeleeHostHsdReader* reader,
                                              mh_u32 at)
 {
@@ -2736,6 +2806,20 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
     return fighter_data(reader, root, fighter_fox_attrs, &items);
 }
 
+static void* fighter_data_mario(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs no_special_items = { NULL, 0 };
+
+    return fighter_data(reader, root, fighter_mario_attrs, &no_special_items);
+}
+
+static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs no_special_items = { NULL, 0 };
+
+    return fighter_data(reader, root, fighter_link_attrs, &no_special_items);
+}
+
 /* A character's demo motions (ftDemoResultMotionFileFox in GmRstMFx.dat and
  * the intro, ending and wait files named next to it in ftData_803C2468): the
  * base of a block of nested archives, one per demo action.  ftData_80085B98
@@ -2785,6 +2869,9 @@ static void register_demo_motion_files(void)
 void melee_host_game_register_data_translators(void)
 {
     (void) melee_host_hsd_register_translator("ftDataFox", fighter_data_fox);
+    (void) melee_host_hsd_register_translator("ftDataMario",
+                                              fighter_data_mario);
+    (void) melee_host_hsd_register_translator("ftDataLink", fighter_data_link);
     (void) melee_host_hsd_register_translator("lbBgFlashColAnimData",
                                               bg_flash_color_anims);
     (void) melee_host_hsd_register_translator("ftLoadCommonData",

@@ -619,6 +619,23 @@ if(MELEE_HOST_BUILD_TESTS)
             )
         endif()
     endif()
+    # Fighter records are character-specific.  Keep Mario and Link covered
+    # separately from Fox so a new playable fighter cannot silently lose its
+    # archive translator.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/PlMr.dat")
+        add_test(
+            NAME melee-host-mario-data-asset
+            COMMAND melee-pc --load-archive
+                    ${CMAKE_SOURCE_DIR}/assets-local/PlMr.dat ftDataMario
+        )
+    endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/PlLk.dat")
+        add_test(
+            NAME melee-host-link-data-asset
+            COMMAND melee-pc --load-archive
+                    ${CMAKE_SOURCE_DIR}/assets-local/PlLk.dat ftDataLink
+        )
+    endif()
     # The title screen entered by its own code: the scene manager's setup
     # (gm_801A4BD4) and gm_Scene_Title_OnEnter, after gmMain's boot.
     if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/sys/main.dol")
