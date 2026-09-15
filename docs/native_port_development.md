@@ -404,6 +404,19 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   textura e aplicada. Para confirmar, encha o destino com uma cor fixa dentro
   de `GXCopyTex`, sem commit, e veja se a area muda: foi assim que a faixa
   preta da luta se mostrou a sombra.
+- Uma funcao pequena que devolve `int` pode estar lendo um ponteiro pelo
+  layout do console: `mn_80231634` devolve o `child` de um JObj como o `int`
+  em +10. O sintoma e SIGSEGV num JObj de endereco com cara de 32 bits
+  (`0x5702d640`) logo depois da chamada; procure casts como
+  `(HSD_JObj*) mn_80231634(...)`.
+- Nos resultados de uma luta concluida, o estado 2 (`fn_80177920`) aceita
+  qualquer botao de humano e para no primeiro. Um roteiro que aperte START nas
+  duas portas no mesmo frame so passa o vencedor, e a tela espera sem fim:
+  aperte um botao antes e START nas portas depois.
+- Uma rota longa sem traco nao diz em que frame esta. `--run-modes` imprime
+  cada cena ao comecar (`scene 0xNN from frame N`), e um `N:RULES` a cada 50
+  frames serve de marcador barato para medir o ritmo, amostrado junto com o
+  `VmRSS`.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

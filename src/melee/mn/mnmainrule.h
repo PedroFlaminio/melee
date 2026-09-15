@@ -34,6 +34,17 @@ struct mn_80231634_t {
     /* +10 */ int x10;
 };
 
+#ifdef MELEE_HOST
+/* mn_80231634 returns a JObj's child, read as the int at +10 of the console's
+ * HSD_JObj.  The host's child is a pointer at another offset, and an int
+ * would cut it (the rules menu's damage digits). */
+#define MN_80231634_RET intptr_t
+#define MN_80231634_CHILD(arg0) ((intptr_t) ((HSD_JObj*) arg0)->child)
+#else
+#define MN_80231634_RET int
+#define MN_80231634_CHILD(arg0) arg0->x10
+#endif
+
 /* 22F538 */ void fn_8022F538(HSD_GObj*);
 /* 22FB88 */ void mn_8022FB88(u8, void*);
 /* 22FD18 */ void mn_8022FD18(u8);
@@ -45,7 +56,7 @@ struct mn_80231634_t {
 /* 2309F0 */ void fn_802309F0(HSD_GObj*);
 /* 230D18 */ s32 mn_80230D18(struct mn_802307F8_t*, HSD_JObj*, int);
 /* 230E38 */ HSD_GObj* mn_80230E38(int);
-/* 231634 */ int mn_80231634(struct mn_80231634_t*);
+/* 231634 */ MN_80231634_RET mn_80231634(struct mn_80231634_t*);
 /* 23164C */ void mn_8023164C(void);
 /* 231714 */ UNK_RET mn_80231714(UNK_PARAMS);
 /* 2317E4 */ void mn_802317E4(HSD_Archive*, int);

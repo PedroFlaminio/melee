@@ -398,6 +398,13 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   runtime fica a 0,9 vezes as coordenadas do arquivo, transformada pelo joint
   do mapa), cai, entra em `DeadDown` e renasce na plataforma. Proximo passo: o
   KO na rota do teste e uma luta levada ate o fim.
+- Executado: uma luta levada ate o fim. Na CSS o menu de regras, que parava
+  num JObj de endereco cortado por `mn_80231634`, passa as regras a estoque 1;
+  P1 cai do estagio, a luta termina por eliminacao e os resultados de uma luta
+  concluida voltam a CSS. Teste `melee-host-vs-stock-match-asset`; detalhes em
+  `docs/native_port_status.md`. Proximo passo: olhar os frames dessa rota (o
+  "GAME!", o vencedor, a SSS) e medir o ritmo num build otimizado, porque o
+  `host-debug` fica em 4 a 5 frames por segundo.
 - Como a tela de resultados funciona no host. Com a tabela de estados do console e
   `GS_RESULTS` na tabela de cenas, a luta cancelada entra em
   `gm_Scene_Results_OnEnter` pelo proprio jogo (`fn_8016CF4C` com

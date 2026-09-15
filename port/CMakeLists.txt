@@ -635,9 +635,41 @@ if(MELEE_HOST_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION
                 "vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(175\\) 0x05 \\(406\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(991 frames\\) 0x01\n"
         )
+        # A VS match that ends by itself.  In character select, after both
+        # pads take Fox, pad 1 takes its cursor to the corner and back under
+        # the rules button; the rules menu turns Time into Stock and lowers the
+        # stock count from 3 to 1, and B returns to character select with both
+        # choices kept.  In the match pad 1 runs left, jumps over the temple's
+        # wall and falls off the stage.  Its only stock gone, the match ends by
+        # elimination and the results screen shows a finished match: a button
+        # moves past the winner, START on each human pad marks that player
+        # ready, and holding B in character select returns to the main menu.
+        # The route is long, and under the sanitizers it takes most of the
+        # default timeout.
+        add_test(
+            NAME melee-host-vs-stock-match-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-333:SX=-127@2
+                    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
+                    365-404:SX=-127 365-404:SY=127 406-423:SX=127 430:A
+                    460:RIGHT 480:DOWN 490:LEFT 510:LEFT 520:RULES 540:B
+                    600:START 640-641:SX=-127 645-659:SY=127 665:A
+                    860:FALLS 861-1120:SX=-127 925:X 1150:FALLS
+                    1300:RESULT
+                    1466:START 1606:START 1606:START@2 1706-1906:B
+        )
+        set_tests_properties(melee-host-vs-stock-match-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "rules frame 520: mode 1 time 2 stock 1\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(460\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
+        )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_property(TEST melee-host-title-mode-asset
                 melee-host-main-menu-asset melee-host-vs-match-asset
+                melee-host-vs-stock-match-asset
                 APPEND PROPERTY
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )

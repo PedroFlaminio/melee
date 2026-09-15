@@ -1278,12 +1278,12 @@ HSD_GObj* mn_80230E38(int arg0)
     return gobj;
 }
 
-int mn_80231634(struct mn_80231634_t* arg0)
+MN_80231634_RET mn_80231634(struct mn_80231634_t* arg0)
 {
     if (arg0 == NULL) {
         return 0;
     }
-    return arg0->x10;
+    return MN_80231634_CHILD(arg0);
 }
 
 void mn_8023164C(void)

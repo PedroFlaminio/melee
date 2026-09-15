@@ -2075,8 +2075,8 @@ int main(int argc, char** argv)
              * held for three drawn frames, so a scene sees the buttons go down
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
-             * the headless diagnostics SHADOW, FIGHTERS, MOVE, ACTION and
-             * FALLS. PORT is 1 to 4,
+             * the headless diagnostics SHADOW, FIGHTERS, MOVE, ACTION,
+             * FALLS, RULES and RESULT. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
@@ -2105,6 +2105,12 @@ int main(int argc, char** argv)
                 std::vector<mh_s32> action_samples;
                 std::vector<mh_u32> falls_traces;
                 std::vector<mh_s32> falls_samples;
+                std::vector<mh_u32> rules_traces;
+                std::vector<mh_u32> result_traces;
+                /* The running mode's report, to print each scene as it
+                 * starts, with the frame it starts on. */
+                MeleeHostGameModeReport* report = nullptr;
+                mh_u32 reported_scenes = 0;
                 std::vector<std::array<mh_f32, 2>> movement_samples;
                 bool connected[4] = { true, false, false, false };
                 mh_u32 frames = 0;
@@ -2213,6 +2219,26 @@ int main(int argc, char** argv)
                         static_cast<mh_u32>(std::stoul(frames)));
                     continue;
                 }
+                if (inputs == "RULES") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:RULES, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.rules_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "RESULT") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:RESULT, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.result_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
                 if (inputs.rfind("BMP=", 0) == 0) {
                     if (frames.find('-') != std::string::npos ||
                         inputs.size() == 4)
@@ -2311,6 +2337,20 @@ int main(int argc, char** argv)
             const MeleeHostGxFrameSink scripted_pad = [](void* user_data) {
                 auto* const state = static_cast<ModesInput*>(user_data);
                 state->frames += 1;
+                if (state->report != nullptr &&
+                    state->report->scene_count != state->reported_scenes &&
+                    state->report->scene_count <=
+                        MELEE_HOST_GAME_MODE_MAX_SCENES)
+                {
+                    state->reported_scenes = state->report->scene_count;
+                    constexpr const char* kDigits = "0123456789abcdef";
+                    const mh_u32 scene =
+                        state->report->scenes[state->reported_scenes - 1]
+                            .scene;
+                    std::cout << "scene 0x" << kDigits[(scene >> 4) & 0xF]
+                              << kDigits[scene & 0xF] << " from frame "
+                              << state->frames << '\n';
+                }
                 for (const mh_u32 frame : state->shadow_checks) {
                     if (frame != state->frames) {
                         continue;
@@ -2405,6 +2445,40 @@ int main(int argc, char** argv)
                     }
                     std::cout << '\n';
                 }
+                for (const mh_u32 frame : state->rules_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    mh_u32 mode = 0;
+                    mh_u32 time_limit = 0;
+                    mh_u32 stock_count = 0;
+                    melee_host_match_rules(&mode, &time_limit, &stock_count);
+                    std::cout << "rules frame " << frame << ": mode "
+                              << mode << " time " << time_limit << " stock "
+                              << stock_count << '\n';
+                }
+                for (const mh_u32 frame : state->result_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    mh_u32 outcome = 0;
+                    mh_u32 winners = 0;
+                    mh_u32 first_winner = 0;
+                    mh_s32 stocks_p1 = 0;
+                    mh_s32 stocks_p2 = 0;
+                    if (melee_host_match_result(&outcome, &winners,
+                                                &first_winner, &stocks_p1,
+                                                &stocks_p2))
+                    {
+                        std::cout << "result frame " << frame << ": outcome "
+                                  << outcome << " winners " << winners
+                                  << " first " << first_winner
+                                  << " stocks P1=" << stocks_p1
+                                  << " P2=" << stocks_p2 << '\n';
+                    } else {
+                        std::cout << "result frame " << frame << ": none\n";
+                    }
+                }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 for (ScriptedShot& shot : state->shots) {
                     if (shot.frame != state->frames || state->shot_failed) {
@@ -2478,8 +2552,11 @@ int main(int argc, char** argv)
             bool failed = false;
             for (mh_u32 i = 0; i < max_modes; ++i) {
                 MeleeHostGameModeReport report{};
+                input.report = &report;
+                input.reported_scenes = 0;
                 const MeleeHostStatus ran = melee_host_game_run_current_mode(
                     scripted_pad, &input, &report);
+                input.report = nullptr;
                 if (ran == MELEE_HOST_UNSUPPORTED) {
                     std::cout << "stopped: mode " << hex_byte(report.mode)
                               << " is not in the host's mode table\n";

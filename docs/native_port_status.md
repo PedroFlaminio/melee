@@ -1,6 +1,6 @@
 # Status do port nativo
 
-Atualizado em 13 de setembro de 2026.
+Atualizado em 15 de setembro de 2026.
 
 ## Concluido
 
@@ -2036,6 +2036,42 @@ Atualizado em 13 de setembro de 2026.
   com X no frame 705 e passa por cima, anda ate a borda em x -230, cai e entra
   em `ftCo_MS_DeadDown` (0) no frame 900; no 940 reaparece em (18; 170,5), em
   `ftCo_MS_Rebirth` (12), e desce na plataforma.
+- [x] O menu de regras roda dentro da CSS. Com o cursor sob o botao de regras
+  (x entre -17 e 15, y acima de 22), A leva ao estado 3 de
+  `mnCharSel_Scene_OnFrame`, que libera a CSS e monta o menu de
+  `mnmainrule.c` com os modelos de `MnExtAll.usd`, que o host ja traduz. A
+  montagem parava com SIGSEGV em `HSD_JObjReqAnimAll` (`mn_80230E38`,
+  `mnmainrule.c:1241`), num JObj de endereco cortado (`0x5702d640`):
+  `mn_80231634` devolve o filho de um JObj lido como o `int` em +10 do layout
+  do console. Sob `MELEE_HOST` a funcao devolve `intptr_t` com o `child` do
+  JObj do host, por macros em `mnmainrule.h` para o `.c` manter as linhas. Sem
+  o define, `mnmainrule.c`, `mndatadel.c` e `mnname.c` pre-processam identicos
+  ao HEAD. `mndatadel.c` e `mnname.c`, fora da rota, ainda guardam o retorno
+  em `s32`.
+- [x] Sem cartao as regras comecam em tempo, 2 minutos e 3 estoques. No menu,
+  direita no modo troca tempo por estoque, baixo vai ao numero de estoques e
+  duas vezes esquerda o leva a 1 (uma terceira daria a volta para 99); B grava
+  as regras e remonta a CSS com as duas escolhas.
+- [x] Uma luta VS termina sozinha. Com um estoque, P1 corre para a esquerda,
+  pula a parede com X e cai: `DeadDown` no frame 1100 do roteiro, quedas 1, e o
+  jogo encerra a luta por eliminacao. Os resultados comecam no frame 1213,
+  depois de 460 frames de luta; o `MatchEnd` que eles leem tem desfecho 2
+  (`OUTCOME_ELIMINATION`), um vencedor (o slot 1) e 0 e 1 estoque.
+- [x] Numa luta concluida a abertura dos resultados nao pede botao:
+  `fn_801791E4` passa quando `x8` chega a 160 frames. No estado 2
+  (`fn_80177920`) qualquer botao de um humano leva ao estado 3, e o laco para
+  no primeiro que acha; START nas duas portas no mesmo frame so passa o
+  vencedor, ninguem fica pronto e a tela espera sem fim. A rota aperta START no
+  pad 1 no frame 1466 e START nas duas portas no 1606; a CSS comeca no 1620.
+- [x] `--run-modes` imprime `scene 0xNN from frame N` quando cada cena comeca
+  e ganha as sondas `RULES` (modo, tempo e estoques das regras do jogo) e
+  `RESULT` (desfecho, vencedores e estoques do `MatchEnd` dos resultados).
+- [x] Teste `melee-host-vs-stock-match-asset`: titulo 122, menu 120, CSS com as
+  regras 361, SSS 149, luta 460, resultados 407, CSS 120 e menu. Confere as
+  regras em estoque 1, a queda de P1 (`FALLS`), o desfecho e as cenas; 235,2 s
+  no `host-debug`, com `TIMEOUT 3600`. O `melee-host-vs-match-asset` segue em
+  166,9 s. O ritmo no `host-debug`, build sem otimizacao, e de cerca de 4
+  frames por segundo na luta e 5 nos resultados.
 
 ## Em andamento
 
@@ -2203,9 +2239,9 @@ Atualizado em 13 de setembro de 2026.
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
 - A tabela de modos e cenas do host tem o titulo, o menu principal e o modo VS
-  com as duas cenas de selecao e a luta. O modo VS do host termina na luta,
-  sem resultados, morte subita nem desafiante (`gmvsmode.c` sob `MELEE_HOST`):
-  quando a luta sai, a rota volta a CSS.
+  com as duas cenas de selecao, a luta e os resultados, na tabela de estados
+  do console. Morte subita, desafiante e o aviso de premio param com nome como
+  cenas ausentes.
   Pedir um modo fora da tabela e recusado antes de o jogo seguir o NULL que
   acharia, e uma cena fora da tabela encerra o modo; nos dois casos
   `--run-modes` termina o roteiro com `stopped:`.
@@ -2220,7 +2256,8 @@ Atualizado em 13 de setembro de 2026.
   liberados. Final Destination e Battlefield ficam travados na SSS, e a
   primeira luta mira Hyrule Temple.
 - O modo VS do host nao tem CPU nem handicap conferidos: o roteiro so abre
-  portas HMN. Os caminhos de regras, troca de nome e botoes de time da CSS
+  portas HMN. O menu de regras roda (modo e estoques conferidos); os submenus
+  de itens e de regras adicionais, a troca de nome e os botoes de time da CSS
   alcancam paradas com nome em `unported.c`.
 - Os arquivos da demo do titulo carregam, mas nada os usa ainda. Os bancos de
   particula que eles trazem chegam ja localizados pela API de arquivo do host.

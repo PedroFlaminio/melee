@@ -15,14 +15,14 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 | Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas | 15% |
 | Assets e renderização HSD/GX | funcional para cenas/modelos selecionados | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
-| Configuração de VS | CSS e SSS executadas com dois pads; seleção validada, imagem ainda não conferida | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio. A máscara I4 da sombra e a resposta ao stick são conferidas na rota completa; a corrida não trava mais, e a tela de resultados roda pelo código do jogo e volta à CSS; falta KO | 30% |
-| Áudio, distribuição e regressão end-to-end | parcial; a rota título → menu → CSS → SSS → luta → resultados → CSS → menu é um teste, sem imagem nem áudio conferidos | 10% |
+| Configuração de VS | CSS e SSS executadas com dois pads; seleção e menu de regras (estoque 1) validados, imagem ainda não conferida | 10% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | `GS_VS` está na tabela do host: a entrada passa por refração, efeitos, itens, estágio e câmera, cria os dois Fox, carrega pausa, HUD e flash de fundo e entra no laço de frames; os scripts de comando despacham pelo opcode certo, a luta roda sem erro, a pausa responde ao START e L+R+A+START encerra a luta como no contest pelo código do jogo, com `OnExit` e volta à CSS; com `coll_data` os lutadores pousam no estágio e a câmera fica nele; os dois Fox aparecem no tamanho certo sobre o estágio. A máscara I4 da sombra e a resposta ao stick são conferidas na rota completa; a corrida não trava mais, e a tela de resultados roda pelo código do jogo e volta à CSS; com um estoque, P1 cai do estágio, a luta termina por eliminação e vai aos resultados de uma luta concluída | 30% |
+| Áudio, distribuição e regressão end-to-end | parcial; duas rotas título → menu → CSS → SSS → luta → resultados → CSS → menu são testes (luta cancelada pela pausa e luta encerrada por estoque), sem imagem nem áudio conferidos | 10% |
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 15/15 testes aprovados; 203/203 testes
-  unitários.
+- `ctest --preset host-debug`: 16/16 testes aprovados (os 14 curtos e os dois
+  de VS em execuções separadas); 203/203 testes unitários.
 - `ctest --preset host-sanitize -V`: 15/15, sem erro do ASan; depois da
   correção do `NaN` no recorder GX, 203/203 testes unitários e a rota VS pelos
   resultados de novo aprovada, em 758,6 s. O UBSan só imprime (25 pontos
@@ -38,34 +38,31 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
   slots 0 e 1). Na luta, a sombra, o stick e o botão A são conferidos; o pad 1
   pausa depois que o HUD liga (frame 655) e sai com L+R+A+START. Nos
   resultados, um botão passa da abertura e START nas duas portas marca os dois
-  prontos; o modo volta à CSS, e B segurado leva ao menu. 160,8 s no
+  prontos; o modo volta à CSS, e B segurado leva ao menu. 166,9 s no
   `host-debug`.
+- `melee-host-vs-stock-match-asset`: na CSS o menu de regras troca tempo por
+  estoque e baixa o estoque de 3 a 1; na luta P1 cai do estágio, o jogo encerra
+  a luta por eliminação (desfecho 2, P2 vencedor) e os resultados de uma luta
+  concluída voltam à CSS. Título (122) → menu (120) → CSS (361) → SSS (149) →
+  luta (460) → resultados (407) → CSS (120) → menu, 235,2 s no `host-debug`.
 - `--diagnose-local-match` materializa dados de duas pessoas, regras e estágio,
   mas ainda não inicia a cena de combate.
 
 ## Próximo marco
 
-Conferir o que a luta Fox vs. Fox em Hyrule Temple (`GS_VS`) faz entre a
-entrada e a saída. A rota já entra na luta, roda os frames sem erro e sai pelo
-menu de pausa, e isso é teste. A imagem dos frames já sai por
-`FRAME:BMP=arquivo`, com estágio, HUD, "Ready" e contagem. Com `coll_data` os lutadores pousam e a
-câmera fica no estágio. Os dois Fox já aparecem no tamanho certo
-sobre o estágio. O host agora rasteriza a geometria sem textura do passe de
-sombra e escreve a cópia GX I4; a rota completa confirma uma máscara não
-uniforme no frame 640. O stick já desloca P1 na rota completa. O botão A já tira P1
-do `Wait`, a corrida não trava mais, e a tela de resultados roda e volta à CSS.
-O especial neutro do Fox já cria o blaster, e numa sonda P1 cai do estágio,
-morre e renasce. O próximo passo é pôr o KO na rota do teste e levar uma luta
-até o fim por estoque ou tempo, com a tela de resultados de uma luta que não
-foi cancelada. Sobram os relatos do
-UBSan, que a rota da luta multiplicou, e dois
-casos de layout conhecidos fora da rota de VS (`gm_1832.c`, `gm_19EF.c`). Do
-estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e
-`quake_model_set`; do modo VS faltam morte súbita, desafiante e o aviso de
-prêmio. Hyrule Temple segue
-como alvo por estar liberado sem cartão de memória e ter o menor módulo
-(`grshrine.c`); Final Destination e Battlefield ficam travados na SSS sem dados
-salvos.
+A luta local já vai do começo ao fim pelo código do jogo: as regras da CSS
+passam a estoque, a luta termina por eliminação e os resultados de uma luta
+concluída voltam à CSS, e isso é teste. Falta o que a rota ainda não confere:
+a imagem desses frames (o "GAME!", o vencedor e a SSS, que saía quase toda
+azul e não foi olhada de novo), o ritmo (4 a 5 frames por segundo no
+`host-debug`; falta medir um build otimizado contra os 60 Hz), a janela com
+entrada real e o áudio, que não começa sem vozes no host. Do estágio faltam
+`itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e `quake_model_set`; do
+modo VS faltam morte súbita, desafiante e o aviso de prêmio. Sobram os relatos
+do UBSan e dois casos de layout conhecidos fora da rota de VS (`gm_1832.c`,
+`gm_19EF.c`). Hyrule Temple segue como alvo por estar liberado sem cartão de
+memória e ter o menor módulo (`grshrine.c`); Final Destination e Battlefield
+ficam travados na SSS sem dados salvos.
 
 ### Limite operacional atual
 
@@ -128,3 +125,4 @@ deslocamento de pelo menos 0,1 unidade.
 | 2026-09-14 | 83% | Tela de resultados em andamento. A luta cancelada vai aos resultados como no console: `gm_Mode_Vs_States` volta a ser a tabela do console e `GS_RESULTS` entra na tabela de cenas. `pnlsce`/`flmsce` (`GmRst`) traduzem como `SceneDesc` e os blocos `ftDemo*MotionFile*` de todos os personagens são entregues como estão (varredura: `game_data` 662/664, `scene_data` 47/47). A entrada dos resultados achou três leituras por estáticos em sequência, corrigidas sob `MELEE_HOST`: a câmera de `CameraKindData`, os quatro objetos lidos como `ResultsDisplayLayout` e `ftMapping_list` lida 32 bytes depois de `"PdPm.dat"` (índice 116 para o Fox e FigaTree de lixo). 201/201 testes unitários. |
 | 2026-09-14 | 86% | Tela de resultados de ponta a ponta pelo código do jogo: a rota do teste passa por CSS (141 frames), SSS (149), luta (175), resultados (406) e volta à CSS (120), e B leva ao menu. A tela só sai quando cada humano aperta START na própria porta, e cada START alterna entre pronto e não pronto. Saindo dela, o jogo ia para o aviso de prêmio (`GS_PRIZE_INTERFACE`), que o host não tem: um troféu (0x10C) era concedido porque o total de VS passava de 10.000. A soma vinha do `xE` de cada jogador, que `gm_80166378` grava por `fn_80166A8C`, uma conversão de float para `u16` pelo fast cast do SDK escrita só em assembly; no host a função não gravava nada e `xE` pegava lixo da pilha. Sob `MELEE_HOST` ela grava o `u16` com saturação (teste unitário). `melee-host-vs-match-asset` agora cobre os resultados. Sob ASan a rota apontou uma cor de canal iluminado `NaN` convertida para `u8` no recorder GX; ela passa a gravar 0 (teste unitário). 203/203 testes unitários. |
 | 2026-09-14 | 87% | O especial neutro do Fox funciona: B parava com nome no item 74 (a arma do blaster), porque o host deixa de fora os atributos próprios de todo item. Em `PlFx.dat` os três itens que o Fox registra (tiro, arma, ilusão) têm atributos só de floats (0x28, 0x28 e 8 bytes, sem relocação dentro) e nenhuma dinâmica; o tradutor de `ftDataFox` passa esses tamanhos por slot e traduz os floats. Na rota, B leva P1 às ações 341–343 e de volta a `Wait`. Correr para trás também funciona (`Turn` → `Dash` → `Run`), e P1 para na parede do estágio: o jogo guarda os vértices de colisão transformados pelo joint do mapa, a 0,9 vezes as coordenadas do arquivo, e a parede fica em x -139,23. Numa sonda, P1 pula a parede, cai do estágio, entra em `DeadDown` e renasce na plataforma: o KO roda pelo código do jogo. |
+| 2026-09-15 | 89% | Luta levada até o fim. Na CSS o menu de regras de `mnmainrule.c` roda: parava com SIGSEGV num JObj de endereço cortado, porque `mn_80231634` devolve o filho de um JObj como o `int` em +10 do console; sob `MELEE_HOST` devolve `intptr_t` com o `child` do host (três arquivos pré-processam idênticos sem o define). O menu troca tempo por estoque e baixa o estoque de 3 a 1. Com um estoque, P1 cai do estágio e o jogo encerra a luta por eliminação; os resultados de uma luta concluída (desfecho 2, P2 vencedor) passam da abertura sozinhos, pedem um botão para sair do vencedor, que consome só o primeiro botão do frame, e START em cada porta, e voltam à CSS. `--run-modes` imprime cada cena ao começar e ganha as sondas `RULES` e `RESULT`. Teste `melee-host-vs-stock-match-asset`, 235,2 s no `host-debug` (4 a 5 frames por segundo); 203/203 unitários e 16/16 no ctest. |
