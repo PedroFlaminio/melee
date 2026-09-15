@@ -38,3 +38,14 @@ bool melee_host_match_fighter_motion(mh_u32 slot, mh_s32* motion)
     *motion = GET_FIGHTER(fighter)->motion_id;
     return true;
 }
+
+bool melee_host_match_player_falls(mh_u32 slot, mh_s32* falls)
+{
+    if (slot >= 4 || falls == NULL ||
+        Player_GetPlayerSlotType((s32) slot) == Gm_PKind_NA)
+    {
+        return false;
+    }
+    *falls = Player_GetFalls((s32) slot);
+    return true;
+}

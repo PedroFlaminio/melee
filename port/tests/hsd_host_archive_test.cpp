@@ -1530,7 +1530,7 @@ TEST_CASE("Fox's fighter data translates its records and tables")
     const auto command = [](std::uint32_t opcode, std::uint32_t value) {
         return (opcode << 26U) | value;
     };
-    ArchiveBuilder builder(0x600);
+    ArchiveBuilder builder(0x700);
     // The record: attributes, Fox's attributes, parts, two action tables,
     // guard joints, wait pairs, dynamics, hurtboxes, ledge, items, sounds, a
     // word list and the IK record.
@@ -1593,11 +1593,18 @@ TEST_CASE("Fox's fighter data translates its records and tables")
     // Ledge: s16 values, then words.
     builder.u16(0x478, 0xFFFD);
     builder.f32(0x478 + 0xC, 4.5F);
-    // Items: a slot naming int pairs, which hold no pointer, and an empty
-    // slot.
+    // Items: a slot naming int pairs, which hold no pointer, and in the
+    // blaster's slot an article with zeroed common attributes and ten floats
+    // of special attributes, past the guard joint's record.
     builder.pointer(0x494, 0x49C);
     builder.u32(0x49C, 3);
     builder.u32(0x4A0, 0xFFFFFFFFU);
+    builder.pointer(0x498, 0x600);
+    builder.pointer(0x600, 0x620);
+    builder.pointer(0x604, 0x6B0);
+    builder.f32(0x6B0, 4.5F);
+    builder.f32(0x6B0 + 0x18, 1.0F);
+    builder.f32(0x6B0 + 0x24, 7.25F);
     // Sounds: the smash list, a word and the x20 list; no x1C.
     builder.pointer(0x4A4, 0x4DC);
     builder.u32(0x4A8, 11);

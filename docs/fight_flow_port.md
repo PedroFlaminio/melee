@@ -391,6 +391,13 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   lixo: `fn_80166A8C`, a conversao de float para `u16` pelo fast cast do SDK,
   so existe em assembly e nao gravava nada no host. Corrigido; detalhes em
   `docs/native_port_status.md`.
+- Executado: o especial neutro do Fox. B parava com nome no blaster, cujos
+  atributos proprios o host nao traduzia; o tradutor de `ftDataFox` passou a
+  traduzir os tres itens do Fox, que em `PlFx.dat` so tem floats.
+- Medido: o KO roda pelo jogo. P1 pula a parede do lado esquerdo (que em
+  runtime fica a 0,9 vezes as coordenadas do arquivo, transformada pelo joint
+  do mapa), cai, entra em `DeadDown` e renasce na plataforma. Proximo passo: o
+  KO na rota do teste e uma luta levada ate o fim.
 - Como a tela de resultados funciona no host. Com a tabela de estados do console e
   `GS_RESULTS` na tabela de cenas, a luta cancelada entra em
   `gm_Scene_Results_OnEnter` pelo proprio jogo (`fn_8016CF4C` com

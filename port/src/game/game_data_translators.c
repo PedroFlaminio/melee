@@ -21,6 +21,7 @@
 #include <melee/gr/types.h>
 #include <melee/it/forward.h>
 #include <melee/it/it_3F14.h>
+#include <melee/it/itCharItems.h>
 #include <melee/it/types.h>
 #include <melee/lb/types.h>
 #include <melee/mp/types.h>
@@ -2407,6 +2408,62 @@ static void* fighter_item_article(MeleeHostHsdReader* reader, mh_u32 at)
     return item_article(reader, at);
 }
 
+/* The special attributes of a character's items, by slot of its item list:
+ * the size in bytes of each block the host translates, for blocks that hold
+ * only 4-byte scalars.  item_article leaves every item's special attributes
+ * out because their layout depends on the item; the fighter's own translator
+ * knows which items its list names.  A slot past the list, or of size 0, keeps
+ * the stop by name in Item_80267978. */
+struct FighterItemAttrs {
+    const mh_u32* sizes;
+    mh_u32 count;
+};
+
+static void** fighter_items(MeleeHostHsdReader* reader, mh_u32 at,
+                            const struct FighterItemAttrs* attrs)
+{
+    void** const table = per_entry_table(reader, at, fighter_item_article);
+    const mh_u32 length = melee_host_hsd_reader_extent(reader, at) / 4;
+    mh_u32 slot;
+
+    if (table == NULL) {
+        return NULL;
+    }
+    for (slot = 0; slot < attrs->count && slot < length; slot++) {
+        bool present;
+        const mh_u32 article = target_of(reader, at + slot * 4, &present);
+        const mh_u32 size = attrs->sizes[slot];
+        mh_u32 special;
+        mh_u32 word;
+
+        if (!present || size == 0 ||
+            !melee_host_hsd_reader_has_pointer(reader, article))
+        {
+            continue;
+        }
+        special = target_of(reader, article + 0x04, &present);
+        if (!present) {
+            continue;
+        }
+        if (melee_host_hsd_reader_extent(reader, special) < size) {
+            melee_host_hsd_reader_fail(
+                reader, "an item's special attributes are shorter than their "
+                        "host layout");
+            return NULL;
+        }
+        for (word = 0; word < size; word += 4) {
+            if (melee_host_hsd_reader_has_pointer(reader, special + word)) {
+                melee_host_hsd_reader_fail(
+                    reader, "an item's special attributes hold a pointer");
+                return NULL;
+            }
+        }
+        ((Article*) table[slot])->x4_specialAttributes =
+            scalar_block(reader, special, size);
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
 static FtSFXArr* fighter_sound_list(MeleeHostHsdReader* reader, mh_u32 at)
 {
     FtSFXArr* const list = melee_host_hsd_reader_allocate(
@@ -2478,7 +2535,8 @@ static struct ftData_x58_t* fighter_ik(MeleeHostHsdReader* reader, mh_u32 at)
 }
 
 static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
-                          void* (*special_attrs)(MeleeHostHsdReader*, mh_u32))
+                          void* (*special_attrs)(MeleeHostHsdReader*, mh_u32),
+                          const struct FighterItemAttrs* items)
 {
     struct ftData* const data = melee_host_hsd_reader_allocate(
         reader, sizeof(*data), alignof(struct ftData));
@@ -2512,8 +2570,7 @@ static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
         data->x3C = scalar_block(reader, target, sizeof(struct UnkFloat6_Camera));
     if (FT_FIELD(0x40)) data->x40 = scalar_block(reader, target, sizeof(itPickup));
     if (FT_FIELD(0x44)) data->x44 = fighter_ledge(reader, target);
-    if (FT_FIELD(0x48))
-        data->x48_items = per_entry_table(reader, target, fighter_item_article);
+    if (FT_FIELD(0x48)) data->x48_items = fighter_items(reader, target, items);
     if (FT_FIELD(0x4C)) data->x4C_sfx = fighter_sounds(reader, target);
     if (FT_FIELD(0x50)) data->x50 = scalar_block(reader, target, sizeof(Vec2));
     if (FT_FIELD(0x54)) data->x54 = scalar_extent(reader, target);
@@ -2523,9 +2580,27 @@ static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
     return melee_host_hsd_reader_failed(reader) ? NULL : data;
 }
 
+_Static_assert(sizeof(FoxLaserAttr) == 0x28 && sizeof(FoxBlasterAttr) == 0x28,
+               "Fox's item attributes keep their PowerPC sizes");
+
+/* ftFx_Init_OnLoad registers the list's first three slots as the blaster's
+ * shot, the blaster and the illusion; all three blocks are floats in PlFx.dat
+ * (the illusion's two: its speed and its life), with no relocation inside. */
+static const mh_u32 fighter_fox_item_attr_sizes[] = {
+    sizeof(FoxLaserAttr),
+    sizeof(FoxBlasterAttr),
+    2 * sizeof(f32),
+};
+
 static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
 {
-    return fighter_data(reader, root, fighter_fox_attrs);
+    static const struct FighterItemAttrs items = {
+        fighter_fox_item_attr_sizes,
+        sizeof(fighter_fox_item_attr_sizes) /
+            sizeof(fighter_fox_item_attr_sizes[0]),
+    };
+
+    return fighter_data(reader, root, fighter_fox_attrs, &items);
 }
 
 /* A character's demo motions (ftDemoResultMotionFileFox in GmRstMFx.dat and

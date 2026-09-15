@@ -7,6 +7,8 @@
 #include <melee/ft/kinds/ftCommon/types.h>
 #include <melee/ft/kinds/ftFox/types.h>
 #include <melee/ft/types.h>
+#include <melee/it/itCharItems.h>
+#include <melee/it/types.h>
 #include <melee/lb/types.h>
 
 #include <stddef.h>
@@ -104,9 +106,20 @@ int melee_host_test_check_fighter_fox_data(void* translated, char* message,
     CHECK(data->x44 != NULL && data->x44->unk0 == -3 &&
           data->x44->unkC == 4.5f);
 
-    /* An item slot that names int pairs keeps its bytes. */
-    CHECK(data->x48_items != NULL && data->x48_items[1] == NULL);
+    /* An item slot that names int pairs keeps its bytes; the blaster's slot
+     * gets its special attributes as floats. */
+    CHECK(data->x48_items != NULL);
     CHECK(((const u8*) data->x48_items[0])[3] == 3);
+    {
+        const Article* const blaster = data->x48_items[1];
+        const FoxBlasterAttr* attrs;
+
+        CHECK(blaster != NULL && blaster->x0_common_attr != NULL);
+        CHECK(blaster->x14_dynamics == NULL);
+        attrs = blaster->x4_specialAttributes;
+        CHECK(attrs != NULL && attrs->x0 == 4.5f);
+        CHECK(attrs->x18 == 1.0f && attrs->x24 == 7.25f);
+    }
 
     sounds = data->x4C_sfx;
     CHECK(sounds != NULL && sounds->x4 == 11 && sounds->x1C == NULL);

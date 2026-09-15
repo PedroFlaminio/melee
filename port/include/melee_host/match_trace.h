@@ -12,6 +12,9 @@ extern "C" {
 bool melee_host_match_fighter_position(mh_u32 slot, mh_f32* x, mh_f32* y,
                                         mh_f32* z);
 bool melee_host_match_fighter_motion(mh_u32 slot, mh_s32* motion);
+/* The falls (KOs suffered) the game counts for a player slot; false for an
+ * empty slot. */
+bool melee_host_match_player_falls(mh_u32 slot, mh_s32* falls);
 
 #ifdef __cplusplus
 }

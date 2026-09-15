@@ -2006,6 +2006,36 @@ Atualizado em 13 de setembro de 2026.
   relatos de `state_recorder.cpp`. O UBSan fica com 25 pontos distintos: os 24
   do HEAD (o de `gm_1601.c` agora na linha 3026, deslocado pelo include novo) e
   `hsd_3A76.c:648`.
+- [x] O especial neutro do Fox (B) parava com nome em `Item_80267978`, no item
+  74 (a arma do blaster): o tradutor de `Article` deixa os atributos proprios
+  de todo item de fora, porque o layout muda por item. Levantado em `PlFx.dat`:
+  `ftFx_Init_OnLoad` registra os tres primeiros slots de `x48_items` como o
+  tiro, a arma e a ilusao; os atributos proprios deles tem 0x28, 0x28 e 8
+  bytes ate o proximo endereco, sem relocacao dentro, com floats que batem com
+  `FoxLaserAttr` (35, 3, ..., 1) e `FoxBlasterAttr` (1 em `x18`, 2 em `x20`) e
+  com os dois floats da ilusao (5 e 2); nenhum dos tres tem dinamica. O
+  tradutor de `ftDataFox` passa a tabela de tamanhos por slot a
+  `fighter_items`, que confere o tamanho contra o bloco e a ausencia de
+  ponteiro e traduz os floats por palavra; os itens comuns de `ItCo` seguem
+  com a parada. Teste unitario com um artigo sintetico no slot da arma.
+- [x] Medido na rota: B no frame 641 leva P1 de `Wait` (14) as acoes 341, 342 e
+  343 (os especiais do Fox comecam em `ftCo_MS_Count`, 341) e de volta a
+  `Wait` no 700, sem parada; a rota seguiu ate o limite de 240 s da sonda.
+- [x] Correr para tras funciona: com o stick para a esquerda no frame 641, P1
+  vira (`Turn`, 643), corre (`Dash` 644, `Run` 655) e, no 665, entra em
+  `ftCo_MS_StopWall` (249) e fica em x -137; andando, empurra o mesmo ponto. E
+  a parede do estagio. Nas coordenadas do arquivo, a parede (linhas 62 a 64)
+  fica em x -154,7, mas o jogo guarda em cada vertice a posicao do arquivo
+  (`x0`, `x4`) e a posicao em runtime (`pos`), transformada pelo joint do mapa;
+  medido sob gdb na entrada de `StopWall`, a linha 63 esta em x -139,23 e y
+  14,79 a 8,15, 0,9 vezes o arquivo. Com o ECB do Fox (2,887 para cada lado), o
+  contato fica em x -136,34, a posicao de P1. De onde vem a escala no joint nao
+  foi conferido; a imagem da luta ja mostrava os lutadores de pe sobre o
+  modelo.
+- [x] KO pelo codigo do jogo, medido numa sonda: P1 corre ate a parede, pula
+  com X no frame 705 e passa por cima, anda ate a borda em x -230, cai e entra
+  em `ftCo_MS_DeadDown` (0) no frame 900; no 940 reaparece em (18; 170,5), em
+  `ftCo_MS_Rebirth` (12), e desce na plataforma.
 
 ## Em andamento
 

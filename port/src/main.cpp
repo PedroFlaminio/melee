@@ -2075,7 +2075,8 @@ int main(int argc, char** argv)
              * held for three drawn frames, so a scene sees the buttons go down
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
-             * the headless diagnostics SHADOW, FIGHTERS, MOVE and ACTION. PORT is 1 to 4,
+             * the headless diagnostics SHADOW, FIGHTERS, MOVE, ACTION and
+             * FALLS. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
@@ -2102,6 +2103,8 @@ int main(int argc, char** argv)
                 std::vector<mh_u32> fighter_traces;
                 std::vector<mh_u32> action_traces;
                 std::vector<mh_s32> action_samples;
+                std::vector<mh_u32> falls_traces;
+                std::vector<mh_s32> falls_samples;
                 std::vector<std::array<mh_f32, 2>> movement_samples;
                 bool connected[4] = { true, false, false, false };
                 mh_u32 frames = 0;
@@ -2197,6 +2200,16 @@ int main(int argc, char** argv)
                         return 2;
                     }
                     input.action_traces.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "FALLS") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:FALLS, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.falls_traces.push_back(
                         static_cast<mh_u32>(std::stoul(frames)));
                     continue;
                 }
@@ -2374,6 +2387,24 @@ int main(int argc, char** argv)
                                   << ": P1=none\n";
                     }
                 }
+                for (const mh_u32 frame : state->falls_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::cout << "falls frame " << frame << ':';
+                    for (mh_u32 slot = 0; slot < 2; ++slot) {
+                        mh_s32 falls = 0;
+                        if (melee_host_match_player_falls(slot, &falls)) {
+                            std::cout << " P" << slot + 1 << '=' << falls;
+                            if (slot == 0) {
+                                state->falls_samples.push_back(falls);
+                            }
+                        } else {
+                            std::cout << " P" << slot + 1 << "=none";
+                        }
+                    }
+                    std::cout << '\n';
+                }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 for (ScriptedShot& shot : state->shots) {
                     if (shot.frame != state->frames || state->shot_failed) {
@@ -2537,6 +2568,13 @@ int main(int argc, char** argv)
             {
                 std::cerr << "a requested action trace did not change P1's "
                              "motion state\n";
+                failed = true;
+            }
+            if (!input.falls_traces.empty() &&
+                (input.falls_samples.size() < 2 ||
+                 input.falls_samples.back() <= input.falls_samples.front()))
+            {
+                std::cerr << "a requested falls trace saw no KO for P1\n";
                 failed = true;
             }
             if (failed) {
