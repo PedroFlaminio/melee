@@ -2072,6 +2072,59 @@ Atualizado em 15 de setembro de 2026.
   no `host-debug`, com `TIMEOUT 3600`. O `melee-host-vs-match-asset` segue em
   166,9 s. O ritmo no `host-debug`, build sem otimizacao, e de cerca de 4
   frames por segundo na luta e 5 nos resultados.
+- [x] A imagem da rota de estoque conferida em BMP (`N:BMP=`): o menu de
+  regras com "Stock 01", a SSS com os icones, os cinco estagios travados e o
+  nome "Hyrule Temple" (a tela quase toda azul de antes nao se repete), a luta
+  com os dois Fox e o HUD, o "Game!" com o marcador do P2 e os resultados ate
+  "READY FOR THE NEXT BATTLE" nas duas portas.
+- [x] Os resultados diziam "NO CONTEST" numa luta concluida, os retratos dos
+  paineis eram ruido, o Fox fazia outra pose e o emblema do HUD era outro.
+  `gm_80168B34` da o frame da animacao de textura que troca nome, emblema,
+  retrato e icone de estoque de cada personagem, e seu C so atribui `base`
+  para Zelda, Sheik, Popo e os personagens depois de Sheik. O arquivo e
+  `Matching`: no DOL o caminho restante (`cmpwi r3,19`, salto para
+  `mulli r0,r5,30` e `add r0,r3,r0`) usa `r3`, que ainda guarda `ckind`, e o
+  console devolve `ckind + arg2 * 30`. No host sob gdb o frame dos retratos
+  saiu 33554432 e 21845. Sob `MELEE_HOST` `base` comeca em `ckind`, pela
+  macro `GM_80168B34_BASE` de `gm_1601.h` (sem o define, `gm_1601.c`
+  pre-processa igual ao HEAD); teste unitario com os 13 casos lidos do codigo
+  de maquina. O titulo mostra "FOX", os paineis "FOX" com 2nd e 1st, os
+  marcadores P1 e P2 os icones do Fox, o HUD o emblema da Star Fox e o
+  vencedor a pose com o blaster.
+- [x] `gm_80168BF8` termina sem `return`: o console devolve o `f1` que
+  `gm_80168B34` deixa, e `ifstock.c` usa o valor para os icones de estoque do
+  HUD. No `host-debug` o GCC terminava a funcao com `movd %eax,%xmm0`, e o
+  float devolvido era o `eax` da chamada. Sob `MELEE_HOST` a funcao devolve a
+  chamada (`GM_80168BF8_RESULT`, pre-processamento igual sem o define).
+- [x] Rotas roteirizadas repetiveis. O relogio congelado partia da hora do
+  host, e `gmTitle_801A165C` sorteia um `HSD_Rand` por segundo do minuto
+  corrente: medido sob gdb, 10 sorteios antes do primeiro frame numa
+  execucao e 15 em outra, com as sementes `fe87df14` e `4d067e5c` no frame 1,
+  e a pose de vitoria dos resultados seguia a semente. `--run-modes` e
+  `--run-title-scene` congelam agora em 3/12/2001 00:00:00
+  (`melee_host_os_time_freeze_at`, com teste unitario); a semente no frame 1
+  e `df90722b` em qualquer hora. O visualizador com janela segue na hora do
+  host.
+- [x] Trace canonico: `FIRST-LAST:TRACE=arquivo` grava por frame a cena, a
+  semente e, de cada lutador, acao, frame de animacao, posicao, velocidade,
+  direcao, chao ou ar, dano e estoques (floats em hex dos bits, sem enderecos),
+  por `melee_host_match_fighter_sample`, e `port/tools/compare_match_trace.py`
+  exige os mesmos frames e aponta o primeiro campo diferente. A rota de
+  estoque da o mesmo trace nos 1739 frames entre duas execucoes simultaneas
+  (uma com o ambiente acolchoado em 3 KB), entre execucoes em horas diferentes
+  e entre o `host-debug` e o build `-O2`.
+- [x] Build `-O2` fora dos presets (`build/host-release`: `-O2 -g
+  -fno-strict-aliasing -fwrapv`, sem `-Werror`): liga, 205/205 testes
+  unitarios e a rota de estoque em 57,6 s sem apresentar, com a suite sanitize
+  ocupando dois nucleos. Por cena: titulo e menu a cerca de 1000 frames por
+  segundo, CSS 407, SSS 237, luta 16,2 e resultados 15,1; a luta fica a um
+  quarto dos 60 Hz mesmo otimizada. Os avisos listam 215
+  `-Wmaybe-uninitialized` (177 pontos distintos na decomp) e 43
+  `-Wreturn-type`; o `gm_80168B34` original esta entre eles. Na rota ha
+  funcoes sem `return` ainda nao conferidas: `ftAnim_8006F3DC` e
+  `ftAnim_8006F994`, `fn_8017A318` (`gm_1798.c`), `Player_SetFlagsAEBit1`,
+  `pl_80037B2C`, `lb_8000CDC0`, `lb_800138EC`, `mn_8022BFBC` e `mn_8022C010`;
+  o retorno de `fn_80174920` e ignorado.
 
 ## Em andamento
 
@@ -2082,10 +2135,12 @@ Atualizado em 15 de setembro de 2026.
   arquivo ja atende joints, animacoes, cameras, luzes, fog, sprites e
   `_scene_data` e `_scene_models`; faltam imagens e paletas soltas, dados de
   estagio e `ftData*` dos outros personagens.
-- [ ] Fluxo vertical de luta local: `StartMeleeData` → cena VS → players →
-  loop de frame (roteiro em `docs/fight_flow_port.md`). Titulo, menu, CSS e SSS
-  ja rodam pelo codigo do jogo e produzem a selecao; falta a cena de luta
-  (`GS_VS`, `gm_Scene_Vs_*` em `gmvs.c`) com lutadores, estagio, HUD e camera.
+- [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
+  Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
+  codigo do jogo, com a imagem conferida em BMP; faltam o audio, o ritmo (a
+  luta roda a 16 frames por segundo no build `-O2`), os retratos dos
+  resultados (copias da EFB), a janela com entrada real e os dados de estagio
+  ainda sem traducao.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2102,22 +2157,23 @@ Atualizado em 15 de setembro de 2026.
 
 ## Proximos gates
 
-1. A cena de luta (`GS_VS`): `gm_Scene_Vs_OnEnter`, `OnFrame` e `OnExit` de
-   `gmvs.c` na tabela do host, com o `onEnterVs` do estado
-   (`gmVsMelee_EnterVs`, que monta o `StartMeleeData`) e o que a cena alcanca:
-   lutadores (Fox), estagio (Hyrule Temple, `grshrine.c`), mapa de colisao, HUD
-   e camera. O teste `melee-host-vs-selection-asset` ja entrega a selecao que
-   ela consome. A cena liga, e com `GS_VS` na tabela so localmente a entrada
-   passa pela refracao, pelos efeitos, pelos dados de jogador e pelo estagio
-   e para nos dados comuns de item (`itPublicData`). O roteiro, o levantamento
-   dos itens (inclusive os scripts de comando em bit-fields, que tambem sao os
-   dos lutadores) e o historico das ondas de link estao em
-   `docs/fight_flow_port.md`.
-2. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
-   que o apagamento de tela (`HSD_EraseRect`) e as SObj usam.
-3. Tornar a fachada AX/ARAM capaz de executar vozes e streaming, sem ainda
-   confundir isso com uma saida DSP real.
-4. Fechar o que o TEV por fragmento nao cobre: bump, fog e copias de EFB.
+1. Audio: vozes AX no host (decodificacao ADPCM, pool de vozes, parametros
+   que `synth.c` escreve e le, callback de quadro a cada 5 ms), os fluxos de
+   comando do `.sem` e o cabecalho `.hps`, ainda lidos como big-endian.
+   Validar primeiro com uma voz sintetica e depois gravando WAV de um som do
+   jogo, antes de ligar uma saida em tempo real.
+2. Ritmo: a luta e os resultados rodam a 15-16 frames por segundo no build
+   `-O2` sem apresentar. Medir onde vai o tempo antes de otimizar.
+3. Copias da EFB alem da sombra I4: os retratos dos resultados
+   (`HSD_ImageDescCopyFromEFB` em `gm_1798.c`) e a refracao.
+4. Texturas de profundidade no presenter: `GX_ZT_REPLACE` com `Z8` e `Z24X8`,
+   que o apagamento de tela (`HSD_EraseRect`), as SObj e o menu de regras
+   usam.
+5. A janela com entrada real e o ritmo de 60 Hz de relogio de parede.
+6. Conferir no codigo de maquina a lista de variaveis possivelmente nao
+   inicializadas e funcoes sem `return` do build `-O2`, a comecar pelas que a
+   rota alcanca.
+7. Fechar o que o TEV por fragmento nao cobre: bump e fog.
 
 ## Limitacoes atuais
 
@@ -2246,8 +2302,12 @@ Atualizado em 15 de setembro de 2026.
   acharia, e uma cena fora da tabela encerra o modo; nos dois casos
   `--run-modes` termina o roteiro com `stopped:`.
 - A CSS e a SSS foram conferidas pelo estado do jogo (portas, fichas,
-  personagem e estagio escolhidos), nao pela imagem: `--view-title-scene` so
-  apresenta o titulo, e nenhum frame dessas cenas foi desenhado numa janela.
+  personagem e estagio escolhidos) e, na rota de estoque, pela imagem em BMP
+  do menu de regras e da SSS; nenhum frame dessas cenas foi apresentado numa
+  janela.
+- Os retratos dos paineis dos resultados ficam pretos: `gm_1798.c` desenha
+  cada lutador e copia a regiao da EFB (`HSD_ImageDescCopyFromEFB`, texturas
+  RGB5A3 de 52x74), e o host so produz a copia I4 da sombra.
 - O pool SIS do host tem o dobro do tamanho que a cena pede. Isso garante que
   cada bloco cabe no dobro do que ocupava no console, mas a fragmentacao pode
   ser outra; um "Memory Empty" em outra cena deve ser medido com o retrato do
@@ -2280,6 +2340,9 @@ Atualizado em 15 de setembro de 2026.
   tarefas para na sondagem (`CARD_RESULT_NOCARD` vira `0xF`, que a tarefa
   seguinte nao aceita) e nada disso e lido; um cartao virtual precisa desse
   caminho em largura de ponteiro.
+- `stopRange` (`synth.c`) le `pb.addr.currentAddressHi` como `size_t`, que
+  no host tem 8 bytes; com vozes de verdade a comparacao de enderecos precisa
+  ler os 32 bits do console.
 - Sem voz no host a musica nao comeca. O parse do cabecalho `.hps`
   (`HSD_SynthPStreamHeaderCallback`) le campos big-endian como nativos, e nada
   chama o callback de quadro do AX: quando o host entregar vozes, o stream
@@ -2302,7 +2365,13 @@ Atualizado em 15 de setembro de 2026.
   passado a `HSD_ForeachAnim` (`aobj.c:301`) e o callback de render
   `fn_8026407C` de `mncharsel.c` (`gobj.c:154`). Desde que o teste atravessa a
   luta sao 17 pontos distintos; a lista esta na entrada de
-  `melee-host-vs-match-asset`.
+  `melee-host-vs-match-asset`. Com a rota de estoque a suite mostra 28 pontos
+  distintos. Entre os novos, `plbonus.c:44` le `by_attack_hi[107]` num
+  `u32[65]` e `gm_1601.c:3026` grava `kills[4]` e `kills[5]` num `u16[4]`; os
+  dois caem em membros seguintes do mesmo struct, com o mesmo layout no host.
+  Os outros sao `1 << 31` em `int` (`ftCo_Guard.c`, `ftCo_Escape.c`,
+  `ftCo_Catch.c`, `ftCo_Attack100.c`, `ftCo_Damage.c`, `fighter.c`) e chamadas
+  por ponteiro de funcao de outro tipo.
 - O presenter nao modela texturas de profundidade (`GXSetZTexture`), e o
   decodificador nao conhece `Z8`, `Z16` nem `Z24X8`. O apagamento de tela do
   titulo desenha seu quad com a profundidade da propria geometria, na metade

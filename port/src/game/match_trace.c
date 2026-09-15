@@ -6,6 +6,7 @@
 #include <melee/gm/types.h>
 #include <melee/ft/inlines.h>
 #include <melee/pl/player.h>
+#include <sysdolphin/baselib/random.h>
 
 bool melee_host_match_fighter_position(mh_u32 slot, mh_f32* x, mh_f32* y,
                                         mh_f32* z)
@@ -78,4 +79,36 @@ bool melee_host_match_result(mh_u32* outcome, mh_u32* winners,
     *stocks_p1 = end->player_standings[0].stocks;
     *stocks_p2 = end->player_standings[1].stocks;
     return true;
+}
+
+bool melee_host_match_fighter_sample(mh_u32 slot,
+                                     MeleeHostMatchFighterSample* sample)
+{
+    HSD_GObj* fighter;
+    Fighter* fp;
+
+    if (slot >= 4 || sample == NULL) {
+        return false;
+    }
+    fighter = Player_GetEntity((s32) slot);
+    if (fighter == NULL) {
+        return false;
+    }
+    fp = GET_FIGHTER(fighter);
+    sample->motion = fp->motion_id;
+    sample->anim_frame = fp->cur_anim_frame;
+    sample->x = fp->cur_pos.x;
+    sample->y = fp->cur_pos.y;
+    sample->vel_x = fp->self_vel.x;
+    sample->vel_y = fp->self_vel.y;
+    sample->facing = fp->facing_dir;
+    sample->airborne = fp->ground_or_air == GA_Air;
+    sample->percent = fp->dmg.x1830_percent;
+    sample->stocks = Player_GetStocks((s32) slot);
+    return true;
+}
+
+mh_u32 melee_host_match_random_seed(void)
+{
+    return *HSD_RandSeedPtr;
 }

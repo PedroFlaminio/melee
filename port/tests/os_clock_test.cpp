@@ -56,6 +56,35 @@ TEST_CASE("a frozen OS clock moves only when the host advances it")
     REQUIRE(melee_host_os_time_frozen() == FALSE);
 }
 
+TEST_CASE("the OS clock freezes at a chosen calendar time")
+{
+    OSCalendarTime release{};
+    release.year = 2001;
+    release.mon = 11;
+    release.mday = 3;
+    const OSTime instant = OSCalendarTimeToTicks(&release);
+
+    melee_host_os_time_freeze_at(instant);
+    REQUIRE(melee_host_os_time_frozen() == TRUE);
+    REQUIRE(OSGetTime() == instant);
+    OSCalendarTime seen{};
+    OSTicksToCalendarTime(OSGetTime(), &seen);
+    REQUIRE(seen.year == 2001);
+    REQUIRE(seen.mon == 11);
+    REQUIRE(seen.mday == 3);
+    REQUIRE(seen.hour == 0);
+    REQUIRE(seen.min == 0);
+    REQUIRE(seen.sec == 0);
+
+    // An already frozen clock moves to the new time.
+    melee_host_os_time_advance(kFrameTicks);
+    melee_host_os_time_freeze_at(instant);
+    REQUIRE(OSGetTime() == instant);
+
+    melee_host_os_time_thaw();
+    REQUIRE(melee_host_os_time_frozen() == FALSE);
+}
+
 TEST_CASE("the alarm queue has no next alarm when none is armed")
 {
     OSInitAlarm();

@@ -417,6 +417,33 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   cada cena ao comecar (`scene 0xNN from frame N`), e um `N:RULES` a cada 50
   frames serve de marcador barato para medir o ritmo, amostrado junto com o
   `VmRSS`.
+- Um valor que no console vem de um registrador some no host. Uma variavel
+  sem atribuicao num caminho (`base` em `gm_80168B34`) valia o que o MWCC
+  deixou no registrador que ela divide com um parametro, e uma funcao que
+  termina sem `return` (`gm_80168BF8`) devolve o `r3` ou o `f1` da ultima
+  chamada; no host sai o que estiver na pilha ou em outro registrador. O
+  sintoma e uma escolha absurda: o frame de uma animacao de textura que troca
+  nome, emblema ou retrato (o titulo "NO CONTEST" numa luta concluida, ruido
+  nos retratos, o emblema errado no HUD). O GCC so faz a analise com
+  otimizacao: um build `-O2` (`build/host-release`, com
+  `-fno-strict-aliasing -fwrapv` e `MELEE_HOST_WARNINGS_AS_ERRORS=OFF`) lista
+  os candidatos em `-Wmaybe-uninitialized` e `-Wreturn-type`, e acusa o
+  `gm_80168B34` original. A maioria e falso positivo; antes de mudar, leia o
+  codigo de maquina do DOL: tire os bytes da secao com o endereco, embrulhe
+  com `llvm-objcopy -I binary -O elf32-powerpc` e desmonte com
+  `llvm-objdump -d`.
+- As rotas roteirizadas (`--run-modes`, `--run-title-scene`) congelam o
+  relogio do OS em 3/12/2001 00:00:00. Congelado na hora do host, o relogio
+  fazia a semente depender de quando a rota rodava: o titulo sorteia um
+  `HSD_Rand` por segundo do minuto corrente, e a pose de vitoria dos
+  resultados sai dessa semente. Duas execucoes simultaneas nao mostram isso,
+  porque caem no mesmo segundo; compare execucoes em horas diferentes.
+- `FIRST-LAST:TRACE=arquivo` grava por frame a cena, a semente e o estado de
+  cada lutador, com floats em hex dos bits, e
+  `port/tools/compare_match_trace.py A B` aponta o primeiro campo diferente
+  (`--ignore campo` passa por uma diferenca ja entendida). Serve para comparar
+  duas execucoes, o `host-debug` com o build `-O2`, ou uma rota com e sem
+  `BMP=`.
 
 - O preload do estado de titulo (`lbDvdPreload_3`) mantem todos os heaps de
   preload, e o `on_enter` da cena registra os arquivos da demo do titulo:

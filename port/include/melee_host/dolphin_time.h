@@ -42,6 +42,10 @@ OSTime OSCalendarTimeToTicks(OSCalendarTime* input);
  * paced by alarms repeats exactly and never waits on the wall clock.
  * OSGetTime and OSGetTick both follow it. */
 void melee_host_os_time_freeze(void);
+/* Freezes the clock at a given time, whether it runs or is already frozen.
+ * Frozen at the host's time, a run still depends on when it starts: the title
+ * screen draws one HSD_Rand for each second of the current minute. */
+void melee_host_os_time_freeze_at(OSTime time);
 void melee_host_os_time_thaw(void);
 BOOL melee_host_os_time_frozen(void);
 /* Moves a frozen clock forward.  A running clock, or a step that is not

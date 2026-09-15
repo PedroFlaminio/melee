@@ -39,6 +39,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -1019,6 +1021,19 @@ void present_title_frame(void* user_data)
      * latches this state for PADRead. */
     static_cast<void>(melee_host_submit_pad_state(view->context, 0, &pad));
     view->presenter.pace(1'000'000'000ULL / 60ULL);
+}
+
+/* Scripted runs freeze the OS clock at one instant, 3 December 2001 at
+ * midnight, so they repeat whenever they run: the title screen draws one
+ * HSD_Rand for each second of the current minute, and that seed picks the
+ * title demo and the results screen's victory pose. */
+void freeze_scripted_clock()
+{
+    OSCalendarTime instant{};
+    instant.year = 2001;
+    instant.mon = 11;
+    instant.mday = 3;
+    melee_host_os_time_freeze_at(OSCalendarTimeToTicks(&instant));
 }
 
 /* The title screen through its own frame loop, presented in a window, or into
@@ -2034,7 +2049,7 @@ int main(int argc, char** argv)
                                           .headless = true };
             /* Frozen before boot, so the disc waits take the same pad samples
              * on every run as well. */
-            melee_host_os_time_freeze();
+            freeze_scripted_clock();
             if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
                 melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
                 melee_host_boot_memory_init(0) != MELEE_HOST_OK ||
@@ -2076,7 +2091,7 @@ int main(int argc, char** argv)
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
              * the headless diagnostics SHADOW, FIGHTERS, MOVE, ACTION,
-             * FALLS, RULES and RESULT. PORT is 1 to 4,
+             * FALLS, RULES, RESULT and TRACE=PATH. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
@@ -2095,10 +2110,22 @@ int main(int argc, char** argv)
                 std::string path;
                 bool written;
             };
+            /* FIRST[-LAST]:TRACE=PATH writes one line per drawn frame in
+             * the range to PATH: the scene, the random seed and, for each
+             * fighter, its motion, animation frame, position, velocity,
+             * facing, ground or air, damage and stocks, with floats as the
+             * hex of their bits.  tools/compare_match_trace.py reports the
+             * first field two traces differ on. */
+            struct ScriptedTrace {
+                mh_u32 first;
+                mh_u32 last;
+                std::FILE* file;
+            };
             struct ModesInput {
                 MeleeHostContext* context = nullptr;
                 std::vector<ScriptedPress> presses;
                 std::vector<ScriptedShot> shots;
+                std::vector<ScriptedTrace> traces;
                 std::vector<mh_u32> shadow_checks;
                 std::vector<mh_u32> fighter_traces;
                 std::vector<mh_u32> action_traces;
@@ -2239,6 +2266,29 @@ int main(int argc, char** argv)
                         static_cast<mh_u32>(std::stoul(frames)));
                     continue;
                 }
+                if (inputs.rfind("TRACE=", 0) == 0) {
+                    ScriptedTrace trace{};
+                    const auto dash = frames.find('-');
+                    trace.first = static_cast<mh_u32>(
+                        std::stoul(frames.substr(0, dash)));
+                    trace.last = dash == std::string::npos
+                                     ? trace.first
+                                     : static_cast<mh_u32>(std::stoul(
+                                           frames.substr(dash + 1)));
+                    if (inputs.size() == 6 || trace.last < trace.first) {
+                        std::cerr << "expected FIRST[-LAST]:TRACE=PATH, got "
+                                  << entry << '\n';
+                        return 2;
+                    }
+                    trace.file = std::fopen(inputs.c_str() + 6, "w");
+                    if (trace.file == nullptr) {
+                        std::cerr << "cannot write " << inputs.substr(6)
+                                  << '\n';
+                        return 2;
+                    }
+                    input.traces.push_back(trace);
+                    continue;
+                }
                 if (inputs.rfind("BMP=", 0) == 0) {
                     if (frames.find('-') != std::string::npos ||
                         inputs.size() == 4)
@@ -2319,7 +2369,7 @@ int main(int argc, char** argv)
             const std::string root = argv[2];
             const MeleeHostConfig config{ .resource_root = root.c_str(),
                                           .headless = true };
-            melee_host_os_time_freeze();
+            freeze_scripted_clock();
             if (melee_host_create(&config, &context) != MELEE_HOST_OK ||
                 melee_host_activate_dvd_backend(context) != MELEE_HOST_OK ||
                 melee_host_activate_pad_backend(context) != MELEE_HOST_OK ||
@@ -2350,6 +2400,46 @@ int main(int argc, char** argv)
                     std::cout << "scene 0x" << kDigits[(scene >> 4) & 0xF]
                               << kDigits[scene & 0xF] << " from frame "
                               << state->frames << '\n';
+                }
+                for (const ScriptedTrace& trace : state->traces) {
+                    if (state->frames < trace.first ||
+                        state->frames > trace.last)
+                    {
+                        continue;
+                    }
+                    const auto bits = [](mh_f32 value) {
+                        mh_u32 out = 0;
+                        std::memcpy(&out, &value, sizeof out);
+                        return out;
+                    };
+                    const mh_u32 scene_count =
+                        state->report == nullptr ? 0
+                                                 : state->report->scene_count;
+                    const mh_u32 scene =
+                        scene_count == 0 ||
+                                scene_count > MELEE_HOST_GAME_MODE_MAX_SCENES
+                            ? 0xFF
+                            : state->report->scenes[scene_count - 1].scene;
+                    std::fprintf(trace.file, "%u scene=%02x seed=%08x",
+                                 state->frames, scene,
+                                 melee_host_match_random_seed());
+                    for (mh_u32 slot = 0; slot < 4; ++slot) {
+                        MeleeHostMatchFighterSample sample{};
+                        if (!melee_host_match_fighter_sample(slot, &sample)) {
+                            continue;
+                        }
+                        std::fprintf(
+                            trace.file,
+                            " P%u motion=%d anim=%08x x=%08x y=%08x vx=%08x"
+                            " vy=%08x facing=%08x air=%d percent=%08x"
+                            " stocks=%d",
+                            slot + 1, sample.motion, bits(sample.anim_frame),
+                            bits(sample.x), bits(sample.y),
+                            bits(sample.vel_x), bits(sample.vel_y),
+                            bits(sample.facing), sample.airborne,
+                            bits(sample.percent), sample.stocks);
+                    }
+                    std::fputc('\n', trace.file);
                 }
                 for (const mh_u32 frame : state->shadow_checks) {
                     if (frame != state->frames) {
@@ -2613,6 +2703,12 @@ int main(int argc, char** argv)
                 }
             }
             melee_host_destroy(context);
+            for (const ScriptedTrace& trace : input.traces) {
+                if (std::fclose(trace.file) != 0) {
+                    std::cerr << "a trace could not be written\n";
+                    failed = true;
+                }
+            }
             for (const ScriptedShot& shot : input.shots) {
                 if (!shot.written) {
                     std::cerr << "frame " << shot.frame << " was not written"

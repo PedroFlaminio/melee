@@ -68,6 +68,12 @@ extern "C" void melee_host_os_time_freeze(void)
     }
 }
 
+extern "C" void melee_host_os_time_freeze_at(OSTime time)
+{
+    frozen_time.store(time);
+    time_frozen.store(true);
+}
+
 extern "C" void melee_host_os_time_thaw(void)
 {
     time_frozen.store(false);

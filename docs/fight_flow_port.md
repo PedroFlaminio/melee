@@ -405,6 +405,16 @@ e entrada de cena. O fluxo VS deve reutilizar essa sequência, mas receber
   `docs/native_port_status.md`. Proximo passo: olhar os frames dessa rota (o
   "GAME!", o vencedor, a SSS) e medir o ritmo num build otimizado, porque o
   `host-debug` fica em 4 a 5 frames por segundo.
+- Executado: a imagem da rota de estoque. Em BMP, o menu de regras, a SSS, a
+  luta e o "Game!" saem certos; nos resultados o titulo dizia "NO CONTEST", os
+  retratos eram ruido e o HUD mostrava outro emblema, porque `gm_80168B34`,
+  que da o frame dessas animacoes de textura, devolvia lixo da pilha no host
+  (o console guarda `base` no registrador de `ckind`). Corrigido sob
+  `MELEE_HOST`, com `gm_80168BF8`, que terminava sem `return`. Os retratos dos
+  paineis continuam pretos: sao copias da EFB (`gm_1798.c`). As rotas
+  roteirizadas congelam o relogio num instante fixo e ganham o trace
+  canonico `TRACE=`, igual entre execucoes e entre o `host-debug` e um build
+  `-O2`. Proximo passo: audio (vozes AX), e as copias da EFB dos resultados.
 - Como a tela de resultados funciona no host. Com a tabela de estados do console e
   `GS_RESULTS` na tabela de cenas, a luta cancelada entra em
   `gm_Scene_Results_OnEnter` pelo proprio jogo (`fn_8016CF4C` com

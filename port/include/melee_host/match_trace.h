@@ -26,6 +26,28 @@ bool melee_host_match_result(mh_u32* outcome, mh_u32* winners,
                              mh_u32* first_winner, mh_s32* stocks_p1,
                              mh_s32* stocks_p2);
 
+/* One fighter's gameplay state for a canonical trace: the fields two runs of
+ * the same route are compared on, with no host addresses or padding. */
+typedef struct MeleeHostMatchFighterSample {
+    mh_s32 motion;
+    mh_f32 anim_frame;
+    mh_f32 x;
+    mh_f32 y;
+    mh_f32 vel_x;
+    mh_f32 vel_y;
+    mh_f32 facing;
+    mh_s32 airborne;
+    mh_f32 percent;
+    mh_s32 stocks;
+} MeleeHostMatchFighterSample;
+
+/* The sample of the fighter in a player slot; false when the slot has no
+ * fighter. */
+bool melee_host_match_fighter_sample(mh_u32 slot,
+                                     MeleeHostMatchFighterSample* sample);
+/* The HSD random generator's seed, which every HSD_Rand call advances. */
+mh_u32 melee_host_match_random_seed(void);
+
 #ifdef __cplusplus
 }
 #endif
