@@ -14,6 +14,7 @@
 int melee_host_test_ax_decode(char* message, size_t size);
 int melee_host_test_ax_prediction(char* message, size_t size);
 int melee_host_test_ax_loop(char* message, size_t size);
+int melee_host_test_ax_loop_ahead(char* message, size_t size);
 int melee_host_test_ax_resample(char* message, size_t size);
 int melee_host_test_ax_voices_off(char* message, size_t size);
 int melee_host_test_ax_steal(char* message, size_t size);
@@ -102,6 +103,26 @@ int melee_host_test_ax_loop(char* message, size_t size)
     pb.addr.loopFlag = 1;
     pb.addr.loopAddressLo = 2;
     melee_host_ax_render_voice(&pb, aram, sizeof(aram), left, NULL, 10);
+    CHECK(memcmp(left, expected, sizeof(expected)) == 0);
+    CHECK(pb.state == 1);
+    return 1;
+}
+
+int melee_host_test_ax_loop_ahead(char* message, size_t size)
+{
+    /* A music stream loops into its next chunk, past its end address, and
+     * the end address moves only at the next frame callback.  Until then the
+     * voice plays on from the loop address instead of returning to it on
+     * every sample. */
+    static const u8 aram[16] = { 0x00, 0x12, 0x34, 0x00, 0x00, 0x00,
+                                 0x00, 0x00, 0x00, 0x56, 0x71 };
+    static const s32 expected[8] = { 1, 2, 3, 4, 5, 6, 7, 1 };
+    s32 left[8] = { 0 };
+    AXPB pb = adpcm_voice(2, 5);
+
+    pb.addr.loopFlag = 1;
+    pb.addr.loopAddressLo = 18;
+    melee_host_ax_render_voice(&pb, aram, sizeof(aram), left, NULL, 8);
     CHECK(memcmp(left, expected, sizeof(expected)) == 0);
     CHECK(pb.state == 1);
     return 1;

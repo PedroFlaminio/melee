@@ -72,6 +72,13 @@ public:
      * presenter that fell behind starts counting again instead of catching
      * up. */
     void pace(std::uint64_t frame_nanoseconds);
+    /* Opens the default playback device for the AX mixer's output, 16-bit
+     * stereo at 32 kHz.  Without it the game plays silently. */
+    [[nodiscard]] bool open_audio(std::string* error);
+    /* Queues one batch of the mixer's stereo pairs.  A batch that finds the
+     * device more than a quarter second behind is dropped, so a device clock
+     * slower than the game's cannot build up delay. */
+    void queue_audio(const std::int16_t* stereo, std::uint32_t pairs);
 
 private:
     struct State;

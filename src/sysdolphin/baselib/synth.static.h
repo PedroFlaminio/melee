@@ -75,7 +75,13 @@ static struct {
     /* 04 */ s32 x4;
     /* 08 */ s32 x8;
     /* 0C */ char pad[0x14];
-} lbl_804C4540[3];
+} lbl_804C4540[3]
+#ifdef MELEE_HOST
+    /* devcom reads each chunk header straight into its entry and asserts a
+     * 32-aligned destination, which the console's .bss gives. */
+    __attribute__((aligned(32)))
+#endif
+    ;
 
 /* 4D7720 */ static int HSD_Synth_804D7720;
 /* 4D7724 */ static int hsd_SynthSFXBankNum;

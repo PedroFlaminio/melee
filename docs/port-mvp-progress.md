@@ -8,7 +8,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 15 de setembro de 2026
 
-**Estimativa: 91% (faixa de confiança: 86–93%).** A tabela descreve o estado
+**Estimativa: 94% (faixa de confiança: 90–95%).** A tabela descreve o estado
 de cada área hoje; o registro no fim guarda a evolução desde a linha de base
 de 13 de setembro.
 
@@ -19,18 +19,29 @@ de 13 de setembro.
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
 | Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox contra Fox em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP; os retratos dos painéis ficam pretos (cópias da EFB), e do estágio faltam `itemdata`, `ALDYakuAll`, `yakumono_param`, `map_plit` e `quake_model_set` | 30% |
-| Áudio, distribuição e regressão end-to-end | sem áudio (o host não entrega voz AX); duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
+| Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); os barramentos aux (reverb e delay) não tocam; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 18/18 (os 14 curtos, os dois de banco de som e
-  as duas rotas de VS); 216/216 testes unitários; a suíte toda em 58,9 s, com
-  as rotas em 23,4 e 32,3 s.
-- `ctest --preset host-sanitize -V`: 16/16 no commit `93f508a6a`, sem erro do
-  ASan, a suíte em 146 s, com a rota cancelada em 108,8 s e a de estoque em
-  145,6 s (antes da correção do recorder, 763,8 s e 1130,3 s). O UBSan só
-  imprime: 28 pontos distintos, os mesmos desde a rota de estoque, descritos em
-  `native_port_status.md`.
+- `ctest --preset host-debug`: 19/19 (os 14 curtos, os dois de banco de som, o
+  de áudio da rota e as duas rotas de VS, estas com as vozes ligadas); 217/217
+  testes unitários; a suíte toda em 59,6 s, com as rotas em 23,3 e 30,9 s.
+- `melee-host-route-audio-asset`: título → START → menu → B, gravando o mixer
+  em WAV. A música `menu01.hps`, decodificada à parte, bate janela a janela
+  (67 janelas de 4000 amostras, pior correlação 1,000000 nos dois canais,
+  atravessando as junções de bloco do stream), e o efeito 118 de `main.ssm`,
+  com a música subtraída, dá 1,000000 nas duas vozes. Com o teste de fim de
+  voz antigo do mixer, as piores janelas caem a -0,66 e -0,53 e o teste falha.
+- Áudio e jogo: a rota de estoque dá o mesmo trace nos 1739 frames com as
+  vozes ligadas e desligadas (`MELEE_HOST_AUDIO=0`), e o build `-O2` o mesmo
+  trace com som, em 4,96 s.
+- `--play` (build `-O2`) com START roteirizado: `melee-pc` aparece no servidor
+  de som como fluxo tocando (não pausado) durante a música do menu, e o título
+  mostrou 60,1, 60,1 e 59,8 FPS.
+- `ctest --preset host-sanitize -V`: 19/19 com o áudio ligado, sem erro do
+  ASan, 217/217 unitários, a rota cancelada em 110,0 s, a de estoque em
+  147,0 s e a de áudio em 9,1 s. O UBSan só imprime: 31 pontos distintos,
+  quatro deles nos callbacks do áudio, descritos em `native_port_status.md`.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
 - `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
@@ -66,10 +77,11 @@ de 13 de setembro.
 ## Próximo marco
 
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
-conferida e rotas repetíveis. Falta, em ordem: o áudio (vozes AX, `.sem` e
-`.hps`; nada toca hoje); jogar de verdade no `--play`, que já abre a janela,
-mantém 60 Hz e mapeia o pad inteiro, mas não foi jogado por uma pessoa; as cópias da EFB dos retratos dos resultados; e os dados de estágio que
-faltam. Do modo VS faltam morte súbita,
+conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
+`--play`, que abre a janela, segue o ritmo do console, mapeia o pad inteiro e
+toca som, mas não foi jogado por uma pessoa; as cópias da EFB dos retratos dos
+resultados; os dados de estágio que faltam; e, no áudio, os barramentos aux
+(reverb e delay), que o mixer não mistura. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
@@ -159,3 +171,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 91% | Mixer AX do host no lugar das fachadas de voz: pool de 64 vozes com o roubo por prioridade do SDK, setters com a semântica de `AXVPB.c` e quadros de 5 ms que decodificam DSP ADPCM, PCM16 e PCM8, reamostram, aplicam envelope e mix e só então chamam o callback do synth. As vozes ficam desligadas por padrão, porque uma voz abre caminhos de efeitos e música que o host ainda não tem; oito verificações sintéticas passam. `host-debug` 16/16, 213/213 unitários. |
 | 2026-09-15 | 91% | O mixer AX do host decodifica as vozes reais igual à referência: `melee-pc --decode-sound-bank` e `ssm_to_wav.py --compare-host` dão as mesmas amostras nas 456 vozes de nove bancos (efeitos, personagens, Pokémon e as falas do título), e um desvio de uma unidade no Python aparece em todas as vozes comparadas. Dois testes com asset entram na suíte; `host-debug` 18/18 e, sob ASan, 213/213 unitários e os testes de banco sem relato novo. |
 | 2026-09-15 | 91% | Pendências do primeiro teste manual do `--play`: o gamepad SDL dá cima como negativo, e os dois eixos verticais passam a trocar de sinal antes de `PADStatus` (`gamepad_axis_y`, `port/src/render/play_window.hpp`), como o W do teclado; a janela visível mostra os frames por segundo no título duas vezes por segundo (60,0, 59,8 e 60,0 lidos com `wmctrl` no build `-O2`). Três testes unitários cobrem eixos, medidor e título; sem gamepad ligado, o eixo foi conferido só por eles. `host-debug` 18/18, 216/216 unitários. |
+| 2026-09-15 | 94% | O jogo toca efeitos e música. `synth.c` monta no host os descritores dos `.ssm` em largura de ponteiro (registro do arquivo e sons num bloco, readdress e deflag próprios), o `.sem` tem os fluxos de comando convertidos na carga, a razão de reamostragem deixa de ser gravada como uma palavra sobre dois `u16` e o stream `.hps` converte cabeçalho e blocos. O relógio AX roda um quadro de 5 ms por 5 ms de campo a cada retrace, as vozes ligam nas rotas e no `--play`, que toca no dispositivo de som e passa a esperar um campo NTSC por frame, e `WAV=` grava o mixer. Comparar a música com um decodificador à parte achou o mixer voltando ao início do bloco a cada amostra depois de laçar para o bloco seguinte (33 e 96 amostras repetidas): o fim agora dispara só no endereço seguinte ao fim, como o acelerador do DSP. `OSGetSoundMode` responde estéreo. Música por janela e efeito 118 com correlação 1,000000; trace igual com e sem som; `host-debug` 19/19, 217/217 unitários; sob ASan 19/19, sem relato do ASan e com 31 pontos do UBSan, quatro nos callbacks do áudio. |

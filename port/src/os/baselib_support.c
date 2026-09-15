@@ -171,9 +171,19 @@ u8 AIGetStreamVolRight(void)
     return melee_host_stream_volume_right;
 }
 
+/* The IPL's sound setting, which the console keeps in SRAM.  A GameCube
+ * leaves the factory in stereo, and the host's output is stereo. */
+static u32 melee_host_sound_mode = OS_SOUND_MODE_STEREO;
+
 u32 OSGetSoundMode(void)
 {
-    return 0;
+    return melee_host_sound_mode;
+}
+
+void OSSetSoundMode(u32 mode)
+{
+    melee_host_sound_mode = mode == OS_SOUND_MODE_MONO ? OS_SOUND_MODE_MONO
+                                                       : OS_SOUND_MODE_STEREO;
 }
 
 void DCInvalidateRange(void* address, u32 length)

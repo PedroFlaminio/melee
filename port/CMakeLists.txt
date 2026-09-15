@@ -520,6 +520,30 @@ if(MELEE_HOST_BUILD_TESTS)
             endif()
         endforeach()
     endif()
+    # What the game plays, end to end: from the title to the main menu and
+    # back, START's effect and the menu music recorded from the host's mixer
+    # and compared with decoders that do not use it.  The music is checked
+    # window by window across its chunk joins, and the effect with the music
+    # taken out.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets-local/audio/menu01.hps" AND
+       EXISTS "${CMAKE_SOURCE_DIR}/assets-local/audio/main.ssm" AND
+       EXISTS "${CMAKE_SOURCE_DIR}/assets-local/sys/main.dol")
+        add_test(
+            NAME melee-host-route-audio-asset
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/port/tools/check_route_audio.py
+                    $<TARGET_FILE:melee-pc> ${CMAKE_SOURCE_DIR}/assets-local
+        )
+        set_tests_properties(melee-host-route-audio-asset PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "the host's music and effect match the reference decoders"
+        )
+        if(MELEE_HOST_ENABLE_SANITIZERS)
+            set_tests_properties(melee-host-route-audio-asset PROPERTIES
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+            )
+        endif()
+    endif()
     # The same data, loaded through the original object layer instead of the
     # read-only schema.  One menu scene and one character model, which is the
     # deeper tree and the one carrying envelopes and shape sets.

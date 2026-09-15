@@ -20,6 +20,7 @@
 #include <dolphin/pad.h>
 #include <dolphin/vi.h>
 #include <melee_host/archive_probe.h>
+#include <melee_host/ax_mixer.h>
 #include <melee_host/baselib.h>
 #include <melee_host/boot.h>
 #include <melee_host/dolphin_time.h>
@@ -53,6 +54,42 @@
 #include <span>
 #include <string>
 #include <vector>
+
+namespace {
+
+/* The canonical 44-byte header of 16-bit stereo PCM at 32 kHz, over the
+ * placeholder a WAV= entry wrote first. */
+bool write_wav_header(std::FILE* file, mh_u64 pairs)
+{
+    const auto put32 = [](unsigned char* out, mh_u32 value) {
+        for (int i = 0; i < 4; ++i) {
+            out[i] = static_cast<unsigned char>(value >> (8 * i));
+        }
+    };
+    const auto put16 = [](unsigned char* out, mh_u32 value) {
+        out[0] = static_cast<unsigned char>(value);
+        out[1] = static_cast<unsigned char>(value >> 8);
+    };
+    const mh_u32 data_bytes = static_cast<mh_u32>(pairs * 4U);
+    std::array<unsigned char, 44> header{};
+    std::memcpy(header.data(), "RIFF", 4);
+    put32(header.data() + 4, 36U + data_bytes);
+    std::memcpy(header.data() + 8, "WAVEfmt ", 8);
+    put32(header.data() + 16, 16U);
+    put16(header.data() + 20, 1U);
+    put16(header.data() + 22, 2U);
+    put32(header.data() + 24, 32000U);
+    put32(header.data() + 28, 32000U * 4U);
+    put16(header.data() + 32, 4U);
+    put16(header.data() + 34, 16U);
+    std::memcpy(header.data() + 36, "data", 4);
+    put32(header.data() + 40, data_bytes);
+    return std::fseek(file, 0, SEEK_SET) == 0 &&
+           std::fwrite(header.data(), 1, header.size(), file) ==
+               header.size();
+}
+
+} // namespace
 
 namespace {
 
@@ -2201,11 +2238,21 @@ int main(int argc, char** argv)
                 mh_u32 last;
                 std::FILE* file;
             };
+            /* FIRST-LAST:WAV=PATH writes what the AX mixer plays while the
+             * drawn frames are in the range to PATH, 16-bit stereo at
+             * 32 kHz.  MELEE_HOST_AUDIO=0 keeps the game's voices off. */
+            struct ScriptedWav {
+                mh_u32 first;
+                mh_u32 last;
+                std::FILE* file;
+                mh_u64 pairs;
+            };
             struct ModesInput {
                 MeleeHostContext* context = nullptr;
                 std::vector<ScriptedPress> presses;
                 std::vector<ScriptedShot> shots;
                 std::vector<ScriptedTrace> traces;
+                std::vector<ScriptedWav> wavs;
                 std::vector<mh_u32> shadow_checks;
                 std::vector<mh_u32> fighter_traces;
                 std::vector<mh_u32> action_traces;
@@ -2225,6 +2272,7 @@ int main(int argc, char** argv)
                 TitleTextureCache* textures = nullptr;
                 melee::render::FramePresenter* presenter = nullptr;
                 bool presenter_open = false;
+                bool audio_open = false;
                 /* --play: the presenter shows every frame, and the keyboard
                  * and the gamepad it reads become pad 1. */
                 bool play = false;
@@ -2351,6 +2399,32 @@ int main(int argc, char** argv)
                         static_cast<mh_u32>(std::stoul(frames)));
                     continue;
                 }
+                if (inputs.rfind("WAV=", 0) == 0) {
+                    ScriptedWav wav{};
+                    const auto dash = frames.find('-');
+                    wav.first = static_cast<mh_u32>(
+                        std::stoul(frames.substr(0, dash)));
+                    wav.last = dash == std::string::npos
+                                   ? wav.first
+                                   : static_cast<mh_u32>(std::stoul(
+                                         frames.substr(dash + 1)));
+                    if (inputs.size() == 4 || wav.last < wav.first) {
+                        std::cerr << "expected FIRST[-LAST]:WAV=PATH, got "
+                                  << entry << '\n';
+                        return 2;
+                    }
+                    wav.file = std::fopen(inputs.c_str() + 4, "wb");
+                    if (wav.file == nullptr) {
+                        std::cerr << "cannot write " << inputs.substr(4)
+                                  << '\n';
+                        return 2;
+                    }
+                    /* The header is written again once the size is known. */
+                    const std::array<char, 44> header{};
+                    std::fwrite(header.data(), 1, header.size(), wav.file);
+                    input.wavs.push_back(wav);
+                    continue;
+                }
                 if (inputs.rfind("TRACE=", 0) == 0) {
                     ScriptedTrace trace{};
                     const auto dash = frames.find('-');
@@ -2470,6 +2544,35 @@ int main(int argc, char** argv)
                 return 1;
             }
             input.context = context;
+            {
+                const char* const audio = std::getenv("MELEE_HOST_AUDIO");
+                melee_host_ax_set_voices_enabled(
+                    audio == nullptr || std::string(audio) != "0");
+            }
+            /* What the AX mixer plays goes to the WAV entries whose range
+             * holds the current frame and, in a play window, to the sound
+             * device. */
+            melee_host_ax_set_output_sink(
+                [](const mh_s16* stereo, mh_u32 pairs, void* user_data) {
+                    auto* const state = static_cast<ModesInput*>(user_data);
+                    for (ScriptedWav& wav : state->wavs) {
+                        if (state->frames < wav.first ||
+                            state->frames > wav.last)
+                        {
+                            continue;
+                        }
+                        /* WAV is little-endian, like the host. */
+                        std::fwrite(stereo, sizeof(mh_s16), pairs * 2U,
+                                    wav.file);
+                        wav.pairs += pairs;
+                    }
+#if defined(MELEE_HOST_SDL_RENDERER)
+                    if (state->audio_open) {
+                        state->presenter->queue_audio(stereo, pairs);
+                    }
+#endif
+                },
+                &input);
 #if defined(MELEE_HOST_SDL_RENDERER)
             if (play) {
                 const char* const hidden = std::getenv("MELEE_HOST_PLAY_HIDDEN");
@@ -2484,6 +2587,17 @@ int main(int argc, char** argv)
                 input.presenter_open = true;
                 input.play = true;
                 input.play_mark = std::chrono::steady_clock::now();
+                const char* const audio = std::getenv("MELEE_HOST_AUDIO");
+                if ((hidden == nullptr || hidden[0] == '\0') &&
+                    (audio == nullptr || std::string(audio) != "0"))
+                {
+                    std::string audio_error;
+                    input.audio_open = shot_presenter.open_audio(&audio_error);
+                    if (!input.audio_open) {
+                        std::cerr << "no sound device: " << audio_error
+                                  << '\n';
+                    }
+                }
             }
 #endif
             /* The connected pads, holding whatever the script presses on this
@@ -2529,6 +2643,15 @@ int main(int argc, char** argv)
                     }
                 }
 #endif
+                /* A WAV is complete once its range has passed, even if the
+                 * process is stopped later. */
+                for (ScriptedWav& wav : state->wavs) {
+                    if (state->frames == wav.last + 1U) {
+                        static_cast<void>(write_wav_header(wav.file, wav.pairs));
+                        std::fseek(wav.file, 0, SEEK_END);
+                        std::fflush(wav.file);
+                    }
+                }
                 for (const ScriptedTrace& trace : state->traces) {
                     if (state->frames < trace.first ||
                         state->frames > trace.last)
@@ -2765,7 +2888,10 @@ int main(int argc, char** argv)
                 }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 if (state->play) {
-                    state->presenter->pace(1'000'000'000ULL / 60ULL);
+                    /* One field per frame, as the console's NTSC output,
+                     * which is also the rate the AX clock fills the sound
+                     * device at. */
+                    state->presenter->pace(melee_host_video_field_nanoseconds());
                 }
 #endif
             };
@@ -2861,7 +2987,16 @@ int main(int argc, char** argv)
                     }
                 }
             }
+            melee_host_ax_set_output_sink(nullptr, nullptr);
             melee_host_destroy(context);
+            for (const ScriptedWav& wav : input.wavs) {
+                if (!write_wav_header(wav.file, wav.pairs) ||
+                    std::fclose(wav.file) != 0)
+                {
+                    std::cerr << "a WAV file could not be written\n";
+                    failed = true;
+                }
+            }
             for (const ScriptedTrace& trace : input.traces) {
                 if (std::fclose(trace.file) != 0) {
                     std::cerr << "a trace could not be written\n";

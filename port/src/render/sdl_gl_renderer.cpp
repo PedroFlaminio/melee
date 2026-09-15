@@ -1167,6 +1167,7 @@ struct FramePresenter::State {
     GLuint white_texture = 0;
     std::map<const TextureImage*, GLuint> textures;
     SDL_Gamepad* gamepad = nullptr;
+    SDL_AudioStream* audio = nullptr;
     int width = 0;
     int height = 0;
     Uint64 next_frame_ns = 0;
@@ -1191,6 +1192,9 @@ FramePresenter::~FramePresenter()
     state_->target.reset();
     if (state_->gamepad != nullptr) {
         SDL_CloseGamepad(state_->gamepad);
+    }
+    if (state_->audio != nullptr) {
+        SDL_DestroyAudioStream(state_->audio);
     }
     close_gl_window(&state_->window);
 }
@@ -1414,6 +1418,49 @@ void FramePresenter::pace(std::uint64_t frame_nanoseconds)
     if (next > now) {
         SDL_DelayPrecise(next - now);
     }
+}
+
+bool FramePresenter::open_audio(std::string* error)
+{
+    std::string ignored;
+    std::string& message = error != nullptr ? *error : ignored;
+    if (state_ == nullptr) {
+        message = "the presenter is not open";
+        return false;
+    }
+    if (state_->audio != nullptr) {
+        return true;
+    }
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        message = SDL_GetError();
+        return false;
+    }
+    const SDL_AudioSpec spec{ SDL_AUDIO_S16, 2, 32000 };
+    state_->audio = SDL_OpenAudioDeviceStream(
+        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+    if (state_->audio == nullptr) {
+        message = SDL_GetError();
+        return false;
+    }
+    if (!SDL_ResumeAudioStreamDevice(state_->audio)) {
+        message = SDL_GetError();
+        return false;
+    }
+    return true;
+}
+
+void FramePresenter::queue_audio(const std::int16_t* stereo,
+                                 std::uint32_t pairs)
+{
+    if (state_ == nullptr || state_->audio == nullptr) {
+        return;
+    }
+    constexpr int kQuarterSecondBytes = 32000 * 4 / 4;
+    if (SDL_GetAudioStreamQueued(state_->audio) > kQuarterSecondBytes) {
+        return;
+    }
+    static_cast<void>(SDL_PutAudioStreamData(
+        state_->audio, stereo, static_cast<int>(pairs * 4U)));
 }
 
 } // namespace melee::render

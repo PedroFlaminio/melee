@@ -856,8 +856,9 @@ void AXDriver_8038DA70(const char* path, void (*callback)(void))
      * offsets in its own order.  Of the four tables the driver reads two: the
      * per-bank sample indices, swapped in place, and the command stream of
      * each sample, kept as a separate array of host pointers.  The other two
-     * are not relocated because nothing reads them.  The command streams
-     * themselves stay big-endian: the host has no voice to run them yet. */
+     * are not relocated because nothing reads them.  The command streams fill
+     * the file after the last table and are 32-bit words, put in the host's
+     * order once here. */
     (void) ptr;
     (void) count;
     (void) i;
@@ -910,6 +911,19 @@ void AXDriver_8038DA70(const char* path, void (*callback)(void))
     AXDriver_804D77C4 = AXDriver_804D77C0 != 0
                             ? (u8*) AXDriver_804D7798 + offset
                             : NULL;
+    offset += AXDriver_804D77C0 * 4;
+    for (j = 0; j < AXDriver_804D77B8; j++) {
+        if ((u8*) AXDriver_804D77BC[j] < (u8*) AXDriver_804D7798 + offset) {
+            OSPanic(__FILE__, __LINE__,
+                    "sound command stream overlaps the tables");
+        }
+    }
+    for (; (u32) offset + 4 <= (u32) AXDriver_804D779C; offset += 4) {
+        u32* const word = (u32*) ((u8*) AXDriver_804D7798 + offset);
+        const u32 v = *word;
+        *word = (v >> 24) | ((v >> 8) & 0xFF00U) | ((v << 8) & 0xFF0000U) |
+                (v << 24);
+    }
 #else
     AXDriver_804D77A0 = ((s32*) AXDriver_804D7798)[0];
     count = AXDriver_804D77A0;

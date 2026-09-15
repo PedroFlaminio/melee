@@ -8,6 +8,7 @@ extern "C" {
 int melee_host_test_ax_decode(char* message, std::size_t size);
 int melee_host_test_ax_prediction(char* message, std::size_t size);
 int melee_host_test_ax_loop(char* message, std::size_t size);
+int melee_host_test_ax_loop_ahead(char* message, std::size_t size);
 int melee_host_test_ax_resample(char* message, std::size_t size);
 int melee_host_test_ax_voices_off(char* message, std::size_t size);
 int melee_host_test_ax_steal(char* message, std::size_t size);
@@ -31,6 +32,12 @@ TEST_CASE("a looping voice returns to its loop address")
 {
     char message[256] = {};
     REQUIRE(melee_host_test_ax_loop(message, sizeof(message)) == 1);
+}
+
+TEST_CASE("a voice looped past its end address plays on from the loop")
+{
+    char message[256] = {};
+    REQUIRE(melee_host_test_ax_loop_ahead(message, sizeof(message)) == 1);
 }
 
 TEST_CASE("the host mixer resamples between neighbouring samples")

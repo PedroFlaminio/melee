@@ -12,6 +12,7 @@
 
 #include <melee_host/video.h>
 
+#include <melee_host/ax_mixer.h>
 #include <melee_host/gx.h>
 
 #include <dolphin/gx/GXStruct.h>
@@ -98,6 +99,17 @@ RetraceDelivery retrace_locked()
     return delivery;
 }
 
+mh_u64 field_nanoseconds_locked()
+{
+    switch (state.tv_mode >> 2U) {
+    case VI_PAL:
+    case VI_DEBUG_PAL:
+        return MELEE_HOST_VIDEO_PAL_FIELD_NANOSECONDS;
+    default:
+        return MELEE_HOST_VIDEO_NTSC_FIELD_NANOSECONDS;
+    }
+}
+
 void deliver(const RetraceDelivery& delivery)
 {
     if (delivery.pre != nullptr) {
@@ -171,11 +183,16 @@ void VIWaitForRetrace(void)
      * is delivered here. */
     static_cast<void>(melee_host_gx_drain_draw_done());
     RetraceDelivery delivery;
+    mh_u64 field = 0;
     {
         const std::lock_guard<std::mutex> guard(video_mutex);
         delivery = retrace_locked();
+        field = field_nanoseconds_locked();
     }
     deliver(delivery);
+    /* The DSP's frames keep coming while the game waits: one field of them
+     * per retrace. */
+    melee_host_ax_advance_time(field);
 }
 
 u32 VIGetRetraceCount(void)
@@ -254,27 +271,24 @@ MeleeHostStatus melee_host_video_state(MeleeHostVideoState* out_state)
 MeleeHostStatus melee_host_video_advance_retrace(void)
 {
     RetraceDelivery delivery;
+    mh_u64 field = 0;
     {
         const std::lock_guard<std::mutex> guard(video_mutex);
         if (!state.initialized) {
             return MELEE_HOST_NOT_READY;
         }
         delivery = retrace_locked();
+        field = field_nanoseconds_locked();
     }
     deliver(delivery);
+    melee_host_ax_advance_time(field);
     return MELEE_HOST_OK;
 }
 
 mh_u64 melee_host_video_field_nanoseconds(void)
 {
     const std::lock_guard<std::mutex> guard(video_mutex);
-    switch (state.tv_mode >> 2U) {
-    case VI_PAL:
-    case VI_DEBUG_PAL:
-        return MELEE_HOST_VIDEO_PAL_FIELD_NANOSECONDS;
-    default:
-        return MELEE_HOST_VIDEO_NTSC_FIELD_NANOSECONDS;
-    }
+    return field_nanoseconds_locked();
 }
 
 void melee_host_video_reset(void)

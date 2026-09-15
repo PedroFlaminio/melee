@@ -2201,6 +2201,45 @@ Atualizado em 15 de setembro de 2026.
   titulo lido por `wmctrl`: 60,0, 59,8 e 60,0 aos 3, 6 e 9 s. Tres testes
   unitarios (`play_window_test.cpp`) cobrem eixos, medidor e titulo; nao havia
   gamepad ligado para conferir o eixo na mao.
+- [x] Efeitos sonoros e musica pelo codigo do jogo. `synth.c` monta no host,
+  sob `MELEE_HOST`, o que o console monta no lugar sobre a tabela de sons do
+  `.ssm`: um registro por arquivo (`HSD_SynthSFXHostGroup`, com numero de
+  entrada, primeiro id, contagem, deslocamento e tamanho na ARAM) e, no mesmo
+  bloco, um descritor por som no layout de `struct foo` do host, com os
+  enderecos das vozes somados ao banco. A tabela e lida 0x20 bytes dentro do
+  buffer para que as quatro palavras que a leitura do cabecalho levou voltem a
+  frente; as amostras vao a ARAM pelo devcom como no console. Descarga, remocao
+  por arquivo, readdress e deflag andam pelos registros do host, e as esperas
+  ativas do synth dao passos no escalonador. `stopRange` e `HSD_Synth_8038ADD0`
+  leem o endereco corrente pelos campos Hi e Lo (o console le uma palavra, e
+  `0x1B2` e o deslocamento do AXVPB de 32 bits), e a razao de reamostragem, que
+  o console grava como uma palavra sobre `ratioHi` e `ratioLo`, e gravada
+  campo a campo: em little-endian a razao 1,0 virava 1/65536.
+  `AXDriver_8038DA70` converte na carga os fluxos de comando do `.sem`, que
+  ocupam o arquivo inteiro depois da ultima tabela (4035 fluxos em
+  `smash2.sem`, terminados pelo comando 14 ou 15; `0xFD` e um marcador que o
+  interpretador ignora). O stream `.hps` converte o cabecalho no lugar (taxa e
+  canais em palavras, `AXPBADDR` e `AXPBADPCM` em campos de 16 bits) e cada
+  cabecalho de bloco quando a leitura dele termina; `lbl_804C4540` fica
+  alinhado a 32, que o devcom exige no destino.
+  O relogio AX (`melee_host_ax_advance_time`) roda um quadro de 5 ms por 5 ms
+  de campo a cada retrace, e a saida vai a um sink: `--run-modes` liga as
+  vozes (`MELEE_HOST_AUDIO=0` desliga) e grava `FIRST-LAST:WAV=arquivo`;
+  `--play` abre o dispositivo de som do SDL, com a fila limitada a um quarto
+  de segundo, e espera um campo NTSC (16,683 ms) por frame em vez de 1/60 s,
+  para produzir som no ritmo em que o dispositivo consome.
+  Comparar a musica do menu com um decodificador a parte achou o mixer
+  repetindo amostras nas juncoes de bloco (33 e 96): o stream laca para o
+  bloco seguinte com o endereco de fim do anterior ate o callback do quadro, e
+  o teste `current > end` o devolvia ao inicio do bloco a cada amostra. O fim
+  agora dispara so quando o endereco chega ao seguinte ao fim, como a excecao
+  do acelerador do DSP. `OSGetSoundMode` responde estereo, o padrao do
+  GameCube. `port/tools/check_route_audio.py` e o teste
+  `melee-host-route-audio-asset` conferem a musica janela a janela (67
+  janelas, correlacao 1,000000 nos dois canais) e o efeito 118 com a musica
+  subtraida (1,000000 nas duas vozes); com o teste de fim antigo as janelas
+  caem a -0,66 e o teste falha. A rota de estoque da o mesmo trace com e sem
+  som e no build `-O2`.
 
 ## Em andamento
 
@@ -2213,9 +2252,9 @@ Atualizado em 15 de setembro de 2026.
   estagio e `ftData*` dos outros personagens.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
-  codigo do jogo, com a imagem conferida em BMP; faltam o audio, os retratos
-  dos resultados (copias da EFB), a janela com entrada real a 60 Hz e os dados
-  de estagio ainda sem traducao.
+  codigo do jogo, com a imagem conferida em BMP e som; faltam os retratos dos
+  resultados (copias da EFB), jogar na janela com entrada real e os dados de
+  estagio ainda sem traducao.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2232,11 +2271,11 @@ Atualizado em 15 de setembro de 2026.
 
 ## Proximos gates
 
-1. Audio. O mixer AX existe e decodifica igual a `ssm_to_wav.py`; falta: montar no host os
-   descritores de amostra do `.ssm` e mandar as amostras a ARAM; converter os
-   fluxos de comando do `.sem` na carga (a regiao depois das tabelas e so de
-   palavras de 32 bits); rodar um quadro AX a cada 5 ms de tempo do OS; gravar
-   WAV numa rota e so entao ligar as vozes, a saida SDL e a musica (`.hps`).
+1. Audio: os barramentos aux. `lbAudioAx_8002838C` configura reverb padrao
+   no A e delay no B, e cada efeito manda parte do som a eles; o mixer guarda o
+   envio e nao o mistura. Os nucleos AXFX sao C em `extern/dolphin` e podem
+   rodar sobre buffers aux do mixer, conferidos pela mesma comparacao com
+   referencia.
 2. Ritmo com apresentacao: sem apresentar, a luta roda a cerca de 200 frames
    por segundo no build `-O2`; falta medir o presenter e a janela.
 3. Copias da EFB alem da sombra I4: os retratos dos resultados
@@ -2255,9 +2294,9 @@ Atualizado em 15 de setembro de 2026.
 - Os assets `GALE01` extraidos estao disponiveis apenas em `assets-local`, que
   permanece ignorado pelo Git e nao faz parte de builds ou artefatos publicos.
 - O executavel ainda nao chama `gmMain`.
-- AX, CARD, streaming DVD e THP ainda nao estao implementados. AX/AI/ARAM so
-  possuem a fachada minima necessaria para `HSD_SynthInit`; PAD e DVD
-  assincrono tem pontes basicas; os backends completos ainda faltam.
+- CARD e THP ainda nao estao implementados. O AX do host toca vozes num mixer
+  de software, sem barramentos aux, ITD nem surround; PAD e DVD assincrono tem
+  pontes basicas.
 - O estado GX e registrado, nao rasterizado pelo host: a imagem vem do preview
   SDL/OpenGL, que desenha a geometria capturada com o programa TEV de cada draw
   avaliado num shader gerado.
@@ -2359,11 +2398,12 @@ Atualizado em 15 de setembro de 2026.
 - O boot ainda pula `GXInit` (a FIFO e reservada na arena, mas nao entregue)
   e `lbMthp_8001F87C`. O nivel de depuracao de um disco de desenvolvimento nao
   e selecionado.
-- Nenhum efeito sonoro pode tocar: o host nao monta descritores de amostra, os
-  fluxos de comando do `.sem` continuam big-endian e os nucleos de reverb e
-  chorus param se o mixer os chamar. O carregador de SFX de `synth.c` precisa
-  de um port de verdade quando o mixer existir. Ate la, deflag e descarga de
-  banco voltam o banco a cabeca, porque os grupos nao sao registrados.
+- Os barramentos aux nao tocam: o jogo configura reverb no A e delay no B e
+  manda parte de cada efeito a eles, e o host guarda o envio sem misturar. O
+  som sai mais seco que no console. O ITD (atraso entre ouvidos pelo pan) e
+  registrado e tambem nao e tocado.
+- O modo de som do IPL nao vem de um SRAM: o host comeca em estereo, e o menu
+  de som do jogo pode trocar.
 - Os alarmes seguem o relogio de parede, a nao ser que o host congele o
   relogio do OS. Congelado, o tempo so anda na espera de `lb_800195D0`, e so
   quando a fila bruta de pad esta vazia: uma espera por outro alarme com
@@ -2417,13 +2457,6 @@ Atualizado em 15 de setembro de 2026.
   tarefas para na sondagem (`CARD_RESULT_NOCARD` vira `0xF`, que a tarefa
   seguinte nao aceita) e nada disso e lido; um cartao virtual precisa desse
   caminho em largura de ponteiro.
-- `stopRange` (`synth.c`) le `pb.addr.currentAddressHi` como `size_t`, que
-  no host tem 8 bytes; com vozes de verdade a comparacao de enderecos precisa
-  ler os 32 bits do console.
-- Sem voz no host a musica nao comeca. O parse do cabecalho `.hps`
-  (`HSD_SynthPStreamHeaderCallback`) le campos big-endian como nativos, e nada
-  chama o callback de quadro do AX: quando o host entregar vozes, o stream
-  precisa das duas coisas.
 - `ScNtcCommon_scene_data`, o aviso de acesso ao cartao, nao e traduzido e fica
   NULL; `lb_8001CF18` confere e nao cria a cena.
 - Os opcodes 8 e 9 do texto SIS param com nome, e com eles o push de cursor em
@@ -2442,8 +2475,14 @@ Atualizado em 15 de setembro de 2026.
   passado a `HSD_ForeachAnim` (`aobj.c:301`) e o callback de render
   `fn_8026407C` de `mncharsel.c` (`gobj.c:154`). Desde que o teste atravessa a
   luta sao 17 pontos distintos; a lista esta na entrada de
-  `melee-host-vs-match-asset`. Com a rota de estoque a suite mostra 28 pontos
-  distintos. Entre os novos, `plbonus.c:44` le `by_attack_hi[107]` num
+  `melee-host-vs-match-asset`. Com a rota de estoque a suite mostrava 28 pontos
+  distintos; com o audio ligado sao 31, os mesmos em duas execucoes. Quatro
+  sao novos, chamadas por ponteiro de funcao de outro tipo nos callbacks do
+  audio: `devcom.c:84` (`HSD_SynthSFXGroupDataReaddressCallback`),
+  `devcom.c:229` (`HSD_Synth_8038B120`), `devcom.c:255`
+  (`HSD_SynthPStreamFirstHakoHeaderCallback`) e `synth.c:1610`
+  (`fn_8038CC1C`). Os outros 27 sao dos anteriores; a chamada de `FogRelease`
+  pelo ponteiro de release de `class.h` nao apareceu nessas execucoes. Entre os novos, `plbonus.c:44` le `by_attack_hi[107]` num
   `u32[65]` e `gm_1601.c:3026` grava `kills[4]` e `kills[5]` num `u16[4]`; os
   dois caem em membros seguintes do mesmo struct, com o mesmo layout no host.
   Os outros sao `1 << 31` em `int` (`ftCo_Guard.c`, `ftCo_Escape.c`,

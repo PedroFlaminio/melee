@@ -23,6 +23,11 @@ static mh_u32 ax_acquisitions;
 static bool ax_ready;
 static bool ax_voices_on;
 static void (*ax_frame_callback)(void);
+static MeleeHostAxOutputSink ax_output_sink;
+static void* ax_output_data;
+static mh_u64 ax_pending_nanoseconds;
+
+enum { AX_FRAME_NANOSECONDS = 5000000 };
 
 enum {
     /* AX address formats. */
@@ -89,6 +94,7 @@ void AXInit(void)
 {
     ax_reset_voices();
     ax_frame_callback = NULL;
+    ax_pending_nanoseconds = 0;
 }
 
 AXVPB* AXAcquireVoice(u32 priority, void (*callback)(void*), u32 userContext)
@@ -320,7 +326,13 @@ static bool ax_decode(AXPB* pb, const mh_u8* aram, mh_u32 aram_size,
         ax_address(pb->addr.endAddressHi, pb->addr.endAddressLo);
     mh_s32 value;
 
-    if (current > end) {
+    /* The DSP's accelerator raises its end exception when the address it
+     * advances to is one past the end address, and only then.  A music
+     * stream's voice loops into its next chunk with the old chunk's end
+     * address still set, until the frame callback moves it along; a test for
+     * any address past the end would send it back to the chunk's start on
+     * every sample until then. */
+    if (current == end + 1U) {
         if (pb->addr.loopFlag == 0) {
             return false;
         }
@@ -493,5 +505,27 @@ void melee_host_ax_run_frame(mh_s16* stereo)
     }
     if (ax_frame_callback != NULL) {
         ax_frame_callback();
+    }
+}
+
+void melee_host_ax_set_output_sink(MeleeHostAxOutputSink sink,
+                                   void* user_data)
+{
+    ax_output_sink = sink;
+    ax_output_data = user_data;
+}
+
+void melee_host_ax_advance_time(mh_u64 nanoseconds)
+{
+    mh_s16 stereo[MELEE_HOST_AX_FRAME_SAMPLES * 2];
+
+    ax_pending_nanoseconds += nanoseconds;
+    while (ax_pending_nanoseconds >= AX_FRAME_NANOSECONDS) {
+        ax_pending_nanoseconds -= AX_FRAME_NANOSECONDS;
+        melee_host_ax_run_frame(stereo);
+        if (ax_output_sink != NULL) {
+            ax_output_sink(stereo, MELEE_HOST_AX_FRAME_SAMPLES,
+                           ax_output_data);
+        }
     }
 }

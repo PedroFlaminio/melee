@@ -461,13 +461,31 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   numerico (8, 4, 2, 6) o D-pad; J da o A, K o B, U o X, I o Y, Q o Z, H o L
   e L o R (apertados ate o fim, com o clique digital) e Enter o START; Esc ou
   fechar a janela encerra o processo. O titulo da janela mostra os frames por
-  segundo apresentados, duas vezes por segundo. O primeiro gamepad substitui o teclado:
+  segundo apresentados, duas vezes por segundo, e o som sai no dispositivo
+  padrao; o ritmo e o do campo NTSC, 59,94 frames por segundo. O primeiro gamepad substitui o teclado:
   D-pad, gatilhos que clicam no fim do curso, e o Back encerra. Um modo ou uma cena que o host nao tem, como o filme de
   abertura que segue o titulo parado, volta ao titulo. Entradas de roteiro
   valem por cima do pad, e `MELEE_HOST_PLAY_HIDDEN=1` desenha num presenter
   escondido, onde `BMP=` funciona: e assim que o `--play` e conferido sem abrir
   janela. O build `-O2` e o indicado; o `host-debug` roda a luta abaixo de
   60 Hz. O SDL transforma SIGTERM em fechar a janela.
+- O som toca nas rotas e no `--play`: a cada retrace o relogio AX do host roda
+  um quadro de 5 ms por 5 ms de campo, e `--run-modes` liga as vozes.
+  `MELEE_HOST_AUDIO=0` desliga as vozes e o dispositivo do `--play`; o jogo da
+  o mesmo trace com e sem som. `FIRST-LAST:WAV=arquivo` grava o que o mixer
+  toca enquanto os frames desenhados estao no intervalo, 16 bits estereo a
+  32 kHz; o cabecalho e escrito quando o intervalo termina, entao um processo
+  parado depois (o menu principal parado nunca sai sozinho) deixa um WAV
+  valido.
+- `port/tools/check_route_audio.py build/host-debug/port/melee-pc assets-local`
+  roda titulo → menu → titulo gravando WAV e confere a musica `menu01.hps` e o
+  efeito 118 de `main.ssm` contra decodificadores que nao passam pelo mixer:
+  correlacao por janela a um atraso so, e o efeito com a musica subtraida. Uma
+  amostra perdida ou repetida numa juncao de bloco do stream derruba as
+  janelas seguintes.
+- Para saber o que o jogo toca e quando, quebre no gdb em `AXDriver_8038E8EC`
+  (caminho do `.hps`) e `HSD_Synth_80389334` (id do efeito), com
+  `printf "%u", VIGetRetraceCount()` nos comandos do breakpoint.
 - `port/tools/ssm_to_wav.py assets-local/audio/main.ssm --out dir` decodifica
   as vozes ADPCM de um banco de sons em WAV e mede pico, RMS, saturacao e passo
   medio. E a referencia do mixer AX do host: uma decodificacao errada aparece

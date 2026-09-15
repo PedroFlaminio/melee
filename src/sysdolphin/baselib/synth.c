@@ -12,7 +12,64 @@
 #include <dolphin/os.h>
 
 #ifdef MELEE_HOST
+#include <melee_host/host.h>
 #include <melee_host/memory.h>
+
+#include <stddef.h>
+
+/* What the host keeps of one loaded .ssm file.  The console builds this
+ * record and the file's sound descriptors inside the buffer its sound table
+ * was read into, laid out by PowerPC sizes, and reads the record through an
+ * AXVPB pointer: next, prev (the file's entry number), next1 (the first sound
+ * id), priority (the sound count), callback (where the samples start in ARAM)
+ * and userContext (the samples' size).  The host gives the record fields of
+ * its own and keeps the lists of records apart from HSD_Synth_804C2AE0.  The
+ * file's descriptors follow the record in the same allocation. */
+struct HSD_SynthSFXHostGroup {
+    struct HSD_SynthSFXHostGroup* next;
+    int entrynum;
+    int base_id;
+    int count;
+    u32 aram_offset;
+    u32 aram_size;
+};
+
+/* The leading fields of struct foo, the descriptor HSD_Synth_80389334 plays,
+ * for the code before that struct that walks the descriptor lists.  The id
+ * follows a pointer-wide next field, not the second word. */
+struct HSD_SynthSFXHostSound {
+    void* next;
+    int id;
+    int voice_count;
+    int rate;
+};
+
+static struct HSD_SynthSFXHostGroup* hsd_SynthSFXHostGroups[0x80 / 4];
+
+static void HSD_SynthSFXHostBuildGroup(void);
+static void HSD_SynthSFXHostReaddress(struct HSD_SynthSFXHostGroup* group,
+                                      u32 offset);
+
+/* The synth spins on a flag that a disc or ARAM transfer clears, and the
+ * console keeps taking interrupts meanwhile.  On the host the transfer
+ * completes when the scheduler steps. */
+static void HSD_SynthHostWait(void)
+{
+    if (melee_host_dvd_step_backend() == MELEE_HOST_UNSUPPORTED) {
+        OSPanic(__FILE__, __LINE__,
+                "the synth waits on a transfer and no backend is active");
+    }
+}
+
+/* The console writes a sample rate ratio as one word over ratioHi and
+ * ratioLo, which on a little-endian host puts the halves the other way
+ * round. */
+#define HSD_SYNTH_HOST_SET_RATIO(src, value)                                  \
+    do {                                                                      \
+        u32 hsd_synth_ratio_ = (u32) (value);                                 \
+        (src).ratioHi = (u16) (hsd_synth_ratio_ >> 16);                       \
+        (src).ratioLo = (u16) hsd_synth_ratio_;                               \
+    } while (0)
 #endif
 
 /* 389334 */ static int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan,
@@ -72,16 +129,13 @@ static void HSD_SynthSFXSampleLoadCallback(int result,
 
     if (HSD_Synth_804D7738 == 0) {
 #ifdef MELEE_HOST
-        /* The console lays this file's sample descriptors out in the buffer
-         * by PowerPC sizes, writing 32-bit list nodes over them in place.
-         * The host has no mixer to play them yet, so it keeps the
-         * bookkeeping that happens once both reads are done (the load
-         * callback and the bank space the samples take) and builds no
-         * descriptors.  No effect from the file can then be found, which the
-         * synth treats as nothing to play. */
+        /* The console lays this file's descriptors out over its sound table
+         * by PowerPC sizes; the host builds them in an allocation of their
+         * own. */
         int bankID = HSD_Synth_804C2A60[0].bankID;
 
         (void) addr;
+        HSD_SynthSFXHostBuildGroup();
         if (HSD_Synth_804C2A60[0].x8 != NULL) {
             HSD_Synth_804C2A60[0].x8(HSD_Synth_804C2A60[0].entrynum,
                                      HSD_Synth_804C2A60[0].xC);
@@ -216,11 +270,23 @@ static void HSD_SynthSFXHeaderLoadCallback(int result,
                          HSD_Synth_804C2A60[0].bankID);
 
 #ifdef MELEE_HOST
-        /* Nothing to read into the heap or ARAM; see the sample callback. */
+        /* The console's two requests, with the buffer's address kept whole.
+         * The table is read 0x20 bytes into its buffer, so the four words of
+         * it that the header read took fit in front of it and the records lie
+         * in one piece from 0x10. */
         (void) alloc_size;
-        (void) header_size;
-        HSD_Synth_804D7730 = NULL;
-        HSD_SynthSFXSampleLoadCallback(0, 0, NULL, 0);
+        header_size = hsd_SynthSFXLoadBuf[0];
+        HSD_Synth_804D7730 =
+            HSD_AudioMalloc(OSRoundUp32B(header_size - 0x10) + 0x20);
+        HSD_Synth_804D6028[1] = HSD_DevComRequest(
+            HSD_Synth_804C2A60[0].entrynum, 0x20,
+            (uintptr_t) HSD_Synth_804D7730 + 0x20,
+            OSRoundUp32B(header_size - 0x10), 0x21, 1, NULL, NULL);
+        HSD_Synth_804D6028[0] = HSD_DevComRequest(
+            HSD_Synth_804C2A60[0].entrynum, OSRoundUp32B(header_size + 0x10),
+            hsd_SynthSFXBank[HSD_Synth_804C2A60[0].bankID],
+            hsd_SynthSFXLoadBuf[1], 0x23, 1, HSD_SynthSFXSampleLoadCallback,
+            NULL);
         return;
 #endif
         alloc_size =
@@ -265,6 +331,9 @@ int HSD_SynthSFXLoad(const char* filename, int bankID, void (*cb)(int, int),
     entrynum = DVDConvertPathToEntrynum(filename);
 
     while (HSD_Synth_804D772C >= 6) {
+#ifdef MELEE_HOST
+        HSD_SynthHostWait();
+#endif
     }
 
     enabled = OSDisableInterrupts();
@@ -361,6 +430,20 @@ static inline void HSD_SynthSFXUnloadBank_inline(AXVPB* vpb)
 
 void HSD_SynthSFXUnloadBank(int bank_id)
 {
+#ifdef MELEE_HOST
+    struct HSD_SynthSFXHostGroup** head;
+    HSD_SynthSFXStopRange(bank_id);
+    head = &hsd_SynthSFXHostGroups[bank_id];
+    while (*head != NULL) {
+        struct HSD_SynthSFXHostGroup* cur = *head;
+        int i;
+        for (i = 0; i < cur->count; i++) {
+            HSD_Synth_80388DC8(cur->base_id + i);
+        }
+        *head = cur->next;
+        HSD_AudioFree(cur);
+    }
+#else
     AXVPB** head;
     HSD_SynthSFXStopRange(bank_id);
     head = &HSD_Synth_804C2AE0[bank_id];
@@ -371,6 +454,7 @@ void HSD_SynthSFXUnloadBank(int bank_id)
         *head = (*head)->next;
         HSD_AudioFree(cur);
     }
+#endif
     hsd_SynthSFXBank[bank_id] = hsd_SynthSFXBankHead[bank_id];
 }
 
@@ -379,6 +463,16 @@ void HSD_Synth_80388DC8(int sfx_id)
     void* cur;
     void** pcur = &HSD_Synth_804C29E0[sfx_id & 0x1F];
 
+#ifdef MELEE_HOST
+    while ((cur = *pcur) != NULL) {
+        struct HSD_SynthSFXHostSound* sound = cur;
+        if (sound->id == sfx_id) {
+            *pcur = sound->next;
+            return;
+        }
+        pcur = &sound->next;
+    }
+#else
     while ((cur = *pcur) != NULL) {
         if (((int*) cur)[1] == sfx_id) {
             *pcur = *(void**) cur;
@@ -386,10 +480,33 @@ void HSD_Synth_80388DC8(int sfx_id)
         }
         pcur = (void**) cur;
     }
+#endif
 }
 
 void HSD_Synth_80388E08(int sfx_id)
 {
+#ifdef MELEE_HOST
+    struct HSD_SynthSFXHostGroup* cur;
+    struct HSD_SynthSFXHostGroup** pcur;
+    int i;
+    int j;
+
+    for (i = 0; i < 0x20; i++) {
+        pcur = &hsd_SynthSFXHostGroups[i];
+        while ((cur = *pcur) != NULL) {
+            if (cur->entrynum == sfx_id) {
+                for (j = 0; j < cur->count; j++) {
+                    HSD_Synth_80388DC8(cur->base_id + j);
+                }
+                *pcur = cur->next;
+                HSD_AudioFree(cur);
+                return;
+            }
+            pcur = &cur->next;
+        }
+    }
+}
+#else
     AXVPB* cur;
     AXVPB** pcur;
     int i;
@@ -409,6 +526,7 @@ void HSD_Synth_80388E08(int sfx_id)
         }
     }
 }
+#endif
 
 static void HSD_SynthSFXGroupDataReaddressCallback(void* result, int length,
                                                    void* addr, int cancelflag)
@@ -426,6 +544,17 @@ static void order_data_1(void)
 }
 #endif
 
+#ifdef MELEE_HOST
+/* The host's records are not AXVPBs: HSD_SynthSFXBankDeflag moves them with
+ * HSD_SynthSFXHostReaddress. */
+void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
+{
+    (void) arg0;
+    (void) callback;
+    OSPanic(__FILE__, __LINE__,
+            "HSD_SynthSFXGroupDataReaddress takes a console record");
+}
+#else
 void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
 {
     u8* q;
@@ -461,9 +590,28 @@ void HSD_SynthSFXGroupDataReaddress(AXVPB* arg0, void* callback)
     }
     arg0->callback = (void (*)(void*)) callback;
 }
+#endif
 
 void HSD_SynthSFXBankDeflag(int bank_id)
 {
+#ifdef MELEE_HOST
+    struct HSD_SynthSFXHostGroup* group;
+    u32 offset;
+
+    HSD_SynthSFXStopRange(bank_id);
+    group = hsd_SynthSFXHostGroups[bank_id];
+    offset = hsd_SynthSFXBankHead[bank_id];
+    while (group != NULL) {
+        if (group->aram_offset != offset) {
+            HSD_SynthSFXHostReaddress(group, offset);
+        }
+        offset += group->aram_size;
+        group = group->next;
+    }
+    /* Thirty-two entries past the group lists is hsd_SynthSFXBank on the
+     * console, where each list head is four bytes.  Named directly here. */
+    hsd_SynthSFXBank[bank_id] = (int) offset;
+#else
     AXVPB* vpb;
     intptr_t offset;
 
@@ -477,11 +625,6 @@ void HSD_SynthSFXBankDeflag(int bank_id)
         offset += vpb->userContext;
         vpb = vpb->next;
     }
-#ifdef MELEE_HOST
-    /* Thirty-two entries past the group lists is hsd_SynthSFXBank on the
-     * console, where each list head is four bytes.  Named directly here. */
-    hsd_SynthSFXBank[bank_id] = (int) offset;
-#else
     HSD_Synth_804C2AE0[bank_id + 0x80 / 4] = (void*) offset;
 #endif
 }
@@ -489,6 +632,9 @@ void HSD_SynthSFXBankDeflag(int bank_id)
 void HSD_SynthSFXBankDeflagSync(void)
 {
     while (sfxGroupDataReaddressCounter) {
+#ifdef MELEE_HOST
+        HSD_SynthHostWait();
+#endif
         continue;
     }
 }
@@ -589,6 +735,212 @@ struct foo {
  */
 #define SFX_VOICE(i) ((struct foo*) ((u8*) sfx_entry + (i) * 0x40))
 
+#ifdef MELEE_HOST
+typedef char HSD_SynthSFXHostSoundMatchesFoo
+    [offsetof(struct foo, unk4) ==
+                     offsetof(struct HSD_SynthSFXHostSound, id) &&
+             offsetof(struct foo, unk8) ==
+                 offsetof(struct HSD_SynthSFXHostSound, voice_count) &&
+             offsetof(struct foo, unkC) ==
+                 offsetof(struct HSD_SynthSFXHostSound, rate)
+         ? 1
+         : -1];
+
+/* A record, then its descriptors, each padded to a pointer. */
+static size_t HSD_SynthSFXHostAlign(size_t size)
+{
+    return (size + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
+}
+
+static size_t HSD_SynthSFXHostSoundSize(int voices)
+{
+    size_t size = HSD_SynthSFXHostAlign(offsetof(struct foo, x10) +
+                                        (size_t) voices * 0x40);
+    return size < sizeof(struct foo) ? sizeof(struct foo) : size;
+}
+
+static struct foo* HSD_SynthSFXHostFirstSound(
+    struct HSD_SynthSFXHostGroup* group)
+{
+    return (struct foo*) ((u8*) group +
+                          HSD_SynthSFXHostAlign(sizeof(*group)));
+}
+
+static u16 HSD_SynthSFXHostBE16(const u8* p)
+{
+    return (u16) (((u32) p[0] << 8) | (u32) p[1]);
+}
+
+static u32 HSD_SynthSFXHostBE32(const u8* p)
+{
+    return ((u32) p[0] << 24) | ((u32) p[1] << 16) | ((u32) p[2] << 8) |
+           (u32) p[3];
+}
+
+static void HSD_SynthSFXHostMove(u16* hi, u16* lo, u32 delta)
+{
+    const u32 address = (((u32) *hi << 16) | *lo) + delta;
+    *hi = (u16) (address >> 16);
+    *lo = (u16) address;
+}
+
+/* Voice `k` of a descriptor from the record's 0x40-byte block, big-endian:
+ * AXPBADDR, AXPBADPCM and AXPBADPCMLOOP, with the addresses moved by
+ * `nibbles` from the start of the samples to where they lie in ARAM.  The
+ * console's loader moves the loop address of every voice, looping or not. */
+static void HSD_SynthSFXHostVoice(struct foo* sfx_entry, int k,
+                                  const u8* block, u32 nibbles)
+{
+    struct foo* const voice = SFX_VOICE(k);
+    int i;
+
+    voice->x10.loopFlag = HSD_SynthSFXHostBE16(block);
+    voice->x10.format = HSD_SynthSFXHostBE16(block + 2);
+    voice->x10.loopAddressHi = HSD_SynthSFXHostBE16(block + 4);
+    voice->x10.loopAddressLo = HSD_SynthSFXHostBE16(block + 6);
+    voice->x10.endAddressHi = HSD_SynthSFXHostBE16(block + 8);
+    voice->x10.endAddressLo = HSD_SynthSFXHostBE16(block + 10);
+    voice->x10.currentAddressHi = HSD_SynthSFXHostBE16(block + 12);
+    voice->x10.currentAddressLo = HSD_SynthSFXHostBE16(block + 14);
+    HSD_SynthSFXHostMove(&voice->x10.loopAddressHi,
+                         &voice->x10.loopAddressLo, nibbles);
+    HSD_SynthSFXHostMove(&voice->x10.endAddressHi, &voice->x10.endAddressLo,
+                         nibbles);
+    HSD_SynthSFXHostMove(&voice->x10.currentAddressHi,
+                         &voice->x10.currentAddressLo, nibbles);
+    for (i = 0; i < 16; i++) {
+        voice->x20.a[i / 2][i % 2] = HSD_SynthSFXHostBE16(block + 16 + i * 2);
+    }
+    voice->x20.gain = HSD_SynthSFXHostBE16(block + 48);
+    voice->x20.pred_scale = HSD_SynthSFXHostBE16(block + 50);
+    voice->x20.yn1 = HSD_SynthSFXHostBE16(block + 52);
+    voice->x20.yn2 = HSD_SynthSFXHostBE16(block + 54);
+    voice->x48.loop_pred_scale = HSD_SynthSFXHostBE16(block + 56);
+    voice->x48.loop_yn1 = HSD_SynthSFXHostBE16(block + 58);
+    voice->x48.loop_yn2 = HSD_SynthSFXHostBE16(block + 60);
+}
+
+/* What HSD_SynthSFXSampleLoadCallback does in place on the console: the
+ * record of the file at the head of the load queue goes to the end of its
+ * bank's list, and each sound's descriptor to the head of its id's list. */
+static void HSD_SynthSFXHostBuildGroup(void)
+{
+    u8* const table = (u8*) HSD_Synth_804D7730;
+    const u32 header_size = hsd_SynthSFXLoadBuf[0];
+    const int count = (int) hsd_SynthSFXLoadBuf[2];
+    const int base = (int) hsd_SynthSFXLoadBuf[3];
+    const int bankID = HSD_Synth_804C2A60[0].bankID;
+    const u32 nibbles = (u32) hsd_SynthSFXBank[bankID] * 2;
+    const u8* records;
+    struct HSD_SynthSFXHostGroup* group;
+    struct HSD_SynthSFXHostGroup** tail;
+    struct foo* sfx_entry;
+    size_t size;
+    u32 offset;
+    int i;
+    int k;
+
+    /* The header read took the records' first four words, which the header
+     * callback swapped; they go back in front of the rest. */
+    for (i = 0; i < 4; i++) {
+        const u32 word = hsd_SynthSFXLoadBuf[4 + i];
+        table[0x10 + i * 4] = (u8) (word >> 24);
+        table[0x11 + i * 4] = (u8) (word >> 16);
+        table[0x12 + i * 4] = (u8) (word >> 8);
+        table[0x13 + i * 4] = (u8) word;
+    }
+    records = table + 0x10;
+
+    size = HSD_SynthSFXHostAlign(sizeof(*group));
+    offset = 0;
+    for (i = 0; i < count; i++) {
+        u32 voices;
+
+        if (offset > header_size || header_size - offset < 8) {
+            OSPanic(__FILE__, __LINE__, "a sound bank's records run short");
+        }
+        voices = HSD_SynthSFXHostBE32(records + offset);
+        if (voices < 1 || voices > 2 ||
+            (header_size - offset - 8) / 0x40 < voices)
+        {
+            OSPanic(__FILE__, __LINE__,
+                    "a sound record has %u voices or does not fit", voices);
+        }
+        size += HSD_SynthSFXHostSoundSize((int) voices);
+        offset += 8 + voices * 0x40;
+    }
+
+    group = HSD_AudioMalloc(size);
+    group->next = NULL;
+    group->entrynum = HSD_Synth_804C2A60[0].entrynum;
+    group->base_id = base;
+    group->count = count;
+    group->aram_offset = (u32) hsd_SynthSFXBank[bankID];
+    group->aram_size = hsd_SynthSFXLoadBuf[1];
+    tail = &hsd_SynthSFXHostGroups[bankID];
+    while (*tail != NULL) {
+        tail = &(*tail)->next;
+    }
+    *tail = group;
+
+    sfx_entry = HSD_SynthSFXHostFirstSound(group);
+    offset = 0;
+    for (i = 0; i < count; i++) {
+        const int voices = (int) HSD_SynthSFXHostBE32(records + offset);
+        const int id = base + i;
+
+        sfx_entry->unk4 = id;
+        sfx_entry->unk8 = voices;
+        sfx_entry->unkC = (int) HSD_SynthSFXHostBE32(records + offset + 4);
+        for (k = 0; k < voices; k++) {
+            HSD_SynthSFXHostVoice(sfx_entry, k,
+                                  records + offset + 8 + (u32) k * 0x40,
+                                  nibbles);
+        }
+        sfx_entry->next = HSD_Synth_804C29E0[id & 0x1F];
+        HSD_Synth_804C29E0[id & 0x1F] = sfx_entry;
+        offset += 8 + (u32) voices * 0x40;
+        sfx_entry = (struct foo*) ((u8*) sfx_entry +
+                                   HSD_SynthSFXHostSoundSize(voices));
+    }
+    HSD_AudioFree(HSD_Synth_804D7730);
+    HSD_Synth_804D7730 = NULL;
+}
+
+/* HSD_SynthSFXGroupDataReaddress for a host record: the samples move in
+ * ARAM to `offset`, and every address of the file's voices with them. */
+static void HSD_SynthSFXHostReaddress(struct HSD_SynthSFXHostGroup* group,
+                                      u32 offset)
+{
+    const u32 delta = (offset - group->aram_offset) * 2;
+    struct foo* sfx_entry = HSD_SynthSFXHostFirstSound(group);
+    int i;
+    int k;
+
+    sfxGroupDataReaddressCounter += 1;
+    HSD_DevComRequest(
+        0, group->aram_offset, offset, group->aram_size, 0x1B, 0,
+        (HSD_DevComCallback) (Event) HSD_SynthSFXGroupDataReaddressCallback,
+        NULL);
+    for (i = 0; i < group->count; i++) {
+        for (k = 0; k < sfx_entry->unk8; k++) {
+            AXPBADDR* const addr = &SFX_VOICE(k)->x10;
+            if (addr->loopFlag != 0) {
+                HSD_SynthSFXHostMove(&addr->loopAddressHi,
+                                     &addr->loopAddressLo, delta);
+            }
+            HSD_SynthSFXHostMove(&addr->endAddressHi, &addr->endAddressLo,
+                                 delta);
+            HSD_SynthSFXHostMove(&addr->currentAddressHi,
+                                 &addr->currentAddressLo, delta);
+        }
+        sfx_entry = (struct foo*) ((u8*) sfx_entry +
+                                   HSD_SynthSFXHostSoundSize(sfx_entry->unk8));
+    }
+    group->aram_offset = offset;
+}
+#endif
+
 static AXPBMIX lbl_80407FB4 = { 0 };
 
 static AXPBSRC HSD_Synth_80407FD8 = { 1, 0, 0, { 0, 0, 0, 0 } };
@@ -677,9 +1029,16 @@ int HSD_Synth_80389334(int sfx_id, u8 vol, u8 vol2, u8 pan, int priority,
             while (voice_idx < sfx_entry->unk8) {
                 AXSetVoicePriority(voices[voice_idx], priority);
                 AXSetVoiceVe(voices[voice_idx], &ve);
+#ifdef MELEE_HOST
+                HSD_SYNTH_HOST_SET_RATIO(
+                    HSD_Synth_80407FD8,
+                    (65536.0F *
+                     (sfx_node->x18[1] * (sfx_node->x14 * sfx_node->x18[0]))));
+#else
                 *(u32*) &HSD_Synth_80407FD8.ratioHi =
                     (65536.0F *
                      (sfx_node->x18[1] * (sfx_node->x14 * sfx_node->x18[0])));
+#endif
                 AXSetVoiceSrc(voices[voice_idx], &HSD_Synth_80407FD8);
                 AXSetVoiceAddr(voices[voice_idx], &SFX_VOICE(voice_idx)->x10);
                 AXSetVoiceAdpcm(voices[voice_idx], &SFX_VOICE(voice_idx)->x20);
@@ -787,9 +1146,18 @@ static inline void stopRange(size_t lo, size_t hi)
     for (i = 0; i < 0x40; i++) {
         struct HSD_SynthSFXNode* node = &hsd_SynthSFXNodes[i];
         if (hsd_SynthSFXNodes[i].x0 > 0) {
+#ifdef MELEE_HOST
+            /* Two 16-bit fields, which the console reads as one word. */
+            addr = ((size_t) hsd_SynthSFXNodes[i]
+                        .voice[0]
+                        ->pb.addr.currentAddressHi
+                    << 16) |
+                   hsd_SynthSFXNodes[i].voice[0]->pb.addr.currentAddressLo;
+#else
             addr = *(size_t*) &hsd_SynthSFXNodes[i]
                         .voice[0]
                         ->pb.addr.currentAddressHi;
+#endif
             if (addr >= lo && addr < hi) {
                 HSD_SynthSFXStopNode(&hsd_SynthSFXNodes[i]);
             }
@@ -1254,8 +1622,41 @@ void HSD_SynthResetStreamCounters(int result, HSD_SYNTH_DEVCOM_ARG length,
     HSD_Synth_804D7778 = 0;
 }
 
+#ifdef MELEE_HOST
+/* A stream chunk's header as devcom reads it into lbl_804C4540, big-endian:
+ * the size, end and next-chunk words, and each channel's AXPBADPCMLOOP at 0x0C
+ * and 0x14.  Each header is put in the host's order once, when its read
+ * completes. */
+static void HSD_SynthHostSwapChunkHeader(u32 slot)
+{
+    static const u8 words[] = { 0x00, 0x04, 0x08 };
+    static const u8 halves[] = { 0x0C, 0x0E, 0x10, 0x14, 0x16, 0x18 };
+    u8* const p = (u8*) &lbl_804C4540[slot];
+    u32 i;
+
+    for (i = 0; i < ARRAY_SIZE(words); i++) {
+        u8* const w = p + words[i];
+        u8 t = w[0];
+        w[0] = w[3];
+        w[3] = t;
+        t = w[1];
+        w[1] = w[2];
+        w[2] = t;
+    }
+    for (i = 0; i < ARRAY_SIZE(halves); i++) {
+        u8* const h = p + halves[i];
+        const u8 t = h[0];
+        h[0] = h[1];
+        h[1] = t;
+    }
+}
+#endif
+
 void HSD_Synth_8038AD74(u32 offset, uintptr_t src)
 {
+#ifdef MELEE_HOST
+    HSD_SynthHostSwapChunkHeader(HSD_Synth_804D7768);
+#endif
     HSD_DevComRequest(HSD_Synth_804D7764, src,
                       HSD_Synth_804D7780 + (HSD_Synth_804D7768 << 16),
                       lbl_804C4540[HSD_Synth_804D7768].x0, 0x23, 0,
@@ -1305,8 +1706,16 @@ void HSD_Synth_8038ADD0(void)
     if (node->flags & 8) {
         return;
     }
+#ifdef MELEE_HOST
+    /* 0x1B2 is the current address in the console's AXVPB. */
+    pos = (((((u32) node->voice[0]->pb.addr.currentAddressHi) << 16) |
+            node->voice[0]->pb.addr.currentAddressLo) -
+           HSD_Synth_804D7780 * 2) >>
+          0x11;
+#else
     pos = (*(u32*) ((u8*) node->voice[0] + 0x1B2) - HSD_Synth_804D7780 * 2) >>
           0x11;
+#endif
     if (pos != HSD_Synth_804D7774) {
         HSD_Synth_804D7774 = pos;
         for (i = 0; i < node->voice_count; i++) {
@@ -1366,6 +1775,16 @@ void HSD_Synth_8038B120(void)
         node->x24 = ve.currentVolume;
         for (i = 0; i < node->voice_count; i++) {
             AXSetVoiceVe(node->voice[i], &ve);
+#ifdef MELEE_HOST
+            if (node->flags & 4) {
+                HSD_SYNTH_HOST_SET_RATIO(HSD_Synth_80407FD8, 0);
+            } else {
+                HSD_SYNTH_HOST_SET_RATIO(
+                    HSD_Synth_80407FD8,
+                    (u32) (65536.0F *
+                           (node->x14 * node->x18[0] * node->x18[1])));
+            }
+#else
             if (node->flags & 4) {
                 *(u32*) &HSD_Synth_80407FD8.ratioHi = 0;
             } else {
@@ -1373,6 +1792,7 @@ void HSD_Synth_8038B120(void)
                     (u32) (65536.0F *
                            (node->x14 * node->x18[0] * node->x18[1]));
             }
+#endif
             AXSetVoiceSrc(node->voice[i], &HSD_Synth_80407FD8);
             AXSetVoiceCurrentAddr(
                 node->voice[i],
@@ -1406,6 +1826,9 @@ void HSD_Synth_8038B120(void)
 
 void HSD_SynthPStreamFirstHakoHeaderCallback(void)
 {
+#ifdef MELEE_HOST
+    HSD_SynthHostSwapChunkHeader(HSD_Synth_804D7768);
+#endif
     HSD_DevComRequest(HSD_Synth_804D7764, 0xA0,
                       HSD_Synth_804D7780 + (HSD_Synth_804D7768 << 16),
                       lbl_804C4540[HSD_Synth_804D7768].x0, 0x23, 0,
@@ -1420,6 +1843,27 @@ void HSD_SynthPStreamHeaderCallback(int arg0, HSD_SYNTH_DEVCOM_ARG arg1,
     struct HSD_SynthSFXNode* node;
     int i;
 
+#ifdef MELEE_HOST
+    /* The .hps header is big-endian: the rate and the channel count are
+     * words, and from 0x10 each channel's AXPBADDR and AXPBADPCM are 16-bit
+     * fields, which the code below reads in place. */
+    if (arg2 != NULL) {
+        u8* const bytes = arg2;
+        int k;
+
+        entry[2] = HSD_SynthSFXHostBE32(bytes + 8);
+        entry[3] = HSD_SynthSFXHostBE32(bytes + 12);
+        for (k = 0x10; k < 0x80; k += 2) {
+            const u8 t = bytes[k];
+            bytes[k] = bytes[k + 1];
+            bytes[k + 1] = t;
+        }
+        if (entry[3] < 1 || entry[3] > 2) {
+            OSPanic(__FILE__, __LINE__, "a music stream has %u channels",
+                    entry[3]);
+        }
+    }
+#endif
     node = getNode(HSD_Synth_804D7760);
     if (node != NULL) {
         node->voice_count = entry[3];
@@ -1429,7 +1873,12 @@ void HSD_SynthPStreamHeaderCallback(int arg0, HSD_SYNTH_DEVCOM_ARG arg1,
         }
         node->x14 = 0.00003125f * (f32) entry[2];
         for (i = 0; i < node->voice_count; i++) {
+#ifdef MELEE_HOST
+            HSD_SYNTH_HOST_SET_RATIO(HSD_Synth_80407FD8,
+                                     (u32) (65536.0f * node->x14));
+#else
             *(u32*) &HSD_Synth_80407FD8.ratioHi = (u32) (65536.0f * node->x14);
+#endif
             AXSetVoiceAddr(node->voice[i], (AXPBADDR*) &entry[i * 14 + 4]);
             AXSetVoiceAdpcm(node->voice[i], (AXPBADPCM*) &entry[i * 14 + 8]);
         }
@@ -1484,6 +1933,11 @@ int HSD_Synth_8038B5AC(int entrynum, u8 vol, u8 vol2, int channel)
     PAD_STACK(8);
 
     do {
+#ifdef MELEE_HOST
+        if (HSD_Synth_804D7778 != 0) {
+            HSD_SynthHostWait();
+        }
+#endif
     } while (HSD_Synth_804D7778 != 0);
 
     HSD_Synth_804D7778 = 1;
@@ -1496,10 +1950,10 @@ int HSD_Synth_8038B5AC(int entrynum, u8 vol, u8 vol2, int channel)
     voice = AXAcquireVoice(0x1D, dropcallback, 0);
 #ifdef MELEE_HOST
     /* The console always has a voice at the stream's priority, so the
-     * original uses it unchecked.  The host has no mixer and hands out no
-     * voice yet (AXAcquireVoice in port/src/os/baselib_support.c), so the
-     * stream is not started, as when the stream chain finds no node: the busy
-     * flag is cleared and no stream id comes back. */
+     * original uses it unchecked.  The host's AXAcquireVoice hands out none
+     * while voices are switched off (melee_host_ax_set_voices_enabled), and
+     * then the stream is not started, as when the stream chain finds no node:
+     * the busy flag is cleared and no stream id comes back. */
     if (voice == NULL) {
         HSD_Synth_804D7778 = 0;
         OSRestoreInterrupts(enabled);

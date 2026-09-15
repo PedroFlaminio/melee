@@ -30,6 +30,18 @@ void melee_host_ax_render_voice(struct _AXPB* pb, const mh_u8* aram,
  * SDK calls it after handing the frame to the DSP. */
 void melee_host_ax_run_frame(mh_s16* stereo);
 
+/* Receives each AX frame's MELEE_HOST_AX_FRAME_SAMPLES stereo pairs. */
+typedef void (*MeleeHostAxOutputSink)(const mh_s16* stereo, mh_u32 pairs,
+                                      void* user_data);
+void melee_host_ax_set_output_sink(MeleeHostAxOutputSink sink,
+                                   void* user_data);
+
+/* The DSP's clock: runs one AX frame, handed to the output sink, for every
+ * 5 ms of `nanoseconds` accumulated.  The host advances it by one field at
+ * every VI retrace, so audio follows the retraces and not the wall clock.
+ * AXInit starts the count again. */
+void melee_host_ax_advance_time(mh_u64 nanoseconds);
+
 /* Whether AXAcquireVoice hands out voices.  Off by default: a voice opens the
  * game's sound effect and music paths, which are not ready on the host. */
 void melee_host_ax_set_voices_enabled(bool enabled);
