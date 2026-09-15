@@ -14,7 +14,7 @@ de 13 de setembro.
 
 | Área | Estado | Peso no MVP |
 | --- | --- | --- |
-| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, com D-pad e L e R digitais, ainda sem ninguém ter jogado | 15% |
+| Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, com D-pad e L e R digitais, cima positivo nos eixos do gamepad e o FPS no título; um teste manual achou o eixo Y invertido, já corrigido | 15% |
 | Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; faltam as cópias da EFB além da sombra (retratos dos resultados), texturas de profundidade, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
@@ -23,8 +23,9 @@ de 13 de setembro.
 
 ### Evidências verificadas
 
-- `ctest --preset host-debug`: 16/16 (os 14 curtos e as duas rotas de VS);
-  205/205 testes unitários; a suíte toda em 32,2 s.
+- `ctest --preset host-debug`: 18/18 (os 14 curtos, os dois de banco de som e
+  as duas rotas de VS); 216/216 testes unitários; a suíte toda em 58,9 s, com
+  as rotas em 23,4 e 32,3 s.
 - `ctest --preset host-sanitize -V`: 16/16 no commit `93f508a6a`, sem erro do
   ASan, a suíte em 146 s, com a rota cancelada em 108,8 s e a de estoque em
   145,6 s (antes da correção do recorder, 763,8 s e 1130,3 s). O UBSan só
@@ -72,6 +73,20 @@ faltam. Do modo VS faltam morte súbita,
 desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
+
+Pendências encontradas no primeiro teste manual de `--play`:
+
+- [x] Inverter o eixo Y do analógico principal do gamepad SDL antes de gravá-lo
+  em `PADStatus.stickY`; teclado já usa cima como valor positivo, mas
+  `SDL_GAMEPAD_AXIS_LEFTY` usa cima como negativo. Os dois eixos verticais
+  (analógico e C-stick) trocam de sinal em `gamepad_axis_y`
+  (`port/src/render/play_window.hpp`), com teste unitário; não havia gamepad
+  ligado para conferir na mão.
+- [x] Exibir no título da janela o FPS de apresentação, atualizado
+  periodicamente, para tornar visível o ritmo real durante a partida. A janela
+  visível mostra "Melee PC — 60.0 FPS — …" duas vezes por segundo; no build
+  `-O2`, lido com `wmctrl` numa janela X11, o título deu 60,0, 59,8 e 60,0 aos
+  3, 6 e 9 s.
 
 ### Limite operacional atual
 
@@ -143,3 +158,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 91% | Primeiro passo do áudio: o formato dos bancos `.ssm` conferido nos bytes (o `pred_scale` de 280 vozes em três bancos é o cabeçalho do quadro ADPCM no endereço corrente) e `port/tools/ssm_to_wav.py`, decodificador de referência que gera WAV sem saturação e com durações coerentes. O host ainda não entrega voz AX, não monta os descritores de amostra e não lê os comandos do `.sem`. |
 | 2026-09-15 | 91% | Mixer AX do host no lugar das fachadas de voz: pool de 64 vozes com o roubo por prioridade do SDK, setters com a semântica de `AXVPB.c` e quadros de 5 ms que decodificam DSP ADPCM, PCM16 e PCM8, reamostram, aplicam envelope e mix e só então chamam o callback do synth. As vozes ficam desligadas por padrão, porque uma voz abre caminhos de efeitos e música que o host ainda não tem; oito verificações sintéticas passam. `host-debug` 16/16, 213/213 unitários. |
 | 2026-09-15 | 91% | O mixer AX do host decodifica as vozes reais igual à referência: `melee-pc --decode-sound-bank` e `ssm_to_wav.py --compare-host` dão as mesmas amostras nas 456 vozes de nove bancos (efeitos, personagens, Pokémon e as falas do título), e um desvio de uma unidade no Python aparece em todas as vozes comparadas. Dois testes com asset entram na suíte; `host-debug` 18/18 e, sob ASan, 213/213 unitários e os testes de banco sem relato novo. |
+| 2026-09-15 | 91% | Pendências do primeiro teste manual do `--play`: o gamepad SDL dá cima como negativo, e os dois eixos verticais passam a trocar de sinal antes de `PADStatus` (`gamepad_axis_y`, `port/src/render/play_window.hpp`), como o W do teclado; a janela visível mostra os frames por segundo no título duas vezes por segundo (60,0, 59,8 e 60,0 lidos com `wmctrl` no build `-O2`). Três testes unitários cobrem eixos, medidor e título; sem gamepad ligado, o eixo foi conferido só por eles. `host-debug` 18/18, 216/216 unitários. |

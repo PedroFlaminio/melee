@@ -436,6 +436,7 @@ if(MELEE_HOST_BUILD_TESTS)
         tests/dol_test.cpp
         tests/baselib_bootstrap_test.cpp
         tests/pad_test.cpp
+        tests/play_window_test.cpp
         tests/command_layout_test.cpp
         tests/command_layout_check.c
         tests/command_stream_run.c

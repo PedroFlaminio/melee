@@ -2,6 +2,7 @@
 
 #include "gx/tev.hpp"
 #include "gx/view.hpp"
+#include "render/play_window.hpp"
 
 #include <melee_host/gx.h>
 #include <melee_host/input.h>
@@ -724,9 +725,6 @@ MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
     if (gamepad == nullptr) {
         return pad;
     }
-    const auto gamepad_axis = [](Sint16 value) {
-        return static_cast<mh_s8>(static_cast<int>(value) / 258);
-    };
     const auto gamepad_trigger = [](Sint16 value) {
         return static_cast<mh_u8>(
             std::clamp(static_cast<int>(value) / 128, 0, 255));
@@ -746,13 +744,13 @@ MeleeHostPadState read_pad(SDL_Gamepad* gamepad, float* yaw, float* pitch,
         button(SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PAD_BUTTON_RIGHT) |
         button(SDL_GAMEPAD_BUTTON_START, PAD_BUTTON_START));
     pad.stick_x =
-        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX));
+        gamepad_axis_x(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX));
     pad.stick_y =
-        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY));
+        gamepad_axis_y(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY));
     pad.c_stick_x =
-        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX));
+        gamepad_axis_x(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX));
     pad.c_stick_y =
-        gamepad_axis(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY));
+        gamepad_axis_y(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY));
     pad.trigger_left = gamepad_trigger(
         SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
     pad.trigger_right = gamepad_trigger(
@@ -1172,6 +1170,8 @@ struct FramePresenter::State {
     int width = 0;
     int height = 0;
     Uint64 next_frame_ns = 0;
+    /* Twice a second a visible window shows the rate it presents at. */
+    FrameRateMeter frame_rate{ 500'000'000ULL };
 };
 
 FramePresenter::FramePresenter() = default;
@@ -1207,8 +1207,7 @@ bool FramePresenter::open(bool hidden, std::string* error)
     if (!open_gl_window(hidden, &state->window, &message)) {
         return false;
     }
-    SDL_SetWindowTitle(state->window.window,
-                       "Melee PC — Enter é START, WASD o analógico; Esc sai");
+    SDL_SetWindowTitle(state->window.window, play_window_title().c_str());
     /* pace() keeps the game's frame rate.  Waiting for vsync on top of it
      * would stack a second wait, and tie the game to the monitor's rate. */
     SDL_GL_SetSwapInterval(0);
@@ -1340,6 +1339,11 @@ void FramePresenter::present(const std::vector<const TextureImage*>& images)
     glDepthRange(0.0, 1.0);
     if (state.target == nullptr) {
         SDL_GL_SwapWindow(state.window.window);
+        double frames_per_second = 0.0;
+        if (state.frame_rate.add_frame(SDL_GetTicksNS(), &frames_per_second)) {
+            SDL_SetWindowTitle(state.window.window,
+                               play_window_title(frames_per_second).c_str());
+        }
     }
 }
 

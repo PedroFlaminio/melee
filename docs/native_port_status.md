@@ -2192,6 +2192,15 @@ Atualizado em 15 de setembro de 2026.
   `melee-host-sound-bank-bigblue-asset` e `melee-host-sound-bank-nr_title-asset`.
   A primeira comparacao perdeu a ultima voz de cada banco: os registros vao de
   0x10 ao tamanho do cabecalho mais 0x10, e nao ao tamanho do cabecalho.
+- [x] Pendencias do primeiro teste manual do `--play`. O SDL le um eixo de
+  gamepad de -32768 a 32767 com baixo positivo, e o stick do GameCube tem cima
+  positivo: `gamepad_axis_y` (`port/src/render/play_window.hpp`) troca o sinal
+  do analogico e do C-stick antes de `PADStatus`, como o W do teclado ja dava.
+  A janela visivel mostra os frames por segundo no titulo duas vezes por
+  segundo (`FrameRateMeter`). No build `-O2`, com `SDL_VIDEO_DRIVER=x11` e o
+  titulo lido por `wmctrl`: 60,0, 59,8 e 60,0 aos 3, 6 e 9 s. Tres testes
+  unitarios (`play_window_test.cpp`) cobrem eixos, medidor e titulo; nao havia
+  gamepad ligado para conferir o eixo na mao.
 
 ## Em andamento
 
@@ -2447,7 +2456,8 @@ Atualizado em 15 de setembro de 2026.
   alem dessa metade. As SObj que usam `GX_ZT_REPLACE` tem o mesmo desvio.
 - A janela do `--play` abriu e manteve 60 Hz no titulo, mas ninguem jogou
   com teclado ou gamepad de verdade: a entrada foi conferida so por roteiro,
-  que chega ao jogo pelo mesmo `PADRead`. O teclado numerico da o D-pad, H e L
+  que chega ao jogo pelo mesmo `PADRead`, e o eixo Y do gamepad so por teste
+  unitario, sem gamepad ligado. O teclado numerico da o D-pad, H e L
   dao o L e o R com o clique digital, e no gamepad o D-pad e os gatilhos no
   fim do curso fazem o mesmo; nada disso foi apertado numa tecla real.
   `--view-title-scene` segue com o caminho da janela sem uso.
