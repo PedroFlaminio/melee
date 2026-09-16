@@ -1757,10 +1757,10 @@ namespace melee::render {
         state->settings_path = video_settings_path();
         load_video_settings(state.get());
         SDL_SetWindowTitle(state->window.window, play_window_title().c_str());
-        /* pace() keeps the game's frame rate.  Waiting for vsync on top of it
-         * would stack a second wait, and tie the game to the monitor's rate.
+        /* With pace() removed and the engine decoupled, we now rely on VSync
+         * to tie the render loop to the monitor's refresh rate!
          */
-        SDL_GL_SetSwapInterval(0);
+        SDL_GL_SetSwapInterval(1);
         int gamepad_count = 0;
         SDL_JoystickID* const gamepad_ids = SDL_GetGamepads(&gamepad_count);
         state->gamepad =

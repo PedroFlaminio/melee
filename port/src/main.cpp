@@ -3151,10 +3151,8 @@ int main(int argc, char** argv)
                 }
 #if defined(MELEE_HOST_SDL_RENDERER)
                 if (state->play) {
-                    /* One field per frame, as the console's NTSC output,
-                     * which is also the rate the AX clock fills the sound
-                     * device at. */
-                    state->presenter->pace(melee_host_video_field_nanoseconds());
+                    // PACE REMOVED: We now rely on VSync and the decoupled render loop
+                    // to run the game at the monitor's native refresh rate!
                 }
 #endif
             };
