@@ -290,10 +290,15 @@ void gm_801A4D34(void (*on_frame)(void), UNUSED GameSceneInfo* info)
         hsd_80392E80();
         gmMainLib_8046B0F0.xC = false;
 
-        while ((pad_queue_count = lb_80019894()) == 0) {
-            lb_800195D0();
-        }
+        pad_queue_count = lb_80019894();
         lb_800195D0();
+
+        if (pad_queue_count == 0) {
+            if (temp_r25->unk_0 > 0) {
+                HSD_VICopyXFBAsync(HSD_RP_SCREEN);
+            }
+            continue;
+        }
 
         if (HSD_PadGetResetSwitch()) {
             gmMainLib_8046B0F0.resetting = true;
