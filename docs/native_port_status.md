@@ -2497,7 +2497,8 @@ Atualizado em 15 de setembro de 2026.
   profundidade do quad, e os dois caminhos batem exatamente (0 divergencias
   em 256 casos, nos dois arquivos de referencia). O trace canonico da rota de
   estoque segue igual nos 1739 frames. `host-debug` 26/26 e 225/225
-  unitarios.
+  unitarios; sob ASan a suite inteira passa 26/26 em 232,1 s, sem relato do
+  ASan e com os mesmos 37 pontos do UBSan.
 - [x] O teclado da janela, por evento de verdade. As rotas roteirizadas
   chegam ao jogo pelo mesmo `PADRead` que a janela preenche, entao nunca
   passavam pelo teclado; `port/tools/play_keyboard_probe.py` passa. Ele abre

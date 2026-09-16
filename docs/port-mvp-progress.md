@@ -110,11 +110,10 @@ bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina 
 - `--play` (build `-O2`) com START roteirizado: `melee-pc` aparece no servidor
   de som como fluxo tocando (não pausado) durante a música do menu, e o título
   mostrou 60,1, 60,1 e 59,8 FPS.
-- `ctest --preset host-sanitize -V`: 19/19 com o áudio, o reverb e o delay, as
-  cópias da EFB e os dados de estágio, sem erro do ASan, 221/221 unitários, a
-  rota cancelada em 115,2 s, a de estoque em 102,3 s e a de áudio em 10,9 s. O
-  UBSan só imprime: 32 pontos distintos, cinco deles nos callbacks do áudio,
-  descritos em `native_port_status.md`.
+- `ctest --preset host-sanitize -V`: 26/26 com as sete rotas de VS, sem erro
+  do ASan, 225/225 unitários, a suíte inteira em 232,1 s. O UBSan só imprime:
+  37 pontos distintos, cinco deles nos callbacks do áudio e um só da morte
+  súbita (`gm_1601.c:3232`), descritos em `native_port_status.md`.
 - A cena de título, animações e a transição para o menu principal possuem testes
   com assets locais.
 - `melee-host-vs-match-asset`: título (122 frames) → menu (120) → CSS (141) →
