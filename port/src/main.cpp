@@ -290,7 +290,7 @@ int diagnose_local_match()
         return 1;
     }
     const MeleeHostStatus prepare =
-        melee_host_prepare_local_two_player_match(2, 8, 3);
+        melee_host_prepare_local_two_player_match(2, 8, 20);
     MeleeHostPreparedMatch match{};
     const MeleeHostStatus inspect = melee_host_prepared_match_get(&match);
     const MeleeHostStatus initialize =

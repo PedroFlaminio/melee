@@ -27,6 +27,17 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "MELEE_HOST_ENABLE_SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "host-release",
+      "displayName": "Native host release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MELEE_HOST_BUILD_TESTS": "OFF",
+        "MELEE_HOST_WARNINGS_AS_ERRORS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -37,6 +48,10 @@
     {
       "name": "host-sanitize",
       "configurePreset": "host-sanitize"
+    },
+    {
+      "name": "host-release",
+      "configurePreset": "host-release"
     }
   ],
   "testPresets": [

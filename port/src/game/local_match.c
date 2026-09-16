@@ -71,8 +71,9 @@ MeleeHostStatus melee_host_prepare_local_two_player_match(
     }
     setup_player(&start->players[0], first_character, Gm_PKind_Human, 0,
                  (s8) game_rules->stock_count);
-    setup_player(&start->players[1], second_character, Gm_PKind_Human, 1,
+    setup_player(&start->players[1], second_character, Gm_PKind_Cpu, 1,
                  (s8) game_rules->stock_count);
+    start->players[1].cpu_level = 9;
     prepared = true;
     return MELEE_HOST_OK;
 }

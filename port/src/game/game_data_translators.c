@@ -14,8 +14,27 @@
 #include <melee/ft/dobjlist.h>
 #include <melee/ft/ftdata.h>
 #include <melee/ft/ftwaitanim.h>
+#include <melee/ft/kinds/ftCaptain/types.h>
 #include <melee/ft/kinds/ftCommon/types.h>
+#include <melee/ft/kinds/ftDonkey/types.h>
 #include <melee/ft/kinds/ftFox/types.h>
+#include <melee/ft/kinds/ftDrMario/types.h>
+#include <melee/ft/kinds/ftGameWatch/types.h>
+#include <melee/ft/kinds/ftKirby/types.h>
+#include <melee/ft/kinds/ftKoopa/types.h>
+#include <melee/ft/kinds/ftLuigi/types.h>
+#include <melee/ft/kinds/ftMars/types.h>
+#include <melee/ft/kinds/ftMewtwo/types.h>
+#include <melee/ft/kinds/ftPopo/types.h>
+#include <melee/ft/kinds/ftNess/types.h>
+#include <melee/ft/kinds/ftPeach/types.h>
+#include <melee/ft/kinds/ftPichu/types.h>
+#include <melee/ft/kinds/ftPikachu/types.h>
+#include <melee/ft/kinds/ftPurin/types.h>
+#include <melee/ft/kinds/ftSamus/types.h>
+#include <melee/ft/kinds/ftSeak/types.h>
+#include <melee/ft/kinds/ftYoshi/types.h>
+#include <melee/ft/kinds/ftZelda/types.h>
 #include <melee/ft/kinds/ftLink/types.h>
 #include <melee/ft/kinds/ftMario/types.h>
 #include <melee/ft/types.h>
@@ -2330,6 +2349,308 @@ static void* fighter_link_attrs(MeleeHostHsdReader* reader, mh_u32 at)
     return attrs;
 }
 
+static void* fighter_captain_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftCaptain_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftCaptain_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, 0x8C);
+    return attrs;
+}
+
+static void* fighter_donkey_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftDonkeyAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftDonkeyAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, 0x74);
+    return attrs;
+}
+
+
+
+static void* fighter_drmario_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftDrMarioAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftDrMarioAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_falco_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftFox_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftFox_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_gamewatch_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftGameWatchAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftGameWatchAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_ganon_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftCaptain_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftCaptain_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_kirby_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftKb_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftKb_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_koopa_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftKoopaAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftKoopaAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_luigi_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftLuigiAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftLuigiAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_mars_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    MarsAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(MarsAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_mewtwo_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftMewtwoAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftMewtwoAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_nana_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftIceClimberAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftIceClimberAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_ness_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftNessAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftNessAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_peach_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftPe_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftPe_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_pichu_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftPichuAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftPichuAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_pikachu_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftPikachuAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftPikachuAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_popo_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftIceClimberAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftIceClimberAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_purin_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftPurinAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftPurinAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_samus_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftSs_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftSs_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_seak_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftSeakAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftSeakAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_yoshi_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftYs_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftYs_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_zelda_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftZelda_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftZelda_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_clink_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    struct ftLk_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(struct ftLk_DatAttrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_emblem_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    MarsAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(MarsAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
+static void* fighter_gigakoopa_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    ftKoopaAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftKoopaAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    return attrs;
+}
+
 static Fighter_WaitAnimData* fighter_actions(MeleeHostHsdReader* reader,
                                              mh_u32 at)
 {
@@ -2703,6 +3024,15 @@ typedef void* (*FighterItemSpecial)(MeleeHostHsdReader* reader, mh_u32 at);
 
 /* `disc_size` bytes of scalars in a block of `host_size`.  A struct can run
  * past what its disc block holds when the code never reads the rest. */
+
+static void* item_generic_scalar_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    if (!melee_host_hsd_reader_has_pointer(reader, at)) {
+        return scalar_extent(reader, at);
+    }
+    return NULL; // Has pointers, generic scalar fails!
+}
+
 static void* item_special_scalars(MeleeHostHsdReader* reader, mh_u32 at,
                                   mh_u32 disc_size, mh_u32 host_size)
 {
@@ -2784,6 +3114,47 @@ static void* link_bow_attrs(MeleeHostHsdReader* reader, mh_u32 at)
 }
 
 /* The bomb's block ends before `vel`, which itlinkbomb.c never reads. */
+
+static void* samus_grapple_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itSamusGrappleAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itSamusGrappleAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x64);
+    attrs->x64 = item_special_joint(reader, at + 0x64);
+    attrs->x68 = item_special_joint(reader, at + 0x68);
+    attrs->x6C = item_special_joint(reader, at + 0x6C);
+    attrs->x70 = item_special_joint(reader, at + 0x70);
+    
+    item_special_anims(reader, at + 0x74, (AnimBundle*)&attrs->x74);
+    item_special_anims(reader, at + 0x80, (AnimBundle*)&attrs->x80);
+    item_special_anims(reader, at + 0x8C, (AnimBundle*)&attrs->x8C);
+    item_special_anims(reader, at + 0x98, (AnimBundle*)&attrs->x98);
+    item_special_anims(reader, at + 0xA4, (AnimBundle*)&attrs->xA4);
+
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
+static void* seak_chain_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itSeakChain_Attrs* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itSeakChain_Attrs));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x64);
+    attrs->x64_joint = item_special_joint(reader, at + 0x64);
+    attrs->x68_joint = item_special_joint(reader, at + 0x68);
+
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
 static void* link_bomb_attrs(MeleeHostHsdReader* reader, mh_u32 at)
 {
     return item_special_scalars(reader, at, 0x34,
@@ -3143,6 +3514,23 @@ static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
     return fighter_data(reader, root, fighter_link_attrs, &link_items);
 }
 
+static void* fighter_data_captain(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs captain_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_captain_attrs, &captain_items);
+}
+
+static void* fighter_data_donkey(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs donkey_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_donkey_attrs, &donkey_items);
+}
+
+
 /* A character's demo motions (ftDemoResultMotionFileFox in GmRstMFx.dat and
  * the intro, ending and wait files named next to it in ftData_803C2468): the
  * base of a block of nested archives, one per demo action.  ftData_80085B98
@@ -3210,12 +3598,289 @@ void melee_host_stage_symbols_check(void)
     }
 }
 
+
+static void* fighter_data_drmario(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial drmario_item_specials[] = {
+        NULL, item_generic_scalar_attrs, NULL, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs drmario_items = {
+        NULL, 0, NULL, 0, drmario_item_specials,
+        sizeof(drmario_item_specials) / sizeof(drmario_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_drmario_attrs, &drmario_items);
+}
+
+static void* fighter_data_falco(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial falco_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, NULL, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs falco_items = {
+        NULL, 0, NULL, 0, falco_item_specials,
+        sizeof(falco_item_specials) / sizeof(falco_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_falco_attrs, &falco_items);
+}
+
+static void* fighter_data_gamewatch(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial gamewatch_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs gamewatch_items = {
+        NULL, 0, NULL, 0, gamewatch_item_specials,
+        sizeof(gamewatch_item_specials) / sizeof(gamewatch_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_gamewatch_attrs, &gamewatch_items);
+}
+
+static void* fighter_data_ganon(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs ganon_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_ganon_attrs, &ganon_items);
+}
+
+static void* fighter_data_kirby(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs kirby_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_kirby_attrs, &kirby_items);
+}
+
+static void* fighter_data_koopa(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial koopa_item_specials[] = {
+        item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs koopa_items = {
+        NULL, 0, NULL, 0, koopa_item_specials,
+        sizeof(koopa_item_specials) / sizeof(koopa_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_koopa_attrs, &koopa_items);
+}
+
+static void* fighter_data_luigi(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial luigi_item_specials[] = {
+        item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs luigi_items = {
+        NULL, 0, NULL, 0, luigi_item_specials,
+        sizeof(luigi_item_specials) / sizeof(luigi_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_luigi_attrs, &luigi_items);
+}
+
+static void* fighter_data_mars(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs mars_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_mars_attrs, &mars_items);
+}
+
+static void* fighter_data_mewtwo(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial mewtwo_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs mewtwo_items = {
+        NULL, 0, NULL, 0, mewtwo_item_specials,
+        sizeof(mewtwo_item_specials) / sizeof(mewtwo_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_mewtwo_attrs, &mewtwo_items);
+}
+
+static void* fighter_data_nana(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs nana_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_nana_attrs, &nana_items);
+}
+
+static void* fighter_data_ness(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial ness_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs ness_items = {
+        NULL, 0, NULL, 0, ness_item_specials,
+        sizeof(ness_item_specials) / sizeof(ness_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_ness_attrs, &ness_items);
+}
+
+static void* fighter_data_peach(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial peach_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs peach_items = {
+        NULL, 0, NULL, 0, peach_item_specials,
+        sizeof(peach_item_specials) / sizeof(peach_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_peach_attrs, &peach_items);
+}
+
+static void* fighter_data_pichu(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial pichu_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs pichu_items = {
+        NULL, 0, NULL, 0, pichu_item_specials,
+        sizeof(pichu_item_specials) / sizeof(pichu_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_pichu_attrs, &pichu_items);
+}
+
+static void* fighter_data_pikachu(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial pikachu_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs pikachu_items = {
+        NULL, 0, NULL, 0, pikachu_item_specials,
+        sizeof(pikachu_item_specials) / sizeof(pikachu_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_pikachu_attrs, &pikachu_items);
+}
+
+static void* fighter_data_popo(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial popo_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs popo_items = {
+        NULL, 0, NULL, 0, popo_item_specials,
+        sizeof(popo_item_specials) / sizeof(popo_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_popo_attrs, &popo_items);
+}
+
+static void* fighter_data_purin(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs purin_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_purin_attrs, &purin_items);
+}
+
+static void* fighter_data_samus(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial samus_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, samus_grapple_attrs
+    };
+    static const struct FighterItemAttrs samus_items = {
+        NULL, 0, NULL, 0, samus_item_specials,
+        sizeof(samus_item_specials) / sizeof(samus_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_samus_attrs, &samus_items);
+}
+
+static void* fighter_data_seak(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial seak_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, seak_chain_attrs
+    };
+    static const struct FighterItemAttrs seak_items = {
+        NULL, 0, NULL, 0, seak_item_specials,
+        sizeof(seak_item_specials) / sizeof(seak_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_seak_attrs, &seak_items);
+}
+
+static void* fighter_data_yoshi(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial yoshi_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs yoshi_items = {
+        NULL, 0, NULL, 0, yoshi_item_specials,
+        sizeof(yoshi_item_specials) / sizeof(yoshi_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_yoshi_attrs, &yoshi_items);
+}
+
+static void* fighter_data_zelda(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial zelda_item_specials[] = {
+        item_generic_scalar_attrs, item_generic_scalar_attrs
+    };
+    static const struct FighterItemAttrs zelda_items = {
+        NULL, 0, NULL, 0, zelda_item_specials,
+        sizeof(zelda_item_specials) / sizeof(zelda_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_zelda_attrs, &zelda_items);
+}
+
+static void* fighter_data_clink(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const FighterItemSpecial clink_item_specials[] = {
+        link_bomb_attrs, link_boomerang_attrs, link_hookshot_attrs, link_arrow_attrs, link_bow_attrs, item_generic_scalar_attrs
+    };
+    static const mh_u8 clink_direct_joint_slots[] = { 6 };
+    static const struct FighterItemAttrs clink_items = {
+        NULL, 0, clink_direct_joint_slots,
+        sizeof(clink_direct_joint_slots) / sizeof(clink_direct_joint_slots[0]),
+        clink_item_specials,
+        sizeof(clink_item_specials) / sizeof(clink_item_specials[0]),
+    };
+    return fighter_data(reader, root, fighter_clink_attrs, &clink_items);
+}
+
+static void* fighter_data_emblem(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs emblem_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_emblem_attrs, &emblem_items);
+}
+
+static void* fighter_data_gigakoopa(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    static const struct FighterItemAttrs gigakoopa_items = {
+        NULL, 0, NULL, 0, NULL, 0,
+    };
+    return fighter_data(reader, root, fighter_gigakoopa_attrs, &gigakoopa_items);
+}
+
 void melee_host_game_register_data_translators(void)
 {
     (void) melee_host_hsd_register_translator("ftDataFox", fighter_data_fox);
     (void) melee_host_hsd_register_translator("ftDataMario",
                                               fighter_data_mario);
     (void) melee_host_hsd_register_translator("ftDataLink", fighter_data_link);
+    (void) melee_host_hsd_register_translator("ftDataCaptain", fighter_data_captain);
+    (void) melee_host_hsd_register_translator("ftDataDonkey", fighter_data_donkey);
+    (void) melee_host_hsd_register_translator("ftDataDrMario", fighter_data_drmario);
+    (void) melee_host_hsd_register_translator("ftDataFalco", fighter_data_falco);
+    (void) melee_host_hsd_register_translator("ftDataGameWatch", fighter_data_gamewatch);
+    (void) melee_host_hsd_register_translator("ftDataGanon", fighter_data_ganon);
+    (void) melee_host_hsd_register_translator("ftDataKirby", fighter_data_kirby);
+    (void) melee_host_hsd_register_translator("ftDataKoopa", fighter_data_koopa);
+    (void) melee_host_hsd_register_translator("ftDataLuigi", fighter_data_luigi);
+    (void) melee_host_hsd_register_translator("ftDataMars", fighter_data_mars);
+    (void) melee_host_hsd_register_translator("ftDataMewtwo", fighter_data_mewtwo);
+    (void) melee_host_hsd_register_translator("ftDataNana", fighter_data_nana);
+    (void) melee_host_hsd_register_translator("ftDataNess", fighter_data_ness);
+    (void) melee_host_hsd_register_translator("ftDataPeach", fighter_data_peach);
+    (void) melee_host_hsd_register_translator("ftDataPichu", fighter_data_pichu);
+    (void) melee_host_hsd_register_translator("ftDataPikachu", fighter_data_pikachu);
+    (void) melee_host_hsd_register_translator("ftDataPopo", fighter_data_popo);
+    (void) melee_host_hsd_register_translator("ftDataPurin", fighter_data_purin);
+    (void) melee_host_hsd_register_translator("ftDataSamus", fighter_data_samus);
+    (void) melee_host_hsd_register_translator("ftDataSeak", fighter_data_seak);
+    (void) melee_host_hsd_register_translator("ftDataYoshi", fighter_data_yoshi);
+    (void) melee_host_hsd_register_translator("ftDataZelda", fighter_data_zelda);
+    (void) melee_host_hsd_register_translator("ftDataCLink", fighter_data_clink);
+    (void) melee_host_hsd_register_translator("ftDataEmblem", fighter_data_emblem);
+    (void) melee_host_hsd_register_translator("ftDataGigaKoopa", fighter_data_gigakoopa);
     (void) melee_host_hsd_register_translator("lbBgFlashColAnimData",
                                               bg_flash_color_anims);
     (void) melee_host_hsd_register_translator("ftLoadCommonData",

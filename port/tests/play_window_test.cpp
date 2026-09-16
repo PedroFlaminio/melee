@@ -1,8 +1,8 @@
-#include "test.hpp"
+#include <cstdint>
+#include <string>
 
 #include "render/play_window.hpp"
-
-#include <cstdint>
+#include "test.hpp"
 
 TEST_CASE("the play window's gamepad axes keep the GameCube's up positive")
 {
@@ -58,7 +58,47 @@ TEST_CASE("the play window's frame rate meter reports once per period")
 TEST_CASE("the play window's title carries the frame rate")
 {
     REQUIRE(melee::render::play_window_title() ==
-            "Melee PC — Enter é START, WASD o analógico; Esc sai");
+            "Melee PC — Enter é START, WASD o analógico; Esc abre Video");
     REQUIRE(melee::render::play_window_title(59.94) ==
-            "Melee PC — 59.9 FPS — Enter é START, WASD o analógico; Esc sai");
+            "Melee PC — 59.9 FPS — Enter é START, WASD o analógico; Esc abre "
+            "Video");
+}
+
+TEST_CASE("video settings only cycle through supported presentation choices")
+{
+    melee::render::VideoSettings settings{};
+    /* Row 0 is now resolution. */
+    melee::render::cycle(&settings, 0, 1);
+    REQUIRE(std::string(melee::render::label(settings.resolution)) == "2x");
+    melee::render::cycle(&settings, 0, -1);
+    REQUIRE(std::string(melee::render::label(settings.resolution)) ==
+            "1x Nativo");
+    /* Row 1 is aspect. */
+    melee::render::cycle(&settings, 1, 1);
+    REQUIRE(std::string(melee::render::label(settings.aspect)) == "16:9");
+    melee::render::cycle(&settings, 1, 1);
+    REQUIRE(std::string(melee::render::label(settings.aspect)) == "21:9");
+    /* Row 2 is filter. */
+    melee::render::cycle(&settings, 2, 1);
+    REQUIRE(std::string(melee::render::label(settings.filter)) == "Linear");
+    melee::render::cycle(&settings, 2, 1);
+    REQUIRE(std::string(melee::render::label(settings.filter)) == "Nearest");
+    /* Row 3 is window mode. */
+    melee::render::cycle(&settings, 3, 1);
+    REQUIRE(std::string(melee::render::label(settings.window_mode)) ==
+            "Tela Cheia");
+    /* Row 4 is rate. */
+    melee::render::cycle(&settings, 4, -1);
+    REQUIRE(settings.rate == melee::render::PresentationRate::Fps240);
+    melee::render::cycle(&settings, 4, 1);
+    REQUIRE(settings.rate == melee::render::PresentationRate::Fps60);
+}
+
+TEST_CASE("video aspect ratios match the presentation menu")
+{
+    using melee::render::PresentationAspect;
+    using melee::render::ratio;
+    REQUIRE(ratio(PresentationAspect::Original4x3) == 4.0F / 3.0F);
+    REQUIRE(ratio(PresentationAspect::Wide16x9) == 16.0F / 9.0F);
+    REQUIRE(ratio(PresentationAspect::Ultrawide21x9) == 21.0F / 9.0F);
 }
