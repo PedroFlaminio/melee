@@ -32,6 +32,17 @@ bool melee_host_match_result(mh_u32* outcome, mh_u32* winners,
  * while no match end is set. */
 bool melee_host_match_place(mh_u32 slot, mh_s32* place);
 
+/* The VS matches the save data counts, which is what decides the challenger
+ * the results screen can lead to.  Without a memory card the host starts it
+ * at zero, and setting it stands in for the matches already played. */
+mh_u32 melee_host_match_vs_total(void);
+void melee_host_match_set_vs_total(mh_u32 total);
+
+/* Award a trophy the way the game does when a play total crosses one of its
+ * thresholds (fn_80172C78), which is what leaves the prize notice pending.
+ * False when the save data already had it. */
+bool melee_host_match_award_trophy(mh_u32 trophy);
+
 /* The clock the running VS scene counts, in whole seconds left and frames
  * inside the current second (0 to 59).  False when the scene has no timer. */
 bool melee_host_match_clock(mh_u32* seconds, mh_u32* frames);

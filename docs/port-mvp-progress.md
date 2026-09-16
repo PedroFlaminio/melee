@@ -8,7 +8,7 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 16 de setembro de 2026
 
-**Estimativa: 99% (faixa de confiança: 95–99%).** A tabela descreve o estado
+**Estimativa: 99% (faixa de confiança: 97–100%).** A tabela descreve o estado
 de cada área hoje; o registro no fim guarda a evolução desde a linha de base
 de 13 de setembro.
 
@@ -17,7 +17,7 @@ de 13 de setembro.
 | Plataforma host (memória, relógio, DVD virtual, input) | funcional e testada; roteiro de entrada com stick e quatro portas; as rotas roteirizadas congelam o relógio num instante fixo e se repetem; `--play` lê teclado e gamepad como pad 1 numa janela a 60 Hz, com D-pad e L e R digitais, cima positivo nos eixos do gamepad e o FPS no título; um teste manual achou o eixo Y invertido, já corrigido | 15% |
 | Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; as cópias da EFB em cor (retratos dos resultados, bolha da lupa) são rasterizadas na CPU a partir da captura do frame, sem a bolha da lupa conferida na imagem; faltam texturas de profundidade no presenter, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
-| Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
+| Configuração de VS | CSS, menu de regras e SSS com dois pads; ao sair dos resultados o modo ainda escolhe entre o desafiante e o aviso de prêmio, que rodam; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
 | Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox, Mario e Link em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP, com os retratos dos painéis e as luzes do estágio (`map_plit`) nos lutadores; do estágio, `ALDYakuAll` traduz em todos os arquivos e `yakumono_param` no
 bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina empatada passa pela morte súbita (um estoque a 300%) e volta aos resultados com as colocações que ela decidiu | 30% |
 | Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); o reverb e o delay do jogo tocam nos barramentos aux, com o `HandleReverb` portado da assembly para C; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
@@ -31,10 +31,21 @@ bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina 
   `yakumono_param` com parâmetros próprios, que param com nome. Na rota o
   jogo passa a escrever o script do estágio no estado do item aleatório, e o
   trace da rota de estoque fica igual nos 1739 frames.
-- `ctest --preset host-debug`: 24/24 (os 14 curtos, os dados do Mario e do
-  Link, os dois de banco de som, o de áudio da rota e as cinco rotas de VS,
+- `ctest --preset host-debug`: 26/26 (os 14 curtos, os dados do Mario e do
+  Link, os dois de banco de som, o de áudio da rota e as sete rotas de VS,
   estas com as vozes ligadas); 224/224 testes unitários; com `-j4` a suíte
-  leva 54,9 s, com as rotas entre 30 e 32 s.
+  leva 62,1 s, com as rotas entre 25 e 32 s.
+- Desafiante e aviso de prêmio, as duas cenas que faltavam ao modo VS:
+  `melee-host-vs-challenger-asset` deixa o save em 50 lutas, e ao sair dos
+  resultados o modo entra na cena 0x29 no frame 1620 — o BMP mostra "A new foe
+  has appeared!", o aviso "WARNING CHALLENGER APPROACHING" e a silhueta da
+  Jigglypuff — e o total lido depois da luta é 51.
+  `melee-host-vs-prize-asset` dá o troféu 0x55 pelo caminho do jogo no meio da
+  luta; a cena 0x27 começa no 1620 ("You got the Maxim Tomato trophy!"), um
+  botão a fecha e o modo segue para a CSS no 1910. A luta contra o desafiante
+  fica de fora: é num estágio próprio dele e contra uma CPU, e agora para com
+  o nome do símbolo de estágio que o host não traduz, onde antes dava
+  SIGSEGV.
 - Cópias da EFB em cor: na rota de estoque, `1450:EFBCOPY` acha 3 texturas
   copiadas com até 893 cores, e o BMP do frame 1450 mostra os retratos do 2º
   (Fox na pose de derrota, fundo vermelho) e do 1º (o rosto, fundo azul), que
@@ -128,9 +139,10 @@ bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina 
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
 `--play`, que abre a janela, segue o ritmo do console, mapeia o pad inteiro e
-toca som, mas não foi jogado por uma pessoa. Do modo VS faltam o desafiante e
-o aviso de prêmio, e dos dados de estágio os `yakumono_param` dos 47 arquivos
-que têm parâmetros próprios, um layout por estágio. Hyrule Temple segue como alvo por estar
+toca som, mas não foi jogado por uma pessoa. O modo VS tem todas as suas
+cenas; o que fica fora do MVP é a luta contra o desafiante (estágio próprio e
+CPU) e os `yakumono_param` dos 47 arquivos com parâmetros próprios, um layout
+por estágio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
 
@@ -227,3 +239,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 98% | Mario e Link jogáveis. Os sete itens dos dois (bola de fogo 48, capa 83, bomba 58, bumerangue 60, hookshot 62, flecha 64 e arco 76) ganharam tradutor por slot: blocos de escalares onde o disco só tem escalares, e campo a campo onde há modelos e animações, porque os ponteiros do host são mais largos. A ficha de atributos do Link é traduzida inteira, mantendo os offsets do PowerPC, já que `ftCo_0D8E.c` lê os mesmos bytes por outra struct. `it_802A4BFC_sqrtf_offset` escrevia no slot de pilha vizinho para casar com o MWCC e arrasava o quadro de quem chamava; a corrente do hookshot chegava lá (SIGBUS no `host-debug`, silencioso no `-O2`), e o truque ficou sob `MELEE_HOST`. As rotas escolhem os dois pela CSS sem gdb (cursor a 1,24 unidade por frame; Mario 15 frames para cima, Link 30 para a direita) e entram na suíte: uma luta de um estoque até os resultados, com o Link vencedor e os retratos copiados da EFB, e uma rota de especiais que confere os estados do Mario (343, 345, 350, 347 e 212) e cria os sete itens. Também saiu um defeito de render que valia para tudo: com iluminação desligada o GX entrega só a cor de material, e o host multiplicava pelo ambiente do último material, o que deixava o estágio escuro e vermelho enquanto o bumerangue voava. `host-debug` 23/23, 223/223 unitários; sob ASan os 23 testes passam sem relato do ASan, com 36 pontos do UBSan, quatro deles novos e das famílias já registradas (três `1 << 31` e uma chamada por ponteiro de outro tipo). |
 | 2026-09-16 | 99% | Morte súbita. Uma luta por tempo empatada vai para a cena `GS_SUDDEN_DEATH` pelo caminho do próprio jogo: `gmVsMelee_ExitVs` conta dois vencedores, `gm_SetupSuddenDeath` troca as regras por um estoque a 300% e `gm_80166CCC` devolve ao fim da luta por tempo só as colocações que a morte súbita decidiu. Como o menu não oferece menos de um minuto, o roteiro ganhou `FRAME:CLOCK[=SEGUNDOS]`, que lê e escreve o relógio da cena, e o `RESULT` passou a imprimir as colocações. O teste novo deixa 3 s no relógio, o jogo esgota o tempo em `0s+59` e entra na morte súbita, onde o pad 1 cai: 501 frames de luta, 469 de morte súbita e 407 de resultados, 31 s no `host-debug`. A rota longa, sem atalho, dá a mesma sequência com 7.438 frames de luta e o mesmo `outcome 1 winners 2` com `places P1=2 P2=1`, em 49 s no `-O2`. `host-debug` 24/24 e 223/223 unitários. |
 | 2026-09-16 | 99% | `ALDYakuAll` e `yakumono_param`. A tabela de scripts que o estágio dá ao item aleatório traduz em todos os 76 arquivos que a têm: o índice 0 é o zero que `Ground_801C0800` pula, cada entrada vira command stream e a tabela fecha com NULL; em `GrSh.dat` o único script mora nos words logo depois de `yakumono_param`. Deste, o host traduz o bloco de zeros que 29 arquivos guardam (Hyrule Temple entre eles) e recusa com nome os 47 com parâmetros próprios, porque o layout é a struct de cada `grXXX.c` e sem as larguras dos campos não se troca a ordem dos bytes. `--sweep-archives`: `game_data` de 886/884 para 1038/989. Na rota o `stage_info.ald_yaku_all` deixa de ser NULL e o jogo escreve o script no estado do item aleatório; o trace da rota de estoque fica igual nos 1739 frames entre o `-O2` de antes e o de depois. `host-debug` 24/24 e 224/224 unitários. |
+| 2026-09-16 | 99% | Desafiante e aviso de prêmio. As duas cenas que faltavam ao modo VS entram na tabela do host com os callbacks de `gmscdata.c`; quem escolhe entre elas é `gmVsMelee_ExitResults`, pelo save. Como o menor total que libera um personagem é 50 lutas e o aviso depende de um troféu novo, o roteiro ganhou `FRAME:MATCHES[=TOTAL]`, `FRAME:TROPHY=ID` (que passa pelo `fn_80172C78` do jogo) e `FRAME:STOP`, que encerra a rota num frame, já que uma cena que espera botão prenderia o roteiro. Dois testes: o desafiante com a silhueta da Jigglypuff e o "A new foe has appeared!", e o prêmio com o "You got the Maxim Tomato trophy!" seguido da volta à CSS. A luta contra o desafiante fica fora do MVP (estágio próprio e CPU), e o que antes era SIGSEGV em `grStadium_801D13E0` virou parada com nome: `grDatFiles_801C6038` confere no host se alguma busca de símbolo do estágio foi recusada. `host-debug` 26/26 e 224/224 unitários. |

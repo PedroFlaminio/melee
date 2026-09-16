@@ -2,6 +2,7 @@
 
 #include <melee/ft/ftlib.h>
 #include <melee/gm/gmmain_lib.h>
+#include <melee/gm/gm_16F1.h>
 #include <melee/gm/gmvs.h>
 #include <melee/gm/gmresult.h>
 #include <melee/gm/types.h>
@@ -93,6 +94,21 @@ bool melee_host_match_place(mh_u32 slot, mh_s32* place)
     }
     *place = end->player_standings[slot].is_small_loser + 1;
     return true;
+}
+
+mh_u32 melee_host_match_vs_total(void)
+{
+    return gmMainLib_8015ED98()->x0;
+}
+
+void melee_host_match_set_vs_total(mh_u32 total)
+{
+    gmMainLib_8015ED98()->x0 = total;
+}
+
+bool melee_host_match_award_trophy(mh_u32 trophy)
+{
+    return fn_80172C78((int) trophy);
 }
 
 bool melee_host_match_clock(mh_u32* seconds, mh_u32* frames)

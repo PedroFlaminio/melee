@@ -774,6 +774,65 @@ if(MELEE_HOST_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION
                 "rules frame 660: mode 0 time 2 stock 3\nclock frame 680: set 3s\nclock frame 950: 0s\\+59\n.*falls frame 1450: P1=1 P2=0\n.*result frame 1600: outcome 1 winners 2 first 0 stocks P1=3 P2=3\nplaces frame 1600: P1=2 P2=1\n.*efb copy frame 1700: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(501\\) 0x03 \\(469\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1787 frames\\) 0x01\n"
         )
+        # The challenger the results screen leads to.  A fighter is
+        # unlocked by the VS matches the save data counts, and the smallest
+        # total that unlocks one is 50, which no route can play, so MATCHES=50
+        # leaves the save data where 50 matches would.  The stock match is the
+        # same as above; on leaving the results the game finds Jigglypuff
+        # (unlock index 4) still locked, and the mode enters the challenger
+        # scene (0x29), which shows "A new foe has appeared!" over its
+        # silhouette and waits for the loser's pad.  The route stops there:
+        # the match that would follow is on the challenger's own stage, whose
+        # data the host does not translate.
+        add_test(
+            NAME melee-host-vs-challenger-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-333:SX=-127@2
+                    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
+                    365-404:SX=-127 365-404:SY=127 406-423:SX=127 430:A
+                    460:RIGHT 480:DOWN 490:LEFT 510:LEFT 520:RULES 540:B
+                    600:START 640-641:SX=-127 645-659:SY=127 665:A
+                    900:MATCHES=50 905:MATCHES
+                    861-1120:SX=-127 925:X 1150:FALLS 1160:FALLS
+                    1300:RESULT 1466:START 1606:START 1606:START@2
+                    1700:MATCHES 1800:STOP
+        )
+        set_tests_properties(melee-host-vs-challenger-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "matches frame 905: 50\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\nplaces frame 1300: P1=2 P2=1\nscene 0x29 from frame 1620\nmatches frame 1700: 51\nstopped at frame 1800\n"
+        )
+        # The prize notice, the other place the results screen leads to.
+        # The game hands out a trophy when a play total crosses one of its
+        # thresholds, and TROPHY=0x55 takes that path (fn_80172C78) for the
+        # Maxim Tomato, which leaves the notice pending.  After the same stock
+        # match the mode enters the prize scene (0x27), which says what the
+        # trophy was; a button closes it and the mode carries on to character
+        # select, where the route stops.
+        add_test(
+            NAME melee-host-vs-prize-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-333:SX=-127@2
+                    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
+                    365-404:SX=-127 365-404:SY=127 406-423:SX=127 430:A
+                    460:RIGHT 480:DOWN 490:LEFT 510:LEFT 520:RULES 540:B
+                    600:START 640-641:SX=-127 645-659:SY=127 665:A
+                    900:TROPHY=0x55
+                    861-1120:SX=-127 925:X 1150:FALLS 1160:FALLS
+                    1300:RESULT 1466:START 1606:START 1606:START@2
+                    1900:A 1990:STOP
+        )
+        set_tests_properties(melee-host-vs-prize-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "trophy frame 900: 85 new\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\nplaces frame 1300: P1=2 P2=1\nscene 0x27 from frame 1620\nscene 0x08 from frame 1910\nstopped at frame 1990\n"
+        )
         # The same stock match with Mario and Link, both chosen from the
         # character select rather than forced: pad 1 holds up five frames
         # longer than the Fox route to reach Mario's icon in the top row, and
@@ -836,6 +895,8 @@ if(MELEE_HOST_BUILD_TESTS)
                 melee-host-main-menu-asset melee-host-vs-match-asset
                 melee-host-vs-stock-match-asset
                 melee-host-vs-sudden-death-asset
+                melee-host-vs-challenger-asset
+                melee-host-vs-prize-asset
                 melee-host-vs-mario-link-asset
                 melee-host-mario-link-specials-asset
                 APPEND PROPERTY

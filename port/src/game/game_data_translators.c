@@ -33,6 +33,8 @@
 #include <melee/sfx/crowdsfx.h>
 #include <melee/ty/types.h>
 
+#include <dolphin/os.h>
+
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -3184,6 +3186,27 @@ static void register_demo_motion_files(void)
             (void) melee_host_hsd_register_translator(
                 names->vi_wait_filename, demo_motion_file);
         }
+    }
+}
+
+static mh_u32 stage_symbols_refused_mark;
+
+void melee_host_stage_symbols_mark(void)
+{
+    MeleeHostHsdArchiveStats stats = { 0 };
+
+    (void) melee_host_hsd_archive_stats(&stats);
+    stage_symbols_refused_mark = stats.symbols_refused;
+}
+
+void melee_host_stage_symbols_check(void)
+{
+    MeleeHostHsdArchiveStats stats = { 0 };
+
+    (void) melee_host_hsd_archive_stats(&stats);
+    if (stats.symbols_refused != stage_symbols_refused_mark) {
+        OSPanic(__FILE__, __LINE__, "the host cannot load this stage: %s",
+                melee_host_hsd_archive_last_error());
     }
 }
 

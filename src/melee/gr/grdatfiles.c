@@ -10,6 +10,10 @@
 #include <sysdolphin/baselib/particle.h>
 #include <sysdolphin/baselib/psstructs.h>
 
+#ifdef MELEE_HOST
+#include <melee_host/hsd_archive.h>
+#endif
+
 /* 1C6228 */ static void grDatFiles_801C6228(UnkStageDat*);
 /* 1C62B4 */ static UnkArchiveStruct* grDatFiles_801C62B4(void);
 
@@ -49,6 +53,11 @@ void grDatFiles_801C6038(void* arg0, s32 arg1, s32 arg2)
         }
         temp_r3->unk8 = 0;
         if (arg1 == 0) {
+#ifdef MELEE_HOST
+            /* The host refuses a symbol it cannot translate, and the stage's
+             * own code reads these without checking. */
+            melee_host_stage_symbols_mark();
+#endif
             stage_info.coll_data =
                 HSD_ArchiveGetPublicAddress(sp14, "coll_data");
             stage_info.param =
@@ -67,6 +76,9 @@ void grDatFiles_801C6038(void* arg0, s32 arg1, s32 arg2)
                 HSD_ArchiveGetPublicAddress(sp14, "map_plit");
             stage_info.quake_model_set =
                 HSD_ArchiveGetPublicAddress(sp14, "quake_model_set");
+#ifdef MELEE_HOST
+            melee_host_stage_symbols_check();
+#endif
         }
         temp_r3->unk0 = sp14;
         if (stage_info.map_ptcl != NULL && stage_info.map_texg != NULL) {

@@ -2448,6 +2448,31 @@ Atualizado em 15 de setembro de 2026.
   de estoque fica igual nos 1739 frames entre o build `-O2` de antes e o de
   depois. `host-debug` 24/24 e 224/224 unitarios, com um teste do formato dos
   dois simbolos e da recusa.
+- [x] Desafiante e aviso de premio, as duas cenas que faltavam ao modo VS.
+  As duas entram na tabela do host com os callbacks de `gmscdata.c`
+  (`gm_Scene_Approach_*` e `ifPrize_Scene_*`), e o codigo delas ja vinha no
+  build. Quem decide e `gmVsMelee_ExitResults`: se um total de lutas VS
+  libera um personagem, o modo vai para `gmVsMode_State_Approach`; senao, se
+  ha premio pendente, para `gmVsMode_State_Prize`. O menor total que libera
+  alguem e 50 lutas, que nenhuma rota joga, entao o roteiro ganhou
+  `FRAME:MATCHES[=TOTAL]`, que le e escreve o total do save, e
+  `FRAME:TROPHY=ID`, que da um trofeu pelo caminho do proprio jogo
+  (`fn_80172C78`), que e o que deixa o aviso pendente. Como uma cena que
+  espera botao prenderia a rota para sempre, `FRAME:STOP` encerra o roteiro
+  num frame, com "stopped at frame N".
+  `melee-host-vs-challenger-asset`: depois da luta de estoque, com o save em
+  50 lutas, a cena 0x29 comeca no frame 1620 e o BMP mostra "A new foe has
+  appeared!" com o aviso "WARNING CHALLENGER APPROACHING" e a silhueta da
+  Jigglypuff (indice 4 de desbloqueio); o total lido depois da luta e 51.
+  `melee-host-vs-prize-asset`: com o trofeu 0x55 dado no meio da luta, a cena
+  0x27 comeca no 1620 ("You got the Maxim Tomato trophy!", com a data do
+  relogio congelado), um botao a fecha e o modo segue para a CSS no 1910.
+  A luta contra o desafiante fica de fora: ela e num estagio proprio de cada
+  desafiante (Pokemon Stadium no caso da Jigglypuff) e contra uma CPU. Antes
+  isso dava SIGSEGV em `grStadium_801D13E0`, porque o estagio seguia um NULL
+  de simbolo recusado; agora `grDatFiles_801C6038` marca as estatisticas do
+  arquivo antes das buscas e confere depois (`melee_host_stage_symbols_mark` e
+  `..._check`), e para com o nome do simbolo e o motivo.
 
 ## Em andamento
 
@@ -2615,9 +2640,11 @@ Atualizado em 15 de setembro de 2026.
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
 - A tabela de modos e cenas do host tem o titulo, o menu principal e o modo VS
-  com as duas cenas de selecao, a luta, a morte subita e os resultados, na
-  tabela de estados do console. O desafiante e o aviso de premio param com
-  nome como cenas ausentes.
+  inteiro, na tabela de estados do console: as duas cenas de selecao, a luta,
+  a morte subita, os resultados, o desafiante e o aviso de premio. Da luta
+  contra o desafiante so roda o anuncio: ela e num estagio proprio do
+  desafiante e contra uma CPU, e o host para com o nome do simbolo de estagio
+  que nao traduz.
   Pedir um modo fora da tabela e recusado antes de o jogo seguir o NULL que
   acharia, e uma cena fora da tabela encerra o modo; nos dois casos
   `--run-modes` termina o roteiro com `stopped:`.

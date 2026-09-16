@@ -12,6 +12,7 @@
 #include <melee_host/boot.h>
 
 #include <melee/gm/gm_1A3F.h>
+#include <melee/gm/gmapproach.h>
 #include <melee/gm/gmmenumode.h>
 #include <melee/gm/gmresult.h>
 #include <melee/gm/gmscdata.h>
@@ -24,6 +25,7 @@
 #include <melee/mn/mncharsel.h>
 #include <melee/mn/mnmain.h>
 #include <melee/mn/mnstagesel.h>
+#include <melee/if/ifprize.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -78,6 +80,24 @@ static GameScene host_scenes[] = {
         NULL,
         gm_Scene_Results_OnEnter,
         gm_Scene_Results_OnExit,
+        NULL,
+    },
+    /* The challenger the results screen can lead to, which announces the
+     * fighter a play total unlocked and then hands the mode a match against
+     * it. */
+    {
+        GS_APPROACH,
+        gm_Scene_Approach_OnFrame,
+        gm_Scene_Approach_OnEnter,
+        gm_Scene_Approach_OnExit,
+        NULL,
+    },
+    /* The prize notice, the other place the results screen can lead to. */
+    {
+        GS_PRIZE_INTERFACE,
+        NULL,
+        ifPrize_Scene_OnEnter,
+        ifPrize_Scene_OnExit,
         NULL,
     },
     {

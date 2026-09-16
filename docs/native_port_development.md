@@ -432,6 +432,17 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   numa luta sem relogio. A rota do teste de morte subita e a longa, sem o
   atalho, dao a mesma sequencia de cenas e o mesmo desfecho; a longa leva 49 s
   no build `-O2`.
+- Uma cena que espera botao prende a rota para sempre, e o laco de modos so
+  volta entre modos. `FRAME:STOP` encerra o roteiro naquele frame, com
+  "stopped at frame N" e codigo 0, depois das outras entradas do frame; as
+  linhas de resumo (`scenes:`, `route:`) nao saem, e o teste confere as
+  linhas `scene 0xNN from frame N` que saem ao vivo.
+- O que a tela de resultados faz depois depende do save, que sem cartao
+  comeca zerado: `FRAME:MATCHES[=TOTAL]` le e escreve o total de lutas VS (50
+  e o menor que libera um personagem) e `FRAME:TROPHY=ID` da um trofeu pelo
+  caminho do jogo (`fn_80172C78`), que deixa o aviso de premio pendente. O
+  desafiante aparece para a porta do "smallest loser" da luta, que na rota de
+  estoque e a do pad 2.
 - Um valor que no console vem de um registrador some no host. Uma variavel
   sem atribuicao num caminho (`base` em `gm_80168B34`) valia o que o MWCC
   deixou no registrador que ela divide com um parametro, e uma funcao que

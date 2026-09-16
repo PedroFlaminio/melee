@@ -2224,7 +2224,8 @@ int main(int argc, char** argv)
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
              * the headless diagnostics SHADOW, EFBCOPY, FIGHTERS, MOVE, ACTION,
-             * FALLS, RULES, RESULT, CLOCK[=SECONDS] and TRACE=PATH. PORT is 1 to 4,
+             * FALLS, RULES, RESULT, CLOCK[=SECONDS], MATCHES[=TOTAL],
+             * TROPHY=ID, STOP and TRACE=PATH. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
@@ -2280,6 +2281,10 @@ int main(int argc, char** argv)
                 std::vector<mh_u32> result_traces;
                 std::vector<mh_u32> clock_traces;
                 std::vector<std::array<mh_u32, 2>> clock_sets;
+                std::vector<mh_u32> matches_traces;
+                std::vector<std::array<mh_u32, 2>> matches_sets;
+                std::vector<mh_u32> stop_frames;
+                std::vector<std::array<mh_u32, 2>> trophy_awards;
                 /* The running mode's report, to print each scene as it
                  * starts, with the frame it starts on. */
                 MeleeHostGameModeReport* report = nullptr;
@@ -2417,6 +2422,46 @@ int main(int argc, char** argv)
                     }
                     input.rules_traces.push_back(
                         static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs.rfind("TROPHY=", 0) == 0) {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:TROPHY=ID, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.trophy_awards.push_back(
+                        { static_cast<mh_u32>(std::stoul(frames)),
+                          static_cast<mh_u32>(
+                              std::stoul(inputs.substr(7), nullptr, 0)) });
+                    continue;
+                }
+                if (inputs == "STOP") {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:STOP, got " << entry
+                                  << '\n';
+                        return 2;
+                    }
+                    input.stop_frames.push_back(
+                        static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "MATCHES" || inputs.rfind("MATCHES=", 0) == 0)
+                {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:MATCHES[=TOTAL], got "
+                                  << entry << '\n';
+                        return 2;
+                    }
+                    const auto frame =
+                        static_cast<mh_u32>(std::stoul(frames));
+                    if (inputs.size() > 7) {
+                        input.matches_sets.push_back(
+                            { frame, static_cast<mh_u32>(std::stoul(
+                                         inputs.substr(8))) });
+                    } else {
+                        input.matches_traces.push_back(frame);
+                    }
                     continue;
                 }
                 if (inputs == "CLOCK" || inputs.rfind("CLOCK=", 0) == 0) {
@@ -2948,6 +2993,48 @@ int main(int argc, char** argv)
                         std::cout << "clock frame " << frame
                                   << ": no timer\n";
                     }
+                }
+                /* The VS matches the save data counts, and the entry that
+                 * sets it: the smallest play total that unlocks a fighter is
+                 * 50 matches, which no route can play. */
+                for (const auto& entry : state->matches_sets) {
+                    if (entry[0] != state->frames) {
+                        continue;
+                    }
+                    melee_host_match_set_vs_total(entry[1]);
+                    std::cout << "matches frame " << entry[0] << ": set "
+                              << entry[1] << '\n';
+                }
+                for (const mh_u32 frame : state->matches_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::cout << "matches frame " << frame << ": "
+                              << melee_host_match_vs_total() << '\n';
+                }
+                /* A trophy the game's own award path marks as new, which
+                 * is what leaves a prize notice pending. */
+                for (const auto& entry : state->trophy_awards) {
+                    if (entry[0] != state->frames) {
+                        continue;
+                    }
+                    std::cout << "trophy frame " << entry[0] << ": "
+                              << entry[1] << (melee_host_match_award_trophy(
+                                                  entry[1])
+                                                  ? " new\n"
+                                                  : " already had\n");
+                }
+                /* FRAME:STOP ends the route there, for a scene that waits
+                 * for input the route has no reason to give: the mode loop
+                 * only returns between modes, and a scene that never ends
+                 * would hold the route for ever. */
+                for (const mh_u32 frame : state->stop_frames) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    std::cout << "stopped at frame " << frame << '\n';
+                    std::cout.flush();
+                    std::exit(0);
                 }
                 for (const mh_u32 frame : state->result_traces) {
                     if (frame != state->frames) {

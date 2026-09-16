@@ -79,6 +79,15 @@ void melee_host_hsd_archive_release_all(void);
 /* Why the last parse or lookup failed, including a refused symbol. */
 const char* melee_host_hsd_archive_last_error(void);
 
+/* The stage's own symbols, around the block of lookups grDatFiles_801C6038
+ * makes.  It keeps whatever comes back, NULL included, and each stage's code
+ * then reads the ones it needs without checking, so a symbol the host refused
+ * would arrive as a NULL the stage follows.  Marking before the lookups and
+ * checking after them stops with the reason instead, in the frame that asked
+ * for the stage. */
+void melee_host_stage_symbols_mark(void);
+void melee_host_stage_symbols_check(void);
+
 /* Game data whose layout only the game's C headers describe is translated by a
  * function registered under the symbol's name.  The translator reads the file
  * through the reader, which checks every offset against the data section and
