@@ -817,13 +817,11 @@ void mnDiagram2_UpdateScrollArrows(HSD_GObj* gobj)
 {
     Diagram2* data;
     HSD_JObj* jobj;
-    MnDiagram2DataLayout* base;
 
-    base = (MnDiagram2DataLayout*) &mnDiagram2_803EEAD0;
     data = HSD_GObjGetUserData(gobj);
 
     jobj = data->down_arrow;
-    mn_8022ED6C(jobj, &base->anim[1]);
+    mn_8022ED6C(jobj, &mnDiagram2_803EEB60[1]);
     if (data->is_name_mode) {
         if (data->scroll_offset + 10 < 0x18) {
             HSD_JObjClearFlagsAll(jobj, JOBJ_HIDDEN);
@@ -839,7 +837,7 @@ void mnDiagram2_UpdateScrollArrows(HSD_GObj* gobj)
     }
 
     jobj = data->up_arrow;
-    mn_8022ED6C(jobj, &base->anim[1]);
+    mn_8022ED6C(jobj, &mnDiagram2_803EEB60[1]);
     if (data->scroll_offset) {
         HSD_JObjClearFlagsAll(jobj, JOBJ_HIDDEN);
     } else {
@@ -847,7 +845,7 @@ void mnDiagram2_UpdateScrollArrows(HSD_GObj* gobj)
     }
 
     jobj = data->left_arrow;
-    mn_8022ED6C(jobj, &base->anim[1]);
+    mn_8022ED6C(jobj, &mnDiagram2_803EEB60[1]);
     if (data->is_name_mode) {
         if (data->selected_name_idx) {
             HSD_JObjClearFlagsAll(jobj, JOBJ_HIDDEN);
@@ -863,7 +861,7 @@ void mnDiagram2_UpdateScrollArrows(HSD_GObj* gobj)
     }
 
     jobj = data->right_arrow;
-    mn_8022ED6C(jobj, &base->anim[1]);
+    mn_8022ED6C(jobj, &mnDiagram2_803EEB60[1]);
     if (data->is_name_mode != 0) {
         if (data->selected_name_idx !=
             mnDiagram_GetNextNameIndex(data->selected_name_idx))

@@ -1600,7 +1600,7 @@ namespace melee::render {
         glLoadIdentity();
 
         char fps_text[32];
-        std::snprintf(fps_text, sizeof(fps_text), "%.1f FPS", state.last_fps);
+        std::snprintf(fps_text, sizeof(fps_text), "%.0f FPS", state.last_fps);
 
         glColor4f(0.0F, 0.0F, 0.0F, 1.0F);
         menu_text(12.0F, 12.0F, 3.0F, fps_text);
@@ -2007,36 +2007,74 @@ namespace melee::render {
             }
             const int copy_left = (output_width - copy_width) / 2;
             const int copy_bottom = (output_height - copy_height) / 2;
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            glViewport(0, 0, output_width, output_height);
-            glDisable(GL_SCISSOR_TEST);
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, state.target->framebuffer);
-            const GLenum filter = state.video_settings.filter == PresentationFilter::Linear
-                                      ? GL_LINEAR : GL_NEAREST;
-            glBlitFramebuffer(0, 0, state.width, state.height,
-                              copy_left, copy_bottom, copy_left + copy_width,
-                              copy_bottom + copy_height, GL_COLOR_BUFFER_BIT,
-                              filter);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            draw_video_menu(state);
-            draw_fps_counter(state);
-            SDL_GL_SwapWindow(state.window.window);
-            if (state.video_settings.rate != PresentationRate::Unlimited) {
-                pace(1'000'000'000ULL / static_cast<std::uint16_t>(state.video_settings.rate));
-            }
-            double frames_per_second = 0.0;
-            if (state.frame_rate.add_frame(SDL_GetTicksNS(),
-                                           &frames_per_second))
-            {
-                state.last_fps = frames_per_second;
-                SDL_SetWindowTitle(state.window.window,
-                                   video_menu_title(state.video_settings,
-                                                    state.video_menu_open,
-                                                    state.video_menu_row,
-                                                    frames_per_second)
-                                       .c_str());
+            const GLenum blit_filter =
+                state.video_settings.filter == PresentationFilter::Linear
+                    ? GL_LINEAR : GL_NEAREST;
+
+            /* Helper: blit the FBO to the back-buffer and swap. */
+            const auto blit_and_swap = [&]() {
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                glViewport(0, 0, output_width, output_height);
+                glDisable(GL_SCISSOR_TEST);
+                glClearColor(0, 0, 0, 1);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER,
+                                  state.target->framebuffer);
+                glBlitFramebuffer(0, 0, state.width, state.height,
+                                  copy_left, copy_bottom,
+                                  copy_left + copy_width,
+                                  copy_bottom + copy_height,
+                                  GL_COLOR_BUFFER_BIT, blit_filter);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                draw_video_menu(state);
+                draw_fps_counter(state);
+                SDL_GL_SwapWindow(state.window.window);
+            };
+
+            if (state.video_settings.rate == PresentationRate::Unlimited) {
+                /* Unlimited: the simulation still advances at 60 Hz, but
+                 * the last frame is re-blitted to the window as fast as
+                 * the GPU allows until the next simulation tick.  The FPS
+                 * counter shows the actual presentation rate. */
+                constexpr std::uint64_t kSimTickNs = 1'000'000'000ULL / 60;
+
+                /* Initialise the pacing deadline on the first frame. */
+                const Uint64 now = SDL_GetTicksNS();
+                Uint64& next = state.next_frame_ns;
+                if (next == 0 || now > next + kSimTickNs) {
+                    next = now;
+                }
+                next += kSimTickNs;
+
+                /* Present repeatedly until the deadline. */
+                do {
+                    blit_and_swap();
+                    double fps = 0.0;
+                    if (state.frame_rate.add_frame(SDL_GetTicksNS(), &fps)) {
+                        state.last_fps = fps;
+                        SDL_SetWindowTitle(
+                            state.window.window,
+                            video_menu_title(state.video_settings,
+                                             state.video_menu_open,
+                                             state.video_menu_row, fps)
+                                .c_str());
+                    }
+                } while (SDL_GetTicksNS() < next);
+            } else {
+                /* Fixed target rate: single blit, then pace. */
+                blit_and_swap();
+                pace(1'000'000'000ULL /
+                     static_cast<std::uint16_t>(state.video_settings.rate));
+                double fps = 0.0;
+                if (state.frame_rate.add_frame(SDL_GetTicksNS(), &fps)) {
+                    state.last_fps = fps;
+                    SDL_SetWindowTitle(
+                        state.window.window,
+                        video_menu_title(state.video_settings,
+                                         state.video_menu_open,
+                                         state.video_menu_row, fps)
+                            .c_str());
+                }
             }
         }
     }

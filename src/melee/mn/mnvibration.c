@@ -127,35 +127,49 @@ static u16 mnVibration_PortPanelJointIds[4] = { 0x16, 0x15, 0x14, 0x13 };
 s32 mnVibration_804D4FF0 = 0x20010000;
 SDATA char mnVibration_804D4FF4[] = "jobj.h";
 SDATA char mnVibration_804D4FFC[] = "jobj";
-AnimLoopSettings mnVibration_803EECE0 = { 0.0f, 20.0f, -0.1f };
-AnimLoopSettings mnVibration_803EECEC = { 50.0f, 70.0f, -0.1f };
-AnimLoopSettings mnVibration_803EECF8 = { 0.0f, 14.0f, -0.1f };
-Vec3 mnVibration_803EED04 = { -0.4f, 0.5f, 0.0f };
-// These strings are accessed through MnVibrationDataLayout.
-#ifdef MUST_MATCH
-#pragma push
-#pragma force_active on
-#endif
-static char mnVibration_803EED10[0x18] = "Can't get user_data.\n";
-static char mnVibration_803EED28[0x10] = "mnvibration.c";
-static char mnVibration_803EED38[0xC] = "user_data";
-static char mnVibration_803EED44[0x18] = "MenMainConVi_Top_joint";
-static char mnVibration_803EED5C[0x1C] = "MenMainConVi_Top_animjoint";
-static char mnVibration_803EED78[0x20] = "MenMainConVi_Top_matanim_joint";
-static char mnVibration_803EED98[0x24] = "MenMainConVi_Top_shapeanim_joint";
-static char mnVibration_803EEDBC[0x18] = "MenMainCtlVi_Top_joint";
-static char mnVibration_803EEDD4[0x1C] = "MenMainCtlVi_Top_animjoint";
-static char mnVibration_803EEDF0[0x20] = "MenMainCtlVi_Top_matanim_joint";
-static char mnVibration_803EEE10[0x24] = "MenMainCtlVi_Top_shapeanim_joint";
-static char mnVibration_803EEE34[0x1C] = "MenMainOnoffVi_Top_joint";
-static char mnVibration_803EEE50[0x20] = "MenMainOnoffVi_Top_animjoint";
-static char mnVibration_803EEE70[0x24] = "MenMainOnoffVi_Top_matanim_joint";
-static char mnVibration_803EEE94[0x24] = "MenMainOnoffVi_Top_shapeanim_joint";
-static char mnVibration_803EEEB8[0x20] = "MenMainCursorVi_Top_joint";
+static MnVibrationDataLayout mnVib_Data = {
+    { 0.0f, 20.0f, -0.1f },
+    { 50.0f, 70.0f, -0.1f },
+    { 0.0f, 14.0f, -0.1f },
+    { -0.4f, 0.5f, 0.0f },
+    "Can't get user_data.\n",
+    "mnvibration.c",
+    "user_data",
+    "MenMainConVi_Top_joint",
+    "MenMainConVi_Top_animjoint",
+    "MenMainConVi_Top_matanim_joint",
+    "MenMainConVi_Top_shapeanim_joint",
+    "MenMainCtlVi_Top_joint",
+    "MenMainCtlVi_Top_animjoint",
+    "MenMainCtlVi_Top_matanim_joint",
+    "MenMainCtlVi_Top_shapeanim_joint",
+    "MenMainOnoffVi_Top_joint",
+    "MenMainOnoffVi_Top_animjoint",
+    "MenMainOnoffVi_Top_matanim_joint",
+    "MenMainOnoffVi_Top_shapeanim_joint",
+    "MenMainCursorVi_Top_joint"
+};
 
-#ifdef MUST_MATCH
-#pragma pop
-#endif
+#define mnVibration_803EECE0 mnVib_Data.intro_anim
+#define mnVibration_803EECEC mnVib_Data.main_anim
+#define mnVibration_803EECF8 mnVib_Data.cursor_anim
+#define mnVibration_803EED04 mnVib_Data.name_pos
+#define mnVibration_803EED10 mnVib_Data.user_data_error
+#define mnVibration_803EED28 mnVib_Data.file_name
+#define mnVibration_803EED38 mnVib_Data.user_data_name
+#define mnVibration_803EED44 mnVib_Data.convi_top_joint
+#define mnVibration_803EED5C mnVib_Data.convi_top_animjoint
+#define mnVibration_803EED78 mnVib_Data.convi_top_matanim_joint
+#define mnVibration_803EED98 mnVib_Data.convi_top_shapeanim_joint
+#define mnVibration_803EEDBC mnVib_Data.ctlvi_top_joint
+#define mnVibration_803EEDD4 mnVib_Data.ctlvi_top_animjoint
+#define mnVibration_803EEDF0 mnVib_Data.ctlvi_top_matanim_joint
+#define mnVibration_803EEE10 mnVib_Data.ctlvi_top_shapeanim_joint
+#define mnVibration_803EEE34 mnVib_Data.onoffvi_top_joint
+#define mnVibration_803EEE50 mnVib_Data.onoffvi_top_animjoint
+#define mnVibration_803EEE70 mnVib_Data.onoffvi_top_matanim_joint
+#define mnVibration_803EEE94 mnVib_Data.onoffvi_top_shapeanim_joint
+#define mnVibration_803EEEB8 mnVib_Data.cursorvi_top_joint
 
 // --- Globals ---
 HSD_GObj* mnVibration_804D6C28;

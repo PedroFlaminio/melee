@@ -3235,6 +3235,11 @@ struct FighterItemAttrs {
      * or whose struct is not the size of its disc block. */
     const FighterItemSpecial* specials;
     mh_u32 special_count;
+    /* Custom item parsers for slots that are neither Articles nor direct joints
+     * (e.g. Samus's grapple beam model). */
+    const mh_u8* custom_slots;
+    const FighterItemSpecial* custom_translators;
+    mh_u32 custom_count;
 };
 
 static bool fighter_item_is_direct_joint(const struct FighterItemAttrs* attrs,
@@ -3269,9 +3274,23 @@ static void** fighter_items(MeleeHostHsdReader* reader, mh_u32 at,
         if (!present) {
             continue;
         }
-        table[slot] = fighter_item_is_direct_joint(attrs, slot)
-                          ? melee_host_hsd_reader_joint(reader, target)
-                          : fighter_item_article(reader, target);
+
+        bool custom = false;
+        mh_u32 i;
+        for (i = 0; i < attrs->custom_count; i++) {
+            if (attrs->custom_slots[i] == slot) {
+                table[slot] = attrs->custom_translators[i](reader, target);
+                custom = true;
+                break;
+            }
+        }
+
+        if (!custom) {
+            table[slot] = fighter_item_is_direct_joint(attrs, slot)
+                              ? melee_host_hsd_reader_joint(reader, target)
+                              : fighter_item_article(reader, target);
+        }
+
         if (melee_host_hsd_reader_failed(reader)) {
             return NULL;
         }
@@ -3771,14 +3790,70 @@ static void* fighter_data_purin(MeleeHostHsdReader* reader, mh_u32 root)
     return fighter_data(reader, root, fighter_purin_attrs, &purin_items);
 }
 
+static void* samus_throw_beam_model(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    /* struct UNK_SAMUS_S1 {
+     *     HSD_Joint* x0_joint;
+     *     HSD_AnimJoint** x4_anim_joints;
+     *     HSD_AnimJoint* x8_anim_joint;
+     *     HSD_MatAnimJoint* xC_matanim_joint;
+     * }; */
+    struct {
+        void* x0;
+        void* x4;
+        void* x8;
+        void* xC;
+    }* beam = melee_host_hsd_reader_allocate(reader, 0x10, alignof(void*));
+    bool present;
+    mh_u32 target;
+
+    if (beam == NULL) {
+        return NULL;
+    }
+
+    target = target_of(reader, at + 0x00, &present);
+    beam->x0 = present ? melee_host_hsd_reader_joint(reader, target) : NULL;
+
+    target = target_of(reader, at + 0x04, &present);
+    if (present) {
+        void** arr = melee_host_hsd_reader_allocate(reader, 4 * sizeof(void*), alignof(void*));
+        if (arr != NULL) {
+            int i;
+            for (i = 0; i < 4; i++) {
+                bool p;
+                mh_u32 t = target_of(reader, target + (mh_u32) i * 4, &p);
+                arr[i] = p ? melee_host_hsd_reader_anim_joint(reader, t) : NULL;
+            }
+        }
+        beam->x4 = arr;
+    } else {
+        beam->x4 = NULL;
+    }
+
+    target = target_of(reader, at + 0x08, &present);
+    beam->x8 = present ? melee_host_hsd_reader_anim_joint(reader, target) : NULL;
+
+    target = target_of(reader, at + 0x0C, &present);
+    beam->xC = present ? melee_host_hsd_reader_mat_anim_joint(reader, target) : NULL;
+
+    return melee_host_hsd_reader_failed(reader) ? NULL : beam;
+}
+
 static void* fighter_data_samus(MeleeHostHsdReader* reader, mh_u32 root)
 {
     static const FighterItemSpecial samus_item_specials[] = {
         item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, samus_grapple_attrs
     };
+    static const mh_u8 samus_custom_slots[] = { 4 };
+    static const FighterItemSpecial samus_custom_translators[] = { samus_throw_beam_model };
     static const struct FighterItemAttrs samus_items = {
-        NULL, 0, NULL, 0, samus_item_specials,
+        NULL, 0,
+        NULL, 0,
+        samus_item_specials,
         sizeof(samus_item_specials) / sizeof(samus_item_specials[0]),
+        samus_custom_slots,
+        samus_custom_translators,
+        sizeof(samus_custom_slots) / sizeof(samus_custom_slots[0]),
     };
     return fighter_data(reader, root, fighter_samus_attrs, &samus_items);
 }
@@ -3848,6 +3923,34 @@ static void* fighter_data_gigakoopa(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, NULL, 0,
     };
     return fighter_data(reader, root, fighter_gigakoopa_attrs, &gigakoopa_items);
+}
+
+static void* string_array(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 extent = melee_host_hsd_reader_extent(reader, root);
+    const mh_u32 count = extent / 4;
+    void** table;
+    mh_u32 i;
+
+    if (extent == 0) {
+        return NULL;
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(*table) * count,
+                                           alignof(void*));
+    if (table == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        bool present;
+        const mh_u32 target = target_of(reader, root + i * 4, &present);
+
+        table[i] = NULL;
+        if (present) {
+            table[i] = melee_host_hsd_reader_payload(
+                reader, target, melee_host_hsd_reader_extent(reader, target));
+        }
+    }
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
 }
 
 void melee_host_game_register_data_translators(void)
@@ -3922,5 +4025,9 @@ void melee_host_game_register_data_translators(void)
                                               card_icon_table);
     (void) melee_host_hsd_register_translator("MemSnapIconData",
                                               card_icon_table);
+    (void) melee_host_hsd_register_translator("mnNameAutoNameUs", string_array);
+    (void) melee_host_hsd_register_translator("mnNameRefuseNameUs", string_array);
+    (void) melee_host_hsd_register_translator("mnNameAutoName", string_array);
+    (void) melee_host_hsd_register_translator("mnNameRefuseName", string_array);
     register_demo_motion_files();
 }

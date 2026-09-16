@@ -16,30 +16,52 @@ typedef struct {
     void* shapeanim_joint;
 } MnNameArchive;
 
-/// Name-entry menu animation loop windows (.data block owned by this
-/// translation unit; see symbols.txt 0x803ED538..0x803ED62F).
-/* 3ED538 */ AnimLoopSettings mnName_803ED538[4] = {
-    { 0.0F, 0.0F, -0.1F },
-    { 0.0F, 0.0F, -0.1F },
-    { 0.0F, 0.0F, -0.1F },
-    { 0.0F, 0.0F, -0.1F },
+struct MnNameDataLayout {
+    AnimLoopSettings loop0_3[4];
+    AnimLoopSettings loop4;
+    AnimLoopSettings loop5;
+    AnimLoopSettings loop6;
+    AnimLoopSettings loop7;
+    AnimLoopSettings loop8;
+    f32 floatsA[23];
+    f32 floatsB[6];
+    Vec3 vecs[2];
 };
-/* 3ED568 */ AnimLoopSettings mnName_803ED568 = { 50.0F, 59.0F, -0.1F };
-/* 3ED574 */ AnimLoopSettings mnName_803ED574 = { 40.0F, 49.0F, -0.1F };
-/* 3ED580 */ AnimLoopSettings mnName_803ED580 = { 30.0F, 39.0F, -0.1F };
-/* 3ED58C */ AnimLoopSettings mnName_803ED58C = { 10.0F, 19.0F, -0.1F };
-/* 3ED598 */ AnimLoopSettings mnName_803ED598 = { 20.0F, 29.0F, -0.1F };
-/* 3ED5A4 */ f32 mnName_803ED5A4[23] = {
-    0.0F, 9.0F, -0.1F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F,
-    1.0F, 0.0F, 0.0F,  2.0F, 3.0F, 4.0F, 0.0F, 5.0F, 6.0F, 7.0F, 8.0F,
+
+static struct MnNameDataLayout mnName_Data = {
+    {
+        { 0.0F, 0.0F, -0.1F },
+        { 0.0F, 0.0F, -0.1F },
+        { 0.0F, 0.0F, -0.1F },
+        { 0.0F, 0.0F, -0.1F },
+    },
+    { 50.0F, 59.0F, -0.1F },
+    { 40.0F, 49.0F, -0.1F },
+    { 30.0F, 39.0F, -0.1F },
+    { 10.0F, 19.0F, -0.1F },
+    { 20.0F, 29.0F, -0.1F },
+    {
+        0.0F, 9.0F, -0.1F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F,
+        1.0F, 0.0F, 0.0F,  2.0F, 3.0F, 4.0F, 0.0F, 5.0F, 6.0F, 7.0F, 8.0F,
+    },
+    {
+        0.0F, 9.0F, -0.1F, 20.0F, 29.0F, -0.1F,
+    },
+    {
+        { -2.0F, 0.5F, 0.0F },
+        { -5.5F, -2.9F, 23.0F },
+    }
 };
-/* 3ED600 */ f32 mnName_803ED600[6] = {
-    0.0F, 9.0F, -0.1F, 20.0F, 29.0F, -0.1F,
-};
-/* 3ED618 */ Vec3 mnName_803ED618[2] = {
-    { -2.0F, 0.5F, 0.0F },
-    { -5.5F, -2.9F, 23.0F },
-};
+
+#define mnName_803ED538 mnName_Data.loop0_3
+#define mnName_803ED568 mnName_Data.loop4
+#define mnName_803ED574 mnName_Data.loop5
+#define mnName_803ED580 mnName_Data.loop6
+#define mnName_803ED58C mnName_Data.loop7
+#define mnName_803ED598 mnName_Data.loop8
+#define mnName_803ED5A4 mnName_Data.floatsA
+#define mnName_803ED600 mnName_Data.floatsB
+#define mnName_803ED618 mnName_Data.vecs
 
 /// Animation loop window lookup table for mnName_FindAnimLoop (.rodata block
 /// owned by this translation unit; see symbols.txt 0x803B8510..0x803B8527).

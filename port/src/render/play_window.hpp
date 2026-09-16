@@ -16,9 +16,10 @@ namespace melee::render {
     /* Number of interactive rows in the video settings menu. */
     inline constexpr std::uint8_t kVideoMenuRows = 6;
 
-    /* The menu intentionally has a closed list of rates: the simulation
-     * remains 60 Hz and the presenter must never expose an unbounded busy
-     * loop. */
+    /* The simulation remains 60 Hz for all rates.  Fixed rates pace
+     * presentation at the selected frequency.  "Unlimited" re-presents
+     * the last simulation frame as fast as the GPU allows (VSync off)
+     * while the simulation still advances at 60 Hz. */
     enum class PresentationRate : std::uint16_t {
         Fps60 = 60,
         Fps120 = 120,
@@ -161,7 +162,8 @@ namespace melee::render {
         return "Windowed";
     }
 
-    /* Row order: 0=Resolution, 1=Aspect, 2=Filter, 3=WindowMode, 4=Rate */
+    /* Row order: 0=Resolution, 1=Aspect, 2=Filter, 3=WindowMode, 4=Rate,
+     * 5=ShowFPS */
     constexpr void cycle(VideoSettings* settings, std::uint8_t row,
                          int direction)
     {
@@ -198,6 +200,8 @@ namespace melee::render {
                 }
             }
             settings->rate = values[next(index, 6)];
+        } else if (row == 5) {
+            settings->show_fps = !settings->show_fps;
         }
     }
 
@@ -290,7 +294,7 @@ namespace melee::render {
     play_window_title(double frames_per_second)
     {
         char rate[32];
-        std::snprintf(rate, sizeof(rate), "%.1f FPS", frames_per_second);
+        std::snprintf(rate, sizeof(rate), "%.0f FPS", frames_per_second);
         return std::string(kPlayWindowName) + " — " + rate + " — " +
                kPlayWindowControls;
     }
