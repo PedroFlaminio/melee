@@ -626,6 +626,48 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   globais do ASan mantem vivo tudo o que o modulo cita. Nao volte a excluir
   arquivos da instrumentacao; quando a lista de excecoes saiu, apareceram um
   estouro de pilha e leituras fora de vetor que ela escondia.
+- Um intrinseco do PowerPC trocado por macro em `src/placeholder.h` precisa
+  dar o que a instrucao da, nao o que o nome lembra. `__frsqrte` e a
+  estimativa de 1/sqrt(x) (`frsqrte`): os cerca de 50 lugares que o usam
+  (`sqrtf_store`, `acosf` e `asinf` de `lbtrigf.c`, colisao, particulas,
+  itens, dinamica) refinam com passos de Newton para 1/sqrt(x) e multiplicam
+  por x. A macro devolvia `sqrt(x)`, que so converge perto de x = 1: em x = 2
+  a raiz saia negativa e em 44 dava -1,9e41. O sintoma foi o IK das pernas
+  (`lbBgFlash_80021410`, que `ft_80089B08` roda ao pousar e parado) com
+  comprimentos absurdos e angulo NaN; a matriz da coxa e de tudo abaixo dela
+  ficava NaN ate a animacao seguinte sujar o joint, e o envelope sumia com as
+  pernas do Mario e do Link. Esconder DObjs e desligar a dinamica do chapeu
+  nao tinham relacao com isso. Para achar quem grava um NaN numa matriz, arme
+  no gdb um watchpoint de hardware em `mtx[0][0]` do joint com
+  `gdb.Breakpoint(expr, gdb.BP_WATCHPOINT, gdb.WP_WRITE)` e um `stop()` que so
+  para em `math.isnan`; o backtrace aponta a conta, e o `host-debug` mostra as
+  variaveis locais. Uma rota com outro personagem sai do roteiro da Fox com
+  `break Player_80031AD0 if slot == N` e `set player_slots[N].ckind =
+  CKind_Link` nos comandos do breakpoint.
+- Uma rota que precise de outro personagem nao depende mais do gdb: o cursor
+  da CSS anda `(80*80 - 200) * 0,0002 = 1,24` unidade por frame com o stick em
+  127 (o pad entrega 80), e as caixas dos icones estao em `mncharsel.c`. Com o
+  save que a gravacao usa, a CSS mostra so os personagens desbloqueados em
+  sete colunas. Partindo do roteiro da Fox, o pad 1 alcanca o Mario segurando
+  cima por 15 frames em vez de 10 (a coluna e a mesma, uma linha acima) e o
+  pad 2 alcanca o Link segurando direita por 30 frames na linha do meio; a
+  ficha cai com A dois frames depois do ultimo frame de stick. `vs selection:`
+  confirma a escolha (`0=8 1=6` para Mario e Link).
+- Com `GXSetChanCtrl` desligando a iluminacao de um canal, o GX passa adiante
+  so a cor de material: nem o registrador de ambiente nem as luzes entram. O
+  avaliador do host partia do ambiente e multiplicava, entao todo draw sem
+  iluminacao saia pintado pela cor ambiente que o ultimo material tivesse
+  deixado no registrador. Hyrule Temple desenha o cenario assim: o estagio
+  ficava escuro o tempo todo e vermelho enquanto o bumerangue do Link voava.
+  Quando um desenho inteiro muda de tom sem que a geometria mude, compare a
+  cor de raster dos vertices capturados (`captured_vertices`) entre dois
+  frames antes de procurar luzes.
+- Codigo decompilado que escreve num slot de pilha vizinho para casar com o
+  MWCC (`*(&y + 6) = ...` em `it_802A4BFC_sqrtf_offset`, `itlinkhookshot.c`)
+  corrompe o quadro de quem chama no host. O sintoma foi um SIGBUS com o
+  backtrace destruido no `host-debug` e nenhum efeito visivel no `-O2`; o ASan
+  aponta o objeto ("stack-buffer-overflow ... 'y'"). Guarde o truque com
+  `#ifdef MELEE_HOST` e use a propria variavel; o ramo do console nao muda.
 
 ## Carga de cena pela camada de objetos
 

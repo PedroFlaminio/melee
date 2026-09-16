@@ -693,6 +693,42 @@ TEST_CASE("channel colors follow the same pairing rule as channel control")
     REQUIRE(alpha.material_color[0] == 255);
 }
 
+TEST_CASE("a channel with lighting off passes its material colour through")
+{
+    melee_host_gx_state_reset();
+
+    /* Hyrule Temple draws its stage models with lighting off, so only the
+     * material colour reaches TEV.  Multiplying by the ambient register
+     * instead tinted the whole stage with whatever colour the last material
+     * had left there: dark blue normally, dark red while Link's boomerang
+     * was in the air. */
+    const GXColor ambient{ 81, 20, 25, 40 };
+    const GXColor material{ 200, 210, 220, 230 };
+    GXSetChanAmbColor(GX_COLOR0A0, ambient);
+    GXSetChanMatColor(GX_COLOR0A0, material);
+    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0,
+                  GX_DF_CLAMP, GX_AF_NONE);
+
+    MeleeHostGxCapturedVertex vertex{};
+    vertex.normal.z = 1.0F;
+    mh_u8 color0a0[4]{};
+    mh_u8 color1a1[4]{};
+    melee_host_gx_evaluate_lighting(&vertex, color0a0, color1a1);
+    REQUIRE(color0a0[0] == 200);
+    REQUIRE(color0a0[1] == 210);
+    REQUIRE(color0a0[2] == 220);
+    REQUIRE(color0a0[3] == 230);
+
+    /* With lighting on and no light loaded, the ambient register is all the
+     * channel has, and it scales the material colour. */
+    GXSetChanCtrl(GX_COLOR0A0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0,
+                  GX_DF_CLAMP, GX_AF_NONE);
+    melee_host_gx_evaluate_lighting(&vertex, color0a0, color1a1);
+    REQUIRE(color0a0[0] == static_cast<mh_u8>((200 * 81 + 127) / 255));
+    REQUIRE(color0a0[1] == static_cast<mh_u8>((210 * 20 + 127) / 255));
+    REQUIRE(color0a0[3] == static_cast<mh_u8>((230 * 40 + 127) / 255));
+}
+
 TEST_CASE("raster and framebuffer format state is recorded")
 {
     melee_host_gx_state_reset();

@@ -405,10 +405,18 @@ void evaluate_channel_locked(const MeleeHostGxCapturedVertex& vertex,
                                               alpha_control.ambient_color);
     const mh_u8* const alpha_material = source(alpha_control.material_source,
                                                alpha_control.material_color);
-    float lit[4]{ static_cast<float>(ambient[0]), static_cast<float>(ambient[1]),
-                  static_cast<float>(ambient[2]), static_cast<float>(alpha_ambient[3]) };
+    /* GX lights a channel only when GXSetChanCtrl enables it: with lighting
+     * off the channel passes its material colour through, and neither the
+     * ambient register nor any light takes part.  Colour and alpha decide
+     * this separately. */
+    const bool color_lit = color_control.lighting_enabled;
+    const bool alpha_lit = alpha_control.lighting_enabled;
+    float lit[4]{ color_lit ? static_cast<float>(ambient[0]) : 255.0F,
+                  color_lit ? static_cast<float>(ambient[1]) : 255.0F,
+                  color_lit ? static_cast<float>(ambient[2]) : 255.0F,
+                  alpha_lit ? static_cast<float>(alpha_ambient[3]) : 255.0F };
 
-    if (color_control.lighting_enabled || alpha_control.lighting_enabled) {
+    if (color_lit || alpha_lit) {
         mh_f32 normal[3]{ vertex.normal.x, vertex.normal.y, vertex.normal.z };
         normalize3(normal);
         for (std::size_t index = 0; index < kLights; ++index) {
@@ -449,7 +457,11 @@ void evaluate_channel_locked(const MeleeHostGxCapturedVertex& vertex,
             }
             const float factor = diffuse * attenuation;
             for (std::size_t component = 0; component < 4; ++component) {
-                lit[component] += factor * static_cast<float>(light.color[component]);
+                if (component < 3 ? !color_lit : !alpha_lit) {
+                    continue;
+                }
+                lit[component] +=
+                    factor * static_cast<float>(light.color[component]);
             }
         }
     }

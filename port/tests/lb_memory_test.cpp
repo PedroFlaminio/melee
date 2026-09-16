@@ -22,7 +22,9 @@ TEST_CASE("host ARAM is a stack, as ARAlloc and ARFree are in the SDK")
     REQUIRE(ARFree(&length) == second);
     REQUIRE(length == 0x20);
     REQUIRE(ARFree(nullptr) == first);
-    REQUIRE(ARGetSize() == 16U * 1024U * 1024U);
+    /* The console has 16 MiB; the host backs 24 MiB so a Link animation
+     * archive fits after the common banks (baselib_support.c). */
+    REQUIRE(ARGetSize() == 24U * 1024U * 1024U);
 }
 
 TEST_CASE("lbMemory places blocks at full host addresses")

@@ -2336,6 +2336,73 @@ Atualizado em 15 de setembro de 2026.
   e 20 s. Sob ASan a suite passa 19/19 sem relato do ASan; o UBSan ganha um
   ponto, `ax_mixer.c:588`, a chamada de `AXFXReverbStdCallback` pelo ponteiro
   `void (*)(void*, void*)` com que `AXDriverSetupAux` o registra.
+- [x] Pernas do Mario e do Link. Sumiam porque as matrizes do LLegJ e do
+  RLegJ, e de tudo abaixo deles, ficavam NaN: `ft_80089B08` roda o IK das
+  pernas (`lbBgFlash_80021410`) ao pousar e parado, e `sqrtf_store` devolvia
+  comprimentos como -1,4e13 e NaN. `src/placeholder.h` definia `__frsqrte(x)`
+  como `sqrt(x)`, mas o `frsqrte` do PowerPC estima 1/sqrt(x), e os passos de
+  Newton que os cerca de 50 lugares do jogo aplicam depois so convergem com
+  essa estimativa (com `sqrt`, a raiz de 2 saia -1,414 e a de 44, -1,9e41). A
+  macro passa a `1.0 / sqrt(x)`, o que tambem acerta `acosf` e `asinf` de
+  `lbtrigf.c` (`acosf(0,99)` dava 1,1308 no lugar de 0,1415). Um watchpoint de
+  hardware em `mtx[0][0]` do LLegJ do Link, parando so em NaN, mostrou a
+  escrita em `HSD_MtxSRT` a partir de `fn_8002113C` com angulo NaN. Numa rota
+  com Mario e Link (personagens trocados no gdb em `Player_80031AD0`) as
+  pernas tinham NaN do frame 610 (Mario, em `Landing`) e 618 (Link) em diante;
+  agora nao ha NaN em 65 amostras de 534 a 790, e nos BMPs as pernas do Link
+  aparecem paradas e andando. Os tres commits de contorno (`a6b5a2db9`,
+  `9ef7b7212`, `91d80b83d`) sairam: forcar a variante 0 dos grupos de DObj nao
+  mudava um pixel da rota, e o chapeu do Link volta a ter dinamica, que tambem
+  passa por `__frsqrte` e `acosf`. Na rota de estoque o trace da Fox passa a
+  diferir no frame 910 (x de P1 -136,8378 contra -136,8482), com as mesmas
+  cenas e frames. O teste de ARAM esperava 16 MiB desde que o host passou a 24
+  MiB e ganhou o tamanho novo; um teste de `lbVector_Angle` cobre a estimativa.
+  `host-debug` 21/21 e 222/222 unitarios; sob ASan os 20 testes com asset e os
+  222 unitarios passam, sem relato do ASan e com os mesmos 32 pontos do UBSan.
+
+- [x] Mario e Link jogaveis. Os sete itens que os dois criam tem tradutor por
+  slot da lista do lutador (`fighter_items`): a bola de fogo (kind 48, 0x14
+  bytes de escalares), a capa (83, 4 bytes que o codigo nunca le), a bomba
+  (58, 0x34 no disco para uma struct de 0x40, cujo `vel` `itlinkbomb.c` nao
+  le), o bumerangue (60, 0x44 de escalares, os modelos dos dois voos e as
+  animacoes de cada um), o hookshot (62, 0x54 de escalares mais os modelos dos
+  elos e da ponta, num bloco que `it_link_attr_math` reescreve a cada uso), a
+  flecha (64, 0x24 e dois modelos) e o arco (76, 8 bytes). A ficha de
+  atributos do Link e traduzida inteira (0xDC) mantendo os offsets do
+  PowerPC, porque `ftCo_0D8E.c` le os mesmos bytes como `ftCo_LinkCatchAttrs`;
+  os tres campos `UNK_T` viraram `s32` (no disco sao 7, 63 e 88, e ninguem os
+  le pelo nome). `it_802A4BFC_sqrtf_offset` escrevia no slot de pilha vizinho
+  para casar com o MWCC: no host isso arrasa o quadro de quem chama, e a
+  corrente do hookshot chegava la (SIGBUS no `host-debug`, silencioso no
+  `-O2`); o truque ficou sob `#ifdef MELEE_HOST`.
+
+  As rotas de teste escolhem os dois pela CSS, sem gdb. Duas entram na suite:
+  `melee-host-vs-mario-link-asset` atravessa regras, luta de um estoque,
+  queda do Mario, resultados com o Link vencedor e os dois retratos copiados
+  da EFB (3 texturas, ate 657 cores), e volta ao menu; e
+  `melee-host-mario-link-specials-asset` roda os especiais dos dois e le o
+  estado do pad 1 de volta (`SpecialN` 343, `SpecialS` 345, `SpecialAirLw`
+  350, `SpecialHi` 347 e `Catch` 212), com os sete itens criados na rota.
+  `host-debug` 23/23 e 223/223 unitarios; sob ASan os 23 testes passam, sem
+  relato do ASan, e o UBSan ganha quatro pontos que so estas rotas alcancam,
+  das familias ja registradas: tres deslocamentos `1 << 31` (`fighter.c:1895`,
+  `ftCo_AirCatch.c:73` e `ftCo_ItemThrow.c:49`) e a chamada de
+  `ftLk_Init_OnItemDropExt` por um ponteiro de outro tipo
+  (`ftcommon.c:1029`), 36 pontos ao todo.
+- [x] Canal sem iluminacao. Com `GXSetChanCtrl` desligado, o GX entrega so a
+  cor de material do canal; o avaliador do host partia do ambiente e
+  multiplicava, entao todo draw sem iluminacao saia tingido pela cor ambiente
+  que o ultimo material tivesse deixado no registrador. Hyrule Temple desenha
+  o cenario sem iluminacao: o estagio ficava escuro o tempo todo e vermelho
+  escuro enquanto o bumerangue do Link voava (os pixels do estagio valiam
+  0,56, 0,14 e 0,14 do normal, e o ceu, que nao e desenhado assim, nao mudava).
+  Os vertices capturados mostravam a cor de raster do estagio caindo de
+  `8f8fb3` para `511419`, o ambiente de outro material. Corrigido no
+  avaliador, com a alfa decidindo pelo proprio canal, e coberto por um teste
+  unitario; o teste dos dois canais de raster passou a esperar a cor de
+  material onde esperava o ambiente. A imagem muda em todas as rotas, e as
+  suites seguem passando: as contagens de triangulos, as cenas e os frames de
+  cada rota ficam iguais, e o que muda sao as cores.
 
 ## Em andamento
 
@@ -2345,7 +2412,7 @@ Atualizado em 15 de setembro de 2026.
 - [ ] Loader HSD com schemas Disk/Runtime e referencias ciclicas. A API de
   arquivo ja atende joints, animacoes, cameras, luzes, fog, sprites e
   `_scene_data` e `_scene_models`; faltam imagens e paletas soltas, dados de
-  estagio e `ftData*` dos outros personagens.
+  estagio e `ftData*` dos personagens alem de Fox, Mario e Link.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
   codigo do jogo, com a imagem conferida em BMP e som; faltam jogar na janela
@@ -2627,3 +2694,10 @@ Atualizado em 15 de setembro de 2026.
   mesmo resultado bit a bit. `lbtrigf.c` tambem le floats por `*(u32*) &f`,
   o que funciona no build de debug e pede `-fno-strict-aliasing` ou `memcpy`
   num build otimizado.
+- `__frsqrte` e `1.0 / sqrt(x)` (`src/placeholder.h`). O console parte da
+  estimativa de tabela do `frsqrte`, e o host do valor exato, entao as raizes
+  refinadas por Newton podem diferir do console nos ultimos bits.
+- Dos itens, so os de Fox, Mario e Link tem tradutor de atributos. Um item de
+  outro personagem, ou um item de estagio criado de `itemdata`, para com
+  "OS panic" em `item.c:576` assim que sai, e o processo encerra junto,
+  tambem no `--play`.

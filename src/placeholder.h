@@ -10,7 +10,10 @@ typedef void (*jmp_t)(void);
 typedef jmp_t jtbl_t[];
 
 #ifndef MWERKS_GEKKO
-#define __frsqrte(x) sqrt(x)
+/* frsqrte estimates the reciprocal square root, 1/sqrt(x): every call site
+ * refines it with Newton steps for 1/sqrt(x) and multiplies by x.  Handing
+ * back sqrt(x) makes those steps diverge unless x is close to 1. */
+#define __frsqrte(x) (1.0 / sqrt(x))
 #define sqrtf__Ff(x) sqrtf(x)
 #define sqrtf_accurate(x) sqrtf(x)
 #define __fabs(f) fabsf(f)

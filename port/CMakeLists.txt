@@ -744,10 +744,69 @@ if(MELEE_HOST_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION
                 "rules frame 520: mode 1 time 2 stock 1\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*efb copy frame 1450: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(460\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
         )
+        # The same stock match with Mario and Link, both chosen from the
+        # character select rather than forced: pad 1 holds up five frames
+        # longer than the Fox route to reach Mario's icon in the top row, and
+        # pad 2 walks right along the middle row to Link.  Their own data,
+        # items and animations carry the match: Mario falls off the stage, the
+        # results screen shows Link as the winner and copies both portraits
+        # from the EFB.  The selection reads back as Mario (8) and Link (6).
+        add_test(
+            NAME melee-host-vs-mario-link-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-359:SX=127@2
+                    345-359:SY=127 345-358:SY=127@2 362:A 362:A@2
+                    365-404:SX=-127 365-404:SY=127 406-423:SX=127 430:A
+                    460:RIGHT 480:DOWN 490:LEFT 510:LEFT 520:RULES 540:B
+                    600:START 640-641:SX=-127 645-659:SY=127 665:A
+                    860:FALLS 861-1120:SX=-127 925:X 1150:FALLS
+                    1300:RESULT 1450:EFBCOPY
+                    1466:START 1606:START 1606:START@2 1706-1906:B
+        )
+        set_tests_properties(melee-host-vs-mario-link-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "rules frame 520: mode 1 time 2 stock 1\n.*falls frame 1150: P1=1 P2=0\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*efb copy frame 1450: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=8 1=6\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(489\\) 0x05 \\(378\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
+        )
+        # Mario's and Link's own moves, the ones that need their character
+        # items: Mario throws a fireball, swings the cape, spins in the air
+        # and rises with the super jump punch; Link charges an arrow, throws
+        # the boomerang, pulls a bomb and throws it, spins his sword and
+        # grabs with the hookshot, which both fighters do on the same frame.
+        # ACTION reads pad 1's motion state back: SpecialN (343), SpecialS
+        # (345), SpecialAirLw (350), SpecialHi (347) and Catch (212).  Pad 1
+        # then pauses and quits the match, and both pads leave the results.
+        add_test(
+            NAME melee-host-mario-link-specials-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-359:SX=127@2
+                    345-359:SY=127 345-358:SY=127@2 362:A 362:A@2
+                    380:START 420-421:SX=-127 425-439:SY=127 445:A
+                    660:B 665:ACTION 730:SX=127+B 735:ACTION
+                    800:SY=-128+B 805:ACTION 880:SY=127+B 885:ACTION
+                    985:Z 990:ACTION
+                    665-700:B@2 740:SX=-127+B@2 790:SY=-128+B@2 830:A@2
+                    870:SY=127+B@2 985:Z@2
+                    1010:START 1030-1045:L+R+A 1035-1045:START
+                    1290:START 1430:START 1430:START@2 1530-1730:B
+        )
+        set_tests_properties(melee-host-mario-link-specials-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "action frame 665: P1=343\naction frame 735: P1=345\naction frame 805: P1=350\naction frame 885: P1=347\naction frame 990: P1=212\n.*vs selection: stage 14 0=8 1=6\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(505\\) 0x05 \\(406\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1321 frames\\) 0x01\n"
+        )
         if(MELEE_HOST_ENABLE_SANITIZERS)
             set_property(TEST melee-host-title-mode-asset
                 melee-host-main-menu-asset melee-host-vs-match-asset
                 melee-host-vs-stock-match-asset
+                melee-host-vs-mario-link-asset
+                melee-host-mario-link-specials-asset
                 APPEND PROPERTY
                 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
             )

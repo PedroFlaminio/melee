@@ -146,3 +146,23 @@ TEST_CASE("original vector gameplay helpers run natively")
     REQUIRE(result.y == 6.0F);
     REQUIRE(result.z == 8.0F);
 }
+
+TEST_CASE("original vector angle takes the reciprocal square root estimate")
+{
+    /* lbVector_Angle reaches acosf in lbtrigf.c, which refines __frsqrte of
+     * 1 - cos^2 with Newton steps for 1/sqrt(x).  An estimate of sqrt(x)
+     * instead only converges near x = 1: at cos 0.99 the angle came out as
+     * 1.1308 rather than 0.1415, and the legs' IK got NaN from the same
+     * steps. */
+    const auto near = [](float value, float expected) {
+        const float diff = value - expected;
+        return diff < 1.0e-4F && diff > -1.0e-4F;
+    };
+    Vec3 x_axis{ 1.0F, 0.0F, 0.0F };
+    Vec3 narrow{ 0.99F, 0.14106736F, 0.0F };
+    REQUIRE(near(lbVector_Angle(&x_axis, &narrow), 0.14153947F));
+    Vec3 wide{ -0.5F, 0.8660254F, 0.0F };
+    REQUIRE(near(lbVector_Angle(&x_axis, &wide), 2.0943951F));
+    Vec3 far{ 0.0F, 0.0F, 44.0F };
+    REQUIRE(near(lbVector_Angle(&x_axis, &far), 1.5707964F));
+}

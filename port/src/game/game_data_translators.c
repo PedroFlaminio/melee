@@ -2225,9 +2225,17 @@ static void* fighter_mario_attrs(MeleeHostHsdReader* reader, mh_u32 at)
     return attrs;
 }
 
-/* Link's host layout expands several s32 fields.  Loading the item kinds that
- * OnLoad consumes explicitly is enough for neutral movement and attacks; the
- * rest stays zero until its special-item layouts are ported. */
+_Static_assert(sizeof(struct ftLk_DatAttrs) == 0xDC &&
+                   offsetof(struct ftLk_DatAttrs, x64) == 0x64 &&
+                   offsetof(struct ftLk_DatAttrs, x84) == 0x84 &&
+                   offsetof(struct ftLk_DatAttrs, xBC) == 0xBC &&
+                   offsetof(struct ftLk_DatAttrs, xC4) == 0xC4,
+               "Link's attributes keep their PowerPC offsets");
+
+/* Link's special attributes.  ftCo_0D8E.c reads the same record as
+ * ftCo_LinkCatchAttrs by offset, so the host struct keeps the PowerPC layout:
+ * words, then the sword trail's colour bytes inside SwordAttrs and the four
+ * bytes before the absorb description. */
 static void* fighter_link_attrs(MeleeHostHsdReader* reader, mh_u32 at)
 {
     struct ftLk_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
@@ -2236,13 +2244,11 @@ static void* fighter_link_attrs(MeleeHostHsdReader* reader, mh_u32 at)
     if (attrs == NULL) {
         return NULL;
     }
-    memset(attrs, 0, sizeof(*attrs));
-    attrs->xC = (int) melee_host_hsd_reader_u32(reader, at + 0x0C);
-    attrs->x10 = (int) melee_host_hsd_reader_u32(reader, at + 0x10);
-    attrs->x2C = (int) melee_host_hsd_reader_u32(reader, at + 0x2C);
-    attrs->x48 = (int) melee_host_hsd_reader_u32(reader, at + 0x48);
-    attrs->xBC = (int) melee_host_hsd_reader_u32(reader, at + 0xBC);
-    attrs->xD8 = melee_host_hsd_reader_f32(reader, at + 0xD8);
+    copy_words(reader, at, attrs, 0x00, 0x6C);
+    copy_bytes(reader, at, attrs, 0x6C, 0x78);
+    copy_words(reader, at, attrs, 0x78, 0xC0);
+    copy_bytes(reader, at, attrs, 0xC0, 0xC4);
+    copy_words(reader, at, attrs, 0xC4, 0xDC);
     return attrs;
 }
 
@@ -2611,6 +2617,157 @@ static void* fighter_item_article(MeleeHostHsdReader* reader, mh_u32 at)
     return item_article(reader, at);
 }
 
+/* The special attributes of the items a character's list names, one
+ * translator per item.  A block of 4-byte scalars keeps its offsets; a block
+ * with models or animations is filled field by field, because the host's
+ * pointers are wider. */
+typedef void* (*FighterItemSpecial)(MeleeHostHsdReader* reader, mh_u32 at);
+
+/* `disc_size` bytes of scalars in a block of `host_size`.  A struct can run
+ * past what its disc block holds when the code never reads the rest. */
+static void* item_special_scalars(MeleeHostHsdReader* reader, mh_u32 at,
+                                  mh_u32 disc_size, mh_u32 host_size)
+{
+    void* block;
+    mh_u32 word;
+
+    if (melee_host_hsd_reader_extent(reader, at) < disc_size) {
+        melee_host_hsd_reader_fail(reader, "an item's special attributes are "
+                                           "shorter than their host layout");
+        return NULL;
+    }
+    for (word = 0; word < disc_size; word += 4) {
+        if (melee_host_hsd_reader_has_pointer(reader, at + word)) {
+            melee_host_hsd_reader_fail(
+                reader, "an item's special attributes hold a pointer");
+            return NULL;
+        }
+    }
+    block = melee_host_hsd_reader_allocate(reader, host_size, alignof(f32));
+    if (block == NULL) {
+        return NULL;
+    }
+    memset(block, 0, host_size);
+    copy_words(reader, at, block, 0, disc_size);
+    return block;
+}
+
+static HSD_Joint* item_special_joint(MeleeHostHsdReader* reader,
+                                     mh_u32 field)
+{
+    bool present;
+    const mh_u32 target = target_of(reader, field, &present);
+
+    return present ? melee_host_hsd_reader_joint(reader, target) : NULL;
+}
+
+static void item_special_anims(MeleeHostHsdReader* reader, mh_u32 at,
+                               AnimBundle* bundle)
+{
+    bool present;
+    mh_u32 target;
+
+    target = target_of(reader, at + 0x0, &present);
+    bundle->anim =
+        present ? melee_host_hsd_reader_anim_joint(reader, target) : NULL;
+    target = target_of(reader, at + 0x4, &present);
+    bundle->matanim =
+        present ? melee_host_hsd_reader_mat_anim_joint(reader, target) : NULL;
+    target = target_of(reader, at + 0x8, &present);
+    bundle->shapeanim =
+        present ? melee_host_hsd_reader_shape_anim_joint(reader, target)
+                : NULL;
+}
+
+_Static_assert(sizeof(itUnkAttributes) == 0x14 &&
+                   sizeof(itLinkBombAttributes) == 0x40 &&
+                   offsetof(itLinkBoomerangAttributes, x40) == 0x40 &&
+                   offsetof(itLinkHookshotAttributes, x50) == 0x50 &&
+                   offsetof(itLinkArrowAttributes, x20) == 0x20,
+               "the scalar heads of Mario's and Link's item attributes keep "
+               "their PowerPC offsets");
+
+/* The fireball: speed, angle, life and the two bounce factors. */
+static void* mario_fireball_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    return item_special_scalars(reader, at, 0x14, sizeof(itUnkAttributes));
+}
+
+/* The cape and the bow have zero-filled blocks their code never reads; the
+ * Article still names one, and the host keeps its bytes. */
+static void* mario_cape_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    return item_special_scalars(reader, at, 0x4, 0x4);
+}
+
+static void* link_bow_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    return item_special_scalars(reader, at, 0x8, 0x8);
+}
+
+/* The bomb's block ends before `vel`, which itlinkbomb.c never reads. */
+static void* link_bomb_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    return item_special_scalars(reader, at, 0x34,
+                                sizeof(itLinkBombAttributes));
+}
+
+/* The boomerang: scalars, the models of its two flights and their
+ * animations. */
+static void* link_boomerang_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itLinkBoomerangAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itLinkBoomerangAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x44);
+    attrs->x44 = item_special_joint(reader, at + 0x44);
+    attrs->x48 = item_special_joint(reader, at + 0x48);
+    item_special_anims(reader, at + 0x4C, &attrs->x4C_anim);
+    item_special_anims(reader, at + 0x58, &attrs->x58_anim);
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
+/* The hookshot: chain scalars (it_link_attr_math writes the derived ones
+ * back into the block) and the models of the chain links and the tip.  The
+ * disc block goes on past the struct with a pointer and two words nothing
+ * reads. */
+static void* link_hookshot_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itLinkHookshotAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itLinkHookshotAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x54);
+    attrs->x54 = item_special_joint(reader, at + 0x54);
+    attrs->x58 = item_special_joint(reader, at + 0x58);
+    attrs->x5C = item_special_joint(reader, at + 0x5C);
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
+/* The arrow: scalars and its two models.  The block ends before x2C, which
+ * itlinkarrow.c never reads. */
+static void* link_arrow_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itLinkArrowAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itLinkArrowAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x24);
+    attrs->x24 = item_special_joint(reader, at + 0x24);
+    attrs->x28 = item_special_joint(reader, at + 0x28);
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
 /* The special attributes of a character's items, by slot of its item list:
  * the size in bytes of each block the host translates, for blocks that hold
  * only 4-byte scalars.  item_article leaves every item's special attributes
@@ -2625,6 +2782,10 @@ struct FighterItemAttrs {
      * the fighter is created. */
     const mh_u8* direct_joint_slots;
     mh_u32 direct_joint_count;
+    /* Per slot, the translator of an item whose block is not only scalars
+     * or whose struct is not the size of its disc block. */
+    const FighterItemSpecial* specials;
+    mh_u32 special_count;
 };
 
 static bool fighter_item_is_direct_joint(const struct FighterItemAttrs* attrs,
@@ -2697,6 +2858,26 @@ static void** fighter_items(MeleeHostHsdReader* reader, mh_u32 at,
         }
         ((Article*) table[slot])->x4_specialAttributes =
             scalar_block(reader, special, size);
+    }
+    for (slot = 0; slot < attrs->special_count && slot < length; slot++) {
+        bool present;
+        const mh_u32 article = target_of(reader, at + slot * 4, &present);
+        mh_u32 special;
+
+        if (!present || attrs->specials[slot] == NULL ||
+            !melee_host_hsd_reader_has_pointer(reader, article))
+        {
+            continue;
+        }
+        special = target_of(reader, article + 0x04, &present);
+        if (!present) {
+            continue;
+        }
+        ((Article*) table[slot])->x4_specialAttributes =
+            attrs->specials[slot](reader, special);
+        if (melee_host_hsd_reader_failed(reader)) {
+            return NULL;
+        }
     }
     return melee_host_hsd_reader_failed(reader) ? NULL : table;
 }
@@ -2837,6 +3018,8 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
             sizeof(fighter_fox_item_attr_sizes[0]),
         NULL,
         0,
+        NULL,
+        0,
     };
 
     return fighter_data(reader, root, fighter_fox_attrs, &items);
@@ -2844,21 +3027,39 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
 
 static void* fighter_data_mario(MeleeHostHsdReader* reader, mh_u32 root)
 {
-    static const struct FighterItemAttrs no_special_items = {
-        NULL, 0, NULL, 0
+    /* Slot 0 is the fireball, slot 2 the cape (ftMr_Init_OnLoad). */
+    static const FighterItemSpecial mario_item_specials[] = {
+        mario_fireball_attrs,
+        NULL,
+        mario_cape_attrs,
+    };
+    static const struct FighterItemAttrs mario_items = {
+        NULL,
+        0,
+        NULL,
+        0,
+        mario_item_specials,
+        sizeof(mario_item_specials) / sizeof(mario_item_specials[0]),
     };
 
-    return fighter_data(reader, root, fighter_mario_attrs, &no_special_items);
+    return fighter_data(reader, root, fighter_mario_attrs, &mario_items);
 }
 
 static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
 {
     static const mh_u8 link_direct_joint_slots[] = { 6 };
+    /* ftLk_Init_OnLoad: bomb, boomerang, hookshot, arrow and bow. */
+    static const FighterItemSpecial link_item_specials[] = {
+        link_bomb_attrs,     link_boomerang_attrs, link_hookshot_attrs,
+        link_arrow_attrs,    link_bow_attrs,
+    };
     static const struct FighterItemAttrs link_items = {
         NULL,
         0,
         link_direct_joint_slots,
         sizeof(link_direct_joint_slots) / sizeof(link_direct_joint_slots[0]),
+        link_item_specials,
+        sizeof(link_item_specials) / sizeof(link_item_specials[0]),
     };
 
     return fighter_data(reader, root, fighter_link_attrs, &link_items);

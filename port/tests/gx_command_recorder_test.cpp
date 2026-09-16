@@ -227,9 +227,11 @@ TEST_CASE("host GX evaluates two independent raster lighting channels")
     REQUIRE(vertex.raster_color[0][0] == 55);
     REQUIRE(vertex.raster_color[0][1] == 105);
     REQUIRE(vertex.raster_color[0][2] == 30);
-    REQUIRE(vertex.raster_color[1][0] == 7);
-    REQUIRE(vertex.raster_color[1][1] == 8);
-    REQUIRE(vertex.raster_color[1][2] == 9);
+    /* The second channel has lighting off, so it passes its material colour
+     * through and its ambient register (7, 8, 9) takes no part. */
+    REQUIRE(vertex.raster_color[1][0] == 255);
+    REQUIRE(vertex.raster_color[1][1] == 255);
+    REQUIRE(vertex.raster_color[1][2] == 255);
 }
 
 TEST_CASE("a lit channel that evaluates to NaN stores zero")
