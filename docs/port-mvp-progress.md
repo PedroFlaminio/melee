@@ -8,9 +8,16 @@ dois jogadores e um estágio, e concluir uma luta local com vídeo, entrada,
 
 ## Estado atual — 16 de setembro de 2026
 
-**Estimativa: 99% (faixa de confiança: 97–100%).** A tabela descreve o estado
-de cada área hoje; o registro no fim guarda a evolução desde a linha de base
-de 13 de setembro.
+**Estimativa: 100% (faixa de confiança: 98–100%).** Tudo o que a definição
+acima descreve roda pelo código do jogo e tem teste: o executável abre, a
+rota vai do título ao VS, dois jogadores e um estágio são escolhidos, a luta
+termina com resultado, e a imagem, o som e a entrada estão conferidos — a
+entrada inclusive por tecla de verdade na janela, que leva a rota inteira
+sozinha. O que ainda falta está fora da definição (a lista vem depois da
+tabela), com uma exceção que nenhuma automação fecha: ninguém sentou e jogou
+uma partida para dizer se responde como no console. A tabela descreve o
+estado de cada área hoje; o registro no fim guarda a evolução desde a linha
+de base de 13 de setembro.
 
 | Área | Estado | Peso no MVP |
 | --- | --- | --- |
@@ -45,8 +52,13 @@ bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina 
   (`port/tools/play_keyboard_probe.py`): com a tecla `d` enviada só para a
   janela do `--play`, o pad 1 anda 109 a 131 unidades e passa por `Dash`; com
   `j` fica no lugar e entra em `Attack11`; sem tecla fica em `Wait` no mesmo
-  x. O caminho do teclado está exercitado de ponta a ponta — falta uma pessoa
-  jogar e dizer se responde como no console.
+  x. E `port/tools/play_keyboard_match.py` joga a rota inteira pelo teclado —
+  título, menu, CSS, SSS, luta, pausa, saída por L+R+A+START e resultados até
+  voltar à CSS —, com o pad 2 no roteiro: três execuções seguidas dão as
+  mesmas cenas (título 1, menu 123, CSS 243, SSS 384, luta 533, resultados
+  808, CSS 1214), e uma captura da própria janela no frame 700 mostra Hyrule
+  Temple com os dois Fox, o relógio em 01:59:27 e o HUD. Falta uma pessoa
+  jogar e dizer se responde como no console, e o gamepad.
 - `ctest --preset host-debug`: 26/26 (os 14 curtos, os dados do Mario e do
   Link, os dois de banco de som, o de áudio da rota e as sete rotas de VS,
   estas com as vozes ligadas); 225/225 testes unitários; com `-j4` a suíte
@@ -150,18 +162,27 @@ bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina 
 - `--diagnose-local-match` materializa dados de duas pessoas, regras e estágio,
   mas ainda não inicia a cena de combate.
 
-## Próximo marco
+## O que fica fora do MVP
 
-O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
-conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
-`--play` — a janela abre, segue o ritmo do console, mapeia o pad inteiro, toca
-som e responde a uma tecla de verdade, mas ninguém jogou uma partida inteira,
-e o gamepad não foi tocado. O modo VS tem todas as suas
-cenas; o que fica fora do MVP é a luta contra o desafiante (estágio próprio e
-CPU) e os `yakumono_param` dos 47 arquivos com parâmetros próprios, um layout
-por estágio. Hyrule Temple segue como alvo por estar
-liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
-Destination e Battlefield ficam travados na SSS sem dados salvos.
+Nada disto está na definição do MVP, e nada disto impede a luta local:
+
+- Uma pessoa jogando. A janela responde a tecla de verdade e o teclado leva a
+  rota inteira, mas ninguém jogou uma partida para dizer se o jogo responde
+  como no console; o gamepad não foi tocado, e o eixo Y dele só tem teste
+  unitário.
+- Da imagem: bump (`GX_TG_BUMPn`, 1,7% dos triângulos), texturas de
+  profundidade no presenter (`GX_ZT_REPLACE` com Z8 e Z24X8, que o rasterizador
+  da CPU já faz), mipmaps e o ajuste de alcance do fog.
+- Do som: o ITD e o surround, que o mixer registra e não toca, e nenhuma
+  comparação do reverb com o console.
+- Dos estágios: os `yakumono_param` dos 47 arquivos com parâmetros próprios,
+  um layout por estágio. Hyrule Temple segue como alvo por estar liberado sem
+  cartão de memória e ter o menor módulo (`grshrine.c`); Final Destination e
+  Battlefield ficam travados na SSS sem dados salvos.
+- Do modo VS: a luta contra o desafiante, que é num estágio próprio dele e
+  contra uma CPU — o anúncio roda, a luta para com o nome do símbolo de
+  estágio que o host não traduz.
+- Fora do VS: os outros modos de jogo, o cartão de memória, o CARD e o THP.
 
 Pendências encontradas no primeiro teste manual de `--play`:
 
@@ -259,3 +280,4 @@ menos 0,1 unidade.
 | 2026-09-16 | 99% | Desafiante e aviso de prêmio. As duas cenas que faltavam ao modo VS entram na tabela do host com os callbacks de `gmscdata.c`; quem escolhe entre elas é `gmVsMelee_ExitResults`, pelo save. Como o menor total que libera um personagem é 50 lutas e o aviso depende de um troféu novo, o roteiro ganhou `FRAME:MATCHES[=TOTAL]`, `FRAME:TROPHY=ID` (que passa pelo `fn_80172C78` do jogo) e `FRAME:STOP`, que encerra a rota num frame, já que uma cena que espera botão prenderia o roteiro. Dois testes: o desafiante com a silhueta da Jigglypuff e o "A new foe has appeared!", e o prêmio com o "You got the Maxim Tomato trophy!" seguido da volta à CSS. A luta contra o desafiante fica fora do MVP (estágio próprio e CPU), e o que antes era SIGSEGV em `grStadium_801D13E0` virou parada com nome: `grDatFiles_801C6038` confere no host se alguma busca de símbolo do estágio foi recusada. `host-debug` 26/26 e 224/224 unitários. |
 | 2026-09-16 | 99% | Fog. O estado de `GXSetFog` passa a fazer parte do estado de draw capturado, e os dois caminhos que desenham a captura o aplicam entre o TEV e o blend, como o hardware: o shader do presenter e o rasterizador da CPU das cópias da EFB. A profundidade é a do próprio fragmento — numa projeção em perspectiva o w de clip —, o peso vem da curva do tipo (linear, `2^-8t`, `2^-8t²` e as duas invertidas) sobre a profundidade normalizada entre `startz` e `endz`, e a mistura é inteira nos dois lados, o que os faz arredondar igual. `MELEE_HOST_FOG=0` desliga para comparar. O jogo usa quatro configurações lineares na rota; com fog o título muda 3,6% dos pixels, o menu 89,8%, a CSS 0,1% e a SSS 69,4%, e a luta em Hyrule Temple nenhum, porque a cena de luta não instala fog. A conformidade do TEV passou a exercitar o fog (metade dos casos, 0 divergências) e o trace da rota de estoque segue igual. `host-debug` 26/26 e 225/225 unitários. |
 | 2026-09-16 | 99% | Teclado da janela por evento de verdade. As rotas chegam ao jogo pelo mesmo `PADRead` que a janela preenche, então nunca passavam pelo teclado. `port/tools/play_keyboard_probe.py` abre o `--play` no X11, espera a luta começar lendo a saída do jogo (com `stdbuf -oL`, senão o stdout num pipe sai em bloco e a linha chega tarde demais), manda a tecla com `xdotool keydown --window` — só para aquela janela, sem passar pelo foco do desktop — e lê o lutador de volta. Com `d` o pad 1 anda 109 a 131 unidades e passa por `Dash` (20); com `j` fica no lugar e entra em `Attack11` (44); sem tecla fica em `Wait` (14) no mesmo x. Falta uma pessoa jogar. |
+| 2026-09-16 | 100% | A rota inteira jogada pelo teclado. `port/tools/play_keyboard_match.py` leva o pad 1 do título aos resultados e de volta à CSS só com tecla de verdade na janela do `--play` — título, menu, CSS, SSS, luta, pausa e saída por L+R+A+START —, com o pad 2 no roteiro. Cada tecla sai na linha `rules frame N` do frame anterior e solta na do último frame em que devia estar baixa, o que reproduz os roteiros frame a frame; com o `keyup` um frame tarde o cursor da CSS andava 1,24 unidade a mais e a rota escolhia o Ness. Três execuções seguidas dão as mesmas cenas (1, 123, 243, 384, 533, 808, 1214), e a captura da própria janela no frame 700 mostra a luta com o HUD. Com isso o MVP está fechado: o que resta são itens fora da definição (bump, texturas de profundidade, mipmaps, ITD e surround, outros estágios, a luta do desafiante e CPU) e o julgamento de uma pessoa jogando. |

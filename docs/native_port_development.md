@@ -451,6 +451,18 @@ DISPLAY=:1 python3 port/tools/play_keyboard_probe.py --no-press
   onde nasceu. Procure a janela pelo PID do processo, nao pelo nome: uma
   execucao anterior deixa o titulo na lista do servidor X por um tempo e o
   envio para um id morto e um BadWindow que o jogo nunca ve.
+- `port/tools/play_keyboard_match.py` joga a rota inteira assim: o titulo, o
+  menu, a CSS, a SSS, a luta, a pausa com a saida por L+R+A+START e os
+  resultados ate voltar a CSS, com o lado do pad 1 todo em tecla de verdade
+  (o pad 2 fica no roteiro, porque o teclado da janela e so o pad 1). O
+  relogio nao serve de referencia: cada tecla sai quando chega a linha
+  `rules frame N` do frame anterior, e o `keyup` na linha do ultimo frame em
+  que a tecla devia estar baixa, o que reproduz `330-337:SX=127` como oito
+  frames exatos. Com o `keyup` um frame tarde o cursor da CSS andava 1,24
+  unidade a mais e a rota escolhia o Ness. `--shot arquivo.png` grava a
+  propria janela com `import -window`, que e a unica imagem possivel aqui: as
+  entradas `BMP=` precisam do presenter escondido, que nao tem janela para
+  receber tecla.
 - O fog entra entre o TEV e o blend, nos dois caminhos que desenham a
   captura, e `MELEE_HOST_FOG=0` captura tudo com `GX_FOG_NONE`. Para ver o
   que ele muda, grave os mesmos frames com e sem e compare os BMPs; na rota

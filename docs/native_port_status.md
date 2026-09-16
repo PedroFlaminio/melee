@@ -2507,9 +2507,18 @@ Atualizado em 15 de setembro de 2026.
   lutador de volta com `FIGHTERS` e `ACTION`. Com `d` o pad 1 anda 109 a 131
   unidades e passa por `Dash` (20); com `j` fica no lugar e entra em
   `Attack11` (44); sem tecla fica em `Wait` (14) onde nasceu, no mesmo x nos
-  dois frames. O caminho do teclado da janela esta exercitado de ponta a
-  ponta; o que falta e uma pessoa jogando e dizendo se o jogo responde como
-  no console.
+  dois frames.
+  `port/tools/play_keyboard_match.py` vai alem e joga a rota inteira pelo
+  teclado: titulo, menu, CSS, SSS, luta, pausa, saida por L+R+A+START e
+  resultados ate voltar a CSS, com o pad 2 no roteiro. Cada tecla sai na
+  linha `rules frame N` do frame anterior e solta na do ultimo frame em que
+  devia estar baixa; com o `keyup` um frame tarde o cursor da CSS andava
+  1,24 unidade a mais e a rota escolhia o Ness. Tres execucoes seguidas dao
+  as mesmas cenas: titulo (1), menu (123), CSS (243), SSS (384), luta (533),
+  resultados (808) e CSS (1214). Uma captura da propria janela no frame 700
+  (`import -window`) mostra Hyrule Temple com os dois Fox, o relogio em
+  01:59:27 e o HUD com 0%. O que falta e uma pessoa jogando e dizendo se o
+  jogo responde como no console, e o gamepad, que ninguem tocou.
 
 ## Em andamento
 
