@@ -1368,7 +1368,7 @@ namespace melee::render {
             filter < 0 || filter > 1 ||
             window_mode < 0 || window_mode > 2 ||
             (rate != 60 && rate != 120 && rate != 144 && rate != 165 &&
-             rate != 240))
+             rate != 240 && rate != 0))
         {
             return;
         }
@@ -1803,10 +1803,8 @@ namespace melee::render {
         state->settings_path = video_settings_path();
         load_video_settings(state.get());
         SDL_SetWindowTitle(state->window.window, play_window_title().c_str());
-        /* With pace() removed and the engine decoupled, we now rely on VSync
-         * to tie the render loop to the monitor's refresh rate!
-         */
-        SDL_GL_SetSwapInterval(1);
+        /* Set initial swap interval based on whether the rate is unlimited */
+        SDL_GL_SetSwapInterval(state->video_settings.rate == PresentationRate::Unlimited ? 0 : 1);
         int gamepad_count = 0;
         SDL_JoystickID* const gamepad_ids = SDL_GetGamepads(&gamepad_count);
         state->gamepad =
@@ -2025,6 +2023,9 @@ namespace melee::render {
             draw_video_menu(state);
             draw_fps_counter(state);
             SDL_GL_SwapWindow(state.window.window);
+            if (state.video_settings.rate != PresentationRate::Unlimited) {
+                pace(1'000'000'000ULL / static_cast<std::uint16_t>(state.video_settings.rate));
+            }
             double frames_per_second = 0.0;
             if (state.frame_rate.add_frame(SDL_GetTicksNS(),
                                            &frames_per_second))
@@ -2088,6 +2089,9 @@ namespace melee::render {
                         break;
                     case 3: /* Window mode: apply immediately. */
                         apply_window_mode(state);
+                        break;
+                    case 4: /* Target rate: update VSync. */
+                        SDL_GL_SetSwapInterval(state.video_settings.rate == PresentationRate::Unlimited ? 0 : 1);
                         break;
                     default:
                         /* Aspect (1) and filter (2) are read every frame

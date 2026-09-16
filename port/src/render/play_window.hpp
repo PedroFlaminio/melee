@@ -24,7 +24,8 @@ namespace melee::render {
         Fps120 = 120,
         Fps144 = 144,
         Fps165 = 165,
-        Fps240 = 240
+        Fps240 = 240,
+        Unlimited = 0
     };
 
     enum class PresentationAspect : std::uint8_t {
@@ -87,6 +88,8 @@ namespace melee::render {
             return "165 FPS";
         case PresentationRate::Fps240:
             return "240 FPS";
+        case PresentationRate::Unlimited:
+            return "Unlimited";
         }
         return "60 FPS";
     }
@@ -186,14 +189,15 @@ namespace melee::render {
                                                     PresentationRate::Fps120,
                                                     PresentationRate::Fps144,
                                                     PresentationRate::Fps165,
-                                                    PresentationRate::Fps240 };
+                                                    PresentationRate::Fps240,
+                                                    PresentationRate::Unlimited };
             int index = 0;
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 6; ++i) {
                 if (values[i] == settings->rate) {
                     index = i;
                 }
             }
-            settings->rate = values[next(index, 5)];
+            settings->rate = values[next(index, 6)];
         }
     }
 
