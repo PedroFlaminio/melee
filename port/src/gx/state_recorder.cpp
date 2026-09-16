@@ -37,6 +37,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <atomic>
 #include <mutex>
 
 namespace {
@@ -2049,6 +2050,20 @@ void melee_host_gx_fog_state(MeleeHostGxFogState* output)
     const std::lock_guard<std::mutex> guard(state_mutex);
     ensure_initialized_locked();
     *output = fog_state;
+}
+
+/* MELEE_HOST_FOG=0 sets this, so a route can draw the same frames without
+ * the fog the game asked for. */
+static std::atomic<bool> fog_enabled{ true };
+
+void melee_host_gx_set_fog_enabled(bool enabled)
+{
+    fog_enabled.store(enabled, std::memory_order_relaxed);
+}
+
+bool melee_host_gx_fog_enabled(void)
+{
+    return fog_enabled.load(std::memory_order_relaxed);
 }
 
 void melee_host_gx_copy_state(MeleeHostGxCopyState* output)

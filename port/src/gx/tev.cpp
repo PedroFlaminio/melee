@@ -1,6 +1,7 @@
 #include "gx/tev.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
@@ -383,6 +384,44 @@ std::string describe_tev_unmodelled(std::uint32_t features)
     return text.empty() ? "none" : text;
 }
 
+float fog_blend(const MeleeHostGxDrawState& state, float eye_z)
+{
+    /* GX_FOG_NONE, and the types the SDK does not define, leave the colour
+     * alone.  A range of zero would divide by zero; the hardware's own
+     * parameters are undefined there, so the host reads it as no fog. */
+    if (state.fog_type == 0 || state.fog_end_z == state.fog_start_z) {
+        return 0.0F;
+    }
+    const float span = state.fog_end_z - state.fog_start_z;
+    const float t =
+        std::clamp((eye_z - state.fog_start_z) / span, 0.0F, 1.0F);
+    switch (state.fog_type) {
+    case 2: /* GX_FOG_LIN */
+        return t;
+    case 4: /* GX_FOG_EXP */
+        return 1.0F - std::exp2(-8.0F * t);
+    case 5: /* GX_FOG_EXP2 */
+        return 1.0F - std::exp2(-8.0F * t * t);
+    case 6: /* GX_FOG_REVEXP */
+        return std::exp2(-8.0F * (1.0F - t));
+    case 7: /* GX_FOG_REVEXP2 */
+        return std::exp2(-8.0F * (1.0F - t) * (1.0F - t));
+    default:
+        return 0.0F;
+    }
+}
+
+int fog_weight(const MeleeHostGxDrawState& state, float eye_z)
+{
+    const float blend = fog_blend(state, eye_z);
+    return std::clamp(static_cast<int>(std::lround(blend * 256.0F)), 0, 256);
+}
+
+int fog_mix(int component, int fog_component, int weight)
+{
+    return (component * (256 - weight) + fog_component * weight + 128) >> 8;
+}
+
 std::string tev_vertex_shader_source()
 {
     return R"(#version 330 core
@@ -534,7 +573,35 @@ uniform ivec4 u_register[4];
 uniform ivec4 u_konst[4];
 uniform ivec4 u_alpha_test;
 uniform int u_alpha_ref1;
+uniform int u_fog_type;
+uniform vec2 u_fog_range;
+uniform ivec4 u_fog_color;
 out vec4 frag_color;
+
+/* The same curve as melee::gx::fog_blend, over the fragment's eye-space
+ * depth, which under a perspective projection is the clip w that
+ * gl_FragCoord.w carries the reciprocal of. */
+float gx_fog_blend(float eye_z)
+{
+    if (u_fog_type == 0 || u_fog_range.y == u_fog_range.x) {
+        return 0.0;
+    }
+    float t = clamp((eye_z - u_fog_range.x) / (u_fog_range.y - u_fog_range.x),
+                    0.0, 1.0);
+    if (u_fog_type == 2) return t;
+    if (u_fog_type == 4) return 1.0 - exp2(-8.0 * t);
+    if (u_fog_type == 5) return 1.0 - exp2(-8.0 * t * t);
+    if (u_fog_type == 6) return exp2(-8.0 * (1.0 - t));
+    if (u_fog_type == 7) return exp2(-8.0 * (1.0 - t) * (1.0 - t));
+    return 0.0;
+}
+
+/* The same 0..256 weight melee::gx::fog_weight gives, so both paths round
+ * the mix the same way. */
+int gx_fog_weight(float eye_z)
+{
+    return clamp(int(round(gx_fog_blend(eye_z) * 256.0)), 0, 256);
+}
 
 bool gx_compare(int function, int value, int reference)
 {
@@ -687,6 +754,9 @@ void main()
     if (!passes) {
         discard;
     }
+    int fog = gx_fog_weight(1.0 / gl_FragCoord.w);
+    final_color.rgb = (final_color.rgb * (256 - fog) +
+                       u_fog_color.rgb * fog + 128) >> 8;
     frag_color = vec4(final_color) / 255.0;
 }
 )";

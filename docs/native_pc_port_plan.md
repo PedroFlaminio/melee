@@ -89,6 +89,8 @@ O MVP deve ser deliberadamente estreito:
 - controles por teclado e gamepads SDL;
 - video 16:9 ou 4:3, resolucao interna configuravel e tela cheia;
 - simulacao fixa na cadencia original;
+- apresentacao inicialmente sincronizada aos 60 Hz da simulacao, sem impedir
+  uma futura camada de poses intermediarias;
 - audio funcional com musica e efeitos;
 - Versus local de dois a quatro jogadores;
 - todos os 26 personagens e todos os estagios selecionaveis;
@@ -103,6 +105,8 @@ A versao 1.0 acrescenta:
 - todos os modos single-player e multiplayer local;
 - cutscenes THP, trofeus, eventos, debug de compatibilidade e memory card;
 - equivalencia visual, sonora e de gameplay validada por testes diferenciais;
+- apresentacao de alta taxa de atualizacao, ate 240 Hz quando o hardware
+  permitir, por interpolacao visual entre ticks de simulacao de 60 Hz;
 - hotplug, rumble, remapeamento completo e perfis de controle;
 - pacote de recursos versionado, verificavel e recompativel;
 - API basica de mods e pacotes de assets substitutos;
@@ -110,9 +114,10 @@ A versao 1.0 acrescenta:
 
 ### 3.3 Fora do escopo inicial
 
-- rollback netcode, matchmaking e compatibilidade com Slippi;
+- rollback netcode, matchmaking e compatibilidade com Slippi na build
+  principal;
 - mudancas de balanceamento ou mecanicas;
-- interpolacao de gameplay acima da cadencia original;
+- aumentar a cadencia da simulacao acima dos 60 Hz originais;
 - suporte a todas as revisoes e regioes do disco;
 - Android, iOS, consoles e WebAssembly;
 - editor visual de estagios/personagens;
@@ -121,6 +126,29 @@ A versao 1.0 acrescenta:
 
 Rollback deve orientar algumas decisoes desde o inicio — tempo deterministico,
 input gravavel e estado serializavel — mas nao deve bloquear o primeiro release.
+
+### 3.4 Alta taxa de atualizacao e build Slippi futura
+
+A simulacao do Melee permanece fixa em 60 Hz. Ela e a fonte de verdade para
+fisica, inputs, frame data, timers e determinismo. A apresentacao pode ser
+independente: o renderer guardara os estados anterior e atual e, entre dois
+ticks, amostrara poses intermediarias de camera, esqueletos, transformacoes e
+outros dados visuais seguros. A opcao de apresentacao oferecera somente os
+limites 60, 120, 144, 165 e 240 FPS; nao havera modo ilimitado. A meta de
+produto e atingir o limite selecionado sem executar logica extra nem alterar o
+resultado de uma partida.
+
+Essa camada sera desenvolvida e validada depois da paridade visual basica a 60
+Hz. Cortes de camera, teleporte, spawn, troca de cena, efeitos sem estado
+interpolavel e qualquer descontinuidade devem preservar o quadro valido, nunca
+inventar uma posicao que afete a simulacao.
+
+Compatibilidade com Slippi nao e requisito da primeira versao. Se for adotada
+posteriormente, ela sera entregue em uma build especifica, opcional e separada
+da build principal. Essa build devera manter a simulacao estritamente
+deterministica, implementar a interface/protocolo esperado pelo Slippi e ser
+validada contra o Slippi Dolphin; recursos visuais de alta taxa permanecem
+somente no renderer e nao entram no estado sincronizado.
 
 ## 4. Arquitetura proposta
 
@@ -672,4 +700,3 @@ de produto multiplataforma.
 - Shipwright / Ship of Harkinian: <https://github.com/HarbourMasters/Shipwright>
 - Instrucoes de build do Shipwright:
   <https://github.com/HarbourMasters/Shipwright/blob/develop/docs/BUILDING.md>
-

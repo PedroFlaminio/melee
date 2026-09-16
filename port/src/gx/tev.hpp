@@ -33,6 +33,20 @@ std::array<int, 4> evaluate_tev(const MeleeHostGxTevState& tev,
  * the TEV produced.  No reduction: every GXAlphaOp is evaluated as written. */
 bool alpha_test_passes(const MeleeHostGxDrawState& state, int alpha);
 
+/* How much of the fog colour the hardware mixes into a fragment at that
+ * eye-space depth, which under a perspective projection is the clip w the
+ * divide already carries.  GXSetFog's start and end normalise the depth, and
+ * the type picks the curve; GX_FOG_NONE gives zero.  The shader below applies
+ * the same formula. */
+float fog_blend(const MeleeHostGxDrawState& state, float eye_z);
+
+/* That fraction as the 0..256 weight both the rasterizer and the shader mix
+ * with: `(colour * (256 - w) + fog * w + 128) >> 8`.  Keeping the mix in
+ * integers is what makes the two paths round the same way. */
+int fog_weight(const MeleeHostGxDrawState& state, float eye_z);
+/* One colour component through that mix. */
+int fog_mix(int component, int fog_component, int weight);
+
 /* Parts of a program the per-fragment path does not reproduce.  A program
  * with none of these is evaluated exactly, up to texture filtering. */
 enum TevUnmodelled : std::uint32_t {
@@ -59,7 +73,9 @@ std::string describe_tev_unmodelled(std::uint32_t features);
  *               u_register ivec4[4] (index 1..3 are C0..C2);
  *               u_konst ivec4[4];
  *               u_alpha_test ivec4 (comp0, ref0, op, comp1);
- *               u_alpha_ref1 int
+ *               u_alpha_ref1 int;
+ *               u_fog_type int, u_fog_range vec2 (start, end) and
+ *               u_fog_color vec4, which the fragment's own depth reads
  *   output      frag_color, the final register over 255; fragments failing
  *               the alpha test are discarded. */
 std::string tev_vertex_shader_source();

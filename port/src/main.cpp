@@ -1038,7 +1038,12 @@ void report_title_capture()
                   << static_cast<int>(draw.alpha_ref_1) << ", tev "
                   << run.lead.tev_state << " ("
                   << static_cast<int>(tev.stage_count)
-                  << " stages), textures";
+                  << " stages)";
+        if (draw.fog_type != 0) {
+            std::cout << ", fog " << draw.fog_type << ' ' << draw.fog_start_z
+                      << ".." << draw.fog_end_z;
+        }
+        std::cout << ", textures";
         for (const mh_u32 id : set) {
             if (id != MELEE_HOST_GX_NO_TEXTURE) {
                 std::cout << ' ' << id;
@@ -2646,6 +2651,12 @@ int main(int argc, char** argv)
                 const char* const aux = std::getenv("MELEE_HOST_AUDIO_AUX");
                 melee_host_ax_set_aux_enabled(aux == nullptr ||
                                               std::string(aux) != "0");
+                /* MELEE_HOST_FOG=0 captures every draw with GX_FOG_NONE, so
+                 * the same frames can be drawn without the fog the game
+                 * asked for. */
+                const char* const fog = std::getenv("MELEE_HOST_FOG");
+                melee_host_gx_set_fog_enabled(fog == nullptr ||
+                                              std::string(fog) != "0");
             }
             /* What the AX mixer plays goes to the WAV entries whose range
              * holds the current frame and, in a play window, to the sound

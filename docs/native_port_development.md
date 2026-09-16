@@ -432,6 +432,13 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   numa luta sem relogio. A rota do teste de morte subita e a longa, sem o
   atalho, dao a mesma sequencia de cenas e o mesmo desfecho; a longa leva 49 s
   no build `-O2`.
+- O fog entra entre o TEV e o blend, nos dois caminhos que desenham a
+  captura, e `MELEE_HOST_FOG=0` captura tudo com `GX_FOG_NONE`. Para ver o
+  que ele muda, grave os mesmos frames com e sem e compare os BMPs; na rota
+  o titulo, o menu e a SSS mudam e a luta em Hyrule Temple nao, porque a cena
+  de luta nao instala fog. Se o shader e o rasterizador discordarem, rode a
+  conformidade: metade dos casos usa um fog linear que cai no meio da curva
+  na profundidade do quad.
 - Uma cena que espera botao prende a rota para sempre, e o laco de modos so
   volta entre modos. `FRAME:STOP` encerra o roteiro naquele frame, com
   "stopped at frame N" e codigo 0, depois das outras entradas do frame; as

@@ -264,6 +264,9 @@ struct TevProgram {
     GLint konst = -1;
     GLint alpha_test = -1;
     GLint alpha_ref1 = -1;
+    GLint fog_type = -1;
+    GLint fog_range = -1;
+    GLint fog_color = -1;
 };
 
 /* One linked program per distinct shader source.  The source is generated from
@@ -338,6 +341,11 @@ public:
             glGetUniformLocation(program.program, "u_alpha_test");
         program.alpha_ref1 =
             glGetUniformLocation(program.program, "u_alpha_ref1");
+        program.fog_type = glGetUniformLocation(program.program, "u_fog_type");
+        program.fog_range =
+            glGetUniformLocation(program.program, "u_fog_range");
+        program.fog_color =
+            glGetUniformLocation(program.program, "u_fog_color");
         glUseProgram(program.program);
         const GLint samplers = glGetUniformLocation(program.program,
                                                     "u_texmap");
@@ -378,6 +386,12 @@ void set_program_uniforms(const TevProgram& program, const Mat4& mvp,
                 static_cast<GLint>(state.alpha_op),
                 static_cast<GLint>(state.alpha_compare_1));
     glUniform1i(program.alpha_ref1, static_cast<GLint>(state.alpha_ref_1));
+    glUniform1i(program.fog_type, static_cast<GLint>(state.fog_type));
+    glUniform2f(program.fog_range, state.fog_start_z, state.fog_end_z);
+    glUniform4i(program.fog_color, static_cast<GLint>(state.fog_color[0]),
+                static_cast<GLint>(state.fog_color[1]),
+                static_cast<GLint>(state.fog_color[2]),
+                static_cast<GLint>(state.fog_color[3]));
 }
 
 /* position, COLOR0A0, COLOR1A1, then eight s/t/q texture coordinates. */
@@ -1060,9 +1074,26 @@ bool run_tev_conformance(std::size_t cases_per_program,
                 break;
             }
             programs_seen.insert(tev_id);
+            /* Half the cases run with the fog the capture holds and half
+             * with a linear fog the quad's own depth falls in the middle of,
+             * which is the only way this check reaches the curve: a scene's
+             * fog starts far beyond the quad. */
+            MeleeHostGxDrawState probe = state;
+            probe.fog_type = 2; /* GX_FOG_LIN */
+            probe.fog_start_z = 0.5F;
+            probe.fog_end_z = 1.5F;
+            probe.fog_color[0] = 40;
+            probe.fog_color[1] = 80;
+            probe.fog_color[2] = 160;
+            probe.fog_color[3] = 255;
             set_program_uniforms(*program, identity(), tev, state);
 
             for (std::size_t sample = 0; sample < cases_per_program; ++sample) {
+                const bool probing = sample >= cases_per_program / 2;
+                const MeleeHostGxDrawState& fog_state = probing ? probe : state;
+                if (probing && sample == cases_per_program / 2) {
+                    set_program_uniforms(*program, identity(), tev, probe);
+                }
                 melee::gx::TevFragmentInputs inputs{};
                 inputs.raster[0] = random_rgba();
                 inputs.raster[1] = random_rgba();
@@ -1105,8 +1136,19 @@ bool run_tev_conformance(std::size_t cases_per_program,
                                                      sizeof(float)),
                              data.data(), GL_STREAM_DRAW);
 
-                const std::array<int, 4> expected =
+                std::array<int, 4> expected =
                     melee::gx::evaluate_tev(tev, inputs);
+                /* The quad is drawn with an identity transform, so the
+                 * fragment's clip w is one and the shader's fog reads that
+                 * depth; the expected colour goes through the same curve. */
+                const int fog = melee::gx::fog_weight(fog_state, 1.0F);
+                if (fog != 0) {
+                    for (std::size_t c = 0; c < 3; ++c) {
+                        expected[c] = melee::gx::fog_mix(
+                            std::clamp(expected[c], 0, 255),
+                            fog_state.fog_color[c], fog);
+                    }
+                }
                 const bool passes =
                     melee::gx::alpha_test_passes(state, expected[3]);
 

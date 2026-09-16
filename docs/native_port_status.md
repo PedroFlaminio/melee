@@ -2473,6 +2473,31 @@ Atualizado em 15 de setembro de 2026.
   de simbolo recusado; agora `grDatFiles_801C6038` marca as estatisticas do
   arquivo antes das buscas e confere depois (`melee_host_stage_symbols_mark` e
   `..._check`), e para com o nome do simbolo e o motivo.
+- [x] Fog. O estado de `GXSetFog` passa a ser parte do estado de draw
+  capturado (tipo, inicio, fim, near, far e cor), e os dois caminhos que
+  desenham a captura o aplicam entre o TEV e o blend, como o hardware: o
+  shader do presenter e o rasterizador da CPU das copias da EFB. A
+  profundidade e a do proprio fragmento: numa projecao em perspectiva o w de
+  clip e a distancia em espaco de olho, que o presenter le em
+  `gl_FragCoord.w` e o rasterizador no 1/w interpolado. O peso vem de
+  `melee::gx::fog_blend` - a profundidade normalizada entre `startz` e
+  `endz`, com a curva do tipo (linear, `2^-8t`, `2^-8t^2` e as duas
+  invertidas) - e a mistura e inteira nos dois lados
+  (`(cor * (256 - w) + fog * w + 128) >> 8`), o que faz os dois arredondarem
+  igual. `MELEE_HOST_FOG=0` captura tudo com `GX_FOG_NONE`, para comparar os
+  mesmos frames sem fog.
+  O jogo usa quatro configuracoes na rota, todas lineares: 500..1000,
+  60..250, 80..300 (o titulo) e 190..235. Comparando os mesmos frames com e
+  sem fog: o titulo muda 3,6% dos pixels (maximo 17), o menu principal 89,8%
+  (media 5,4), a CSS 0,1% e a SSS 69,4% (media 49,9, maximo 229), onde o
+  fundo distante passa de um plasma roxo a um azul escuro achatado e os
+  icones e a moldura ficam intactos; a luta em Hyrule Temple nao muda um
+  pixel, porque a cena de luta nao instala fog. A conformidade do TEV passou
+  a rodar metade dos casos com um fog linear que cai no meio da curva na
+  profundidade do quad, e os dois caminhos batem exatamente (0 divergencias
+  em 256 casos, nos dois arquivos de referencia). O trace canonico da rota de
+  estoque segue igual nos 1739 frames. `host-debug` 26/26 e 225/225
+  unitarios.
 
 ## Em andamento
 
@@ -2490,8 +2515,8 @@ Atualizado em 15 de setembro de 2026.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
-- [ ] Fog, que o shader ainda nao aplica, e as luzes descritas pela propria
-  cena, que o materializador ainda nao traduz.
+- [ ] As luzes descritas pela propria cena, que o materializador ainda nao
+  traduz.
 
   A camada formava um unico bloco: os onze arquivos se referenciam
   mutuamente, entao adicionar qualquer um exigia adicionar todos.
@@ -2516,7 +2541,14 @@ Atualizado em 15 de setembro de 2026.
 6. Conferir no codigo de maquina a lista de variaveis possivelmente nao
    inicializadas e funcoes sem `return` do build `-O2`, a comecar pelas que a
    rota alcanca.
-7. Fechar o que o TEV por fragmento nao cobre: bump e fog.
+7. Fechar o que o TEV por fragmento nao cobre: bump. O fog ja entrou, sem
+   comparacao com o console; a curva e a do GX, e a profundidade e o w de
+   clip do fragmento.
+8. Depois da paridade e do ritmo estavel de 60 Hz, separar apresentacao da
+   simulacao e implementar interpolacao visual opcional com limites de 60,
+   120, 144, 165 e 240 FPS, sem modo ilimitado. O tick de jogo, os inputs e a
+   fisica continuarao em 60 Hz; cortes e estados descontinuos devem manter a
+   pose valida, sem extrapolar gameplay.
 
 ## Limitacoes atuais
 
@@ -2532,8 +2564,8 @@ Atualizado em 15 de setembro de 2026.
 - O runtime GObj executa processos e ja pode possuir objetos graficos reais,
   mas as cenas so sao apresentadas pelos diagnosticos `--view-*`, nao pelo
   laco de frame do jogo.
-- O preview segue culling, profundidade, blend, mascara de cor e as duas alpha
-  compare, e a cor vem do TEV por fragmento. Ele nao aplica fog, nao le mipmaps
+- O preview segue culling, profundidade, blend, mascara de cor, as duas alpha
+  compare e o fog, e a cor vem do TEV por fragmento. Ele nao le mipmaps
   (a minificacao usa o filtro de magnificacao), nao modela TEV indireto nem
   `GXSetTevSwapModeTable` (usa as tabelas do `GXInit`, e o recorder para com
   nome se o jogo instalar outra) e chama as funcoes GL 2.0+ por `GL_GLEXT_PROTOTYPES`, o que so
@@ -2586,7 +2618,10 @@ Atualizado em 15 de setembro de 2026.
   arvore antes dos descritores.
 - `GXInitFogAdjTable` grava a tabela neutra (256, ou 1.0 em ponto fixo 8.8).
   A derivacao real a partir da projecao nao esta modelada, e o estado de fog
-  reporta isso em `range_adjust_modelled`.
+  reporta isso em `range_adjust_modelled`; o fog que o host aplica tambem
+  ignora o ajuste de alcance, que no console abre o fog nas bordas da tela.
+  Nada disso foi comparado com o console: a curva e a formula do GX e a
+  profundidade e o w de clip do fragmento, sem gravacao de referencia.
 - `GXCopyTex` produz as copias I4 (sombra) e em cor (RGB5A3, RGB565 e RGBA8)
   rasterizando na CPU a captura do frame; as de outros formatos ficam so
   registradas. `GXCopyDisp` so registra.

@@ -3,6 +3,7 @@
 #include "gx/tev.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
@@ -12,6 +13,11 @@
 namespace {
 
 using melee::gx::TevFragmentInputs;
+
+bool close(float value, float expected)
+{
+    return std::fabs(value - expected) < 1.0e-6F;
+}
 
 /* Every stage starts inert: all inputs zero, neutral arithmetic, writing the
  * final register, sampling map 0 through coordinate 0 and colour channel 0. */
@@ -340,6 +346,59 @@ TEST_CASE("a generated shader depends on the program, not on its constants")
 
     second.stages[1].color_op = GX_TEV_COMP_RGB8_GT;
     REQUIRE(source != melee::gx::tev_fragment_shader_source(second));
+}
+
+TEST_CASE("fog mixes by the curve its type names over the normalised depth")
+{
+    MeleeHostGxDrawState state{};
+    state.fog_start_z = 100.0F;
+    state.fog_end_z = 300.0F;
+
+    // No fog, and a range of zero, leave the colour alone.
+    state.fog_type = GX_FOG_NONE;
+    REQUIRE(melee::gx::fog_blend(state, 200.0F) == 0.0F);
+    state.fog_type = GX_FOG_LIN;
+    state.fog_end_z = 100.0F;
+    REQUIRE(melee::gx::fog_blend(state, 200.0F) == 0.0F);
+    state.fog_end_z = 300.0F;
+
+    // Linear fog is the depth's place between start and end, clamped at both.
+    REQUIRE(melee::gx::fog_blend(state, 50.0F) == 0.0F);
+    REQUIRE(melee::gx::fog_blend(state, 100.0F) == 0.0F);
+    REQUIRE(close(melee::gx::fog_blend(state, 150.0F), 0.25F));
+    REQUIRE(close(melee::gx::fog_blend(state, 200.0F), 0.5F));
+    REQUIRE(melee::gx::fog_blend(state, 300.0F) == 1.0F);
+    REQUIRE(melee::gx::fog_blend(state, 1000.0F) == 1.0F);
+
+    // The exponential curves are 2^-8t and its square, and the reverse ones
+    // the same curves read from the far end.
+    state.fog_type = GX_FOG_EXP;
+    REQUIRE(close(melee::gx::fog_blend(state, 200.0F), 1.0F - 0.0625F));
+    state.fog_type = GX_FOG_EXP2;
+    REQUIRE(close(melee::gx::fog_blend(state, 200.0F), 1.0F - 0.25F));
+    state.fog_type = GX_FOG_REVEXP;
+    REQUIRE(close(melee::gx::fog_blend(state, 200.0F), 0.0625F));
+    REQUIRE(close(melee::gx::fog_blend(state, 300.0F), 1.0F));
+    state.fog_type = GX_FOG_REVEXP2;
+    REQUIRE(close(melee::gx::fog_blend(state, 200.0F), 0.25F));
+
+    // The shader carries the same curve and reads the fragment's own depth.
+    const std::string source =
+        melee::gx::tev_fragment_shader_source(program(1));
+    REQUIRE(source.find("u_fog_type") != std::string::npos);
+    REQUIRE(source.find("gl_FragCoord.w") != std::string::npos);
+    REQUIRE(source.find("u_fog_color.rgb * fog") != std::string::npos);
+
+    // The weight and the mix are integers, so the shader and the rasterizer
+    // round alike: half of 200 and 100 is 150, and a weight of zero leaves
+    // the component alone.
+    state.fog_type = GX_FOG_LIN;
+    REQUIRE(melee::gx::fog_weight(state, 200.0F) == 128);
+    REQUIRE(melee::gx::fog_weight(state, 50.0F) == 0);
+    REQUIRE(melee::gx::fog_weight(state, 400.0F) == 256);
+    REQUIRE(melee::gx::fog_mix(200, 100, 128) == 150);
+    REQUIRE(melee::gx::fog_mix(200, 100, 0) == 200);
+    REQUIRE(melee::gx::fog_mix(200, 100, 256) == 100);
 }
 
 TEST_CASE("GXSetTevOp records the inputs its SDK expansion writes")

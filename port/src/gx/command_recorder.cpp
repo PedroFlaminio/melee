@@ -250,7 +250,16 @@ bool same_draw_state(const MeleeHostGxDrawState& left,
            left.alpha_ref_1 == right.alpha_ref_1 &&
            left.z_texture_op == right.z_texture_op &&
            left.z_texture_format == right.z_texture_format &&
-           left.z_texture_bias == right.z_texture_bias;
+           left.z_texture_bias == right.z_texture_bias &&
+           left.fog_type == right.fog_type &&
+           left.fog_start_z == right.fog_start_z &&
+           left.fog_end_z == right.fog_end_z &&
+           left.fog_near_z == right.fog_near_z &&
+           left.fog_far_z == right.fog_far_z &&
+           left.fog_color[0] == right.fog_color[0] &&
+           left.fog_color[1] == right.fog_color[1] &&
+           left.fog_color[2] == right.fog_color[2] &&
+           left.fog_color[3] == right.fog_color[3];
 }
 
 /* Projects the modelled pixel state onto the fields that decide how a triangle
@@ -259,7 +268,11 @@ bool same_draw_state(const MeleeHostGxDrawState& left,
 mh_u32 current_draw_state_id_locked()
 {
     MeleeHostGxPixelState pixel{};
+    MeleeHostGxFogState fog{};
     melee_host_gx_pixel_state(&pixel);
+    if (melee_host_gx_fog_enabled()) {
+        melee_host_gx_fog_state(&fog);
+    }
     const MeleeHostGxDrawState state{
         pixel.cull_mode,      pixel.z_compare_enable,
         pixel.z_update_enable, pixel.z_func,
@@ -270,6 +283,10 @@ mh_u32 current_draw_state_id_locked()
         pixel.alpha_op,       pixel.alpha_ref_0,
         pixel.alpha_ref_1,    pixel.z_texture_op,
         pixel.z_texture_format, pixel.z_texture_bias,
+        fog.type,             fog.start_z,
+        fog.end_z,            fog.near_z,
+        fog.far_z,
+        { fog.color[0], fog.color[1], fog.color[2], fog.color[3] },
     };
     for (std::size_t index = 0; index < captured_draw_states.size(); ++index) {
         if (same_draw_state(captured_draw_states[index], state)) {
@@ -2518,6 +2535,18 @@ extern "C" bool melee_host_gx_copy_efb_to_texture(
                 std::array<int, 4> source{};
                 for (std::size_t c = 0; c < 4; ++c) {
                     source[c] = std::clamp(produced[c], 0, 255);
+                }
+                /* Fog comes between the TEV and the blend, over the
+                 * fragment's eye-space depth: under a perspective projection
+                 * that is the clip w, which the interpolated 1/w gives back.
+                 * It leaves alpha alone. */
+                if (state.fog_type != 0) {
+                    const int weight =
+                        melee::gx::fog_weight(state, 1.0F / sum);
+                    for (std::size_t c = 0; c < 3; ++c) {
+                        source[c] = melee::gx::fog_mix(
+                            source[c], state.fog_color[c], weight);
+                    }
                 }
                 const std::array<int, 4>& target = color[at];
                 std::array<int, 4> result = source;

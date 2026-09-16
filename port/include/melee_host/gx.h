@@ -79,6 +79,16 @@ typedef struct MeleeHostGxDrawState {
     mh_u32 z_texture_op;
     mh_u32 z_texture_format;
     mh_u32 z_texture_bias;
+    /* GXSetFog, as the draw left it.  The hardware mixes the TEV colour
+     * towards the fog colour by a factor it reads from the fragment's
+     * eye-space depth, which the perspective divide already carries: the
+     * clip w.  GX_FOG_NONE leaves the colour alone. */
+    mh_u32 fog_type;
+    mh_f32 fog_start_z;
+    mh_f32 fog_end_z;
+    mh_f32 fog_near_z;
+    mh_f32 fog_far_z;
+    mh_u8 fog_color[4];
 } MeleeHostGxDrawState;
 
 typedef struct MeleeHostGxCapturedVertex {
@@ -545,6 +555,11 @@ void melee_host_gx_evaluate_lighting(const MeleeHostGxCapturedVertex* vertex,
                                      mh_u8 color0a0[4],
                                      mh_u8 color1a1[4]);
 void melee_host_gx_fog_state(MeleeHostGxFogState* output);
+/* Whether a captured draw carries the fog the game set.  Off, every draw is
+ * captured with GX_FOG_NONE, which is how a frame with fog is compared with
+ * the same frame without it.  On by default. */
+void melee_host_gx_set_fog_enabled(bool enabled);
+bool melee_host_gx_fog_enabled(void);
 void melee_host_gx_copy_state(MeleeHostGxCopyState* output);
 void melee_host_gx_display_copy_state(MeleeHostGxDisplayCopyState* output);
 void melee_host_gx_draw_sync_state(MeleeHostGxDrawSyncState* output);
