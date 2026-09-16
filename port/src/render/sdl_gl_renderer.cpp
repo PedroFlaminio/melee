@@ -1318,6 +1318,7 @@ namespace melee::render {
         std::string settings_path;
         /* Twice a second a visible window shows the rate it presents at. */
         FrameRateMeter frame_rate{ 500'000'000ULL };
+        double last_fps = 0.0;
     };
 
     bool configure_render_target(FramePresenter::State& state,
@@ -1360,7 +1361,8 @@ namespace melee::render {
         int filter = -1;
         int window_mode = -1;
         int rate = 0;
-        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate) ||
+        int show_fps = 0;
+        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps) ||
             resolution < 0 || resolution > 4 ||
             aspect < 0 || aspect > 2 ||
             filter < 0 || filter > 1 ||
@@ -1370,6 +1372,7 @@ namespace melee::render {
         {
             return;
         }
+        state->video_settings.show_fps = show_fps != 0;
         state->video_settings.resolution =
             static_cast<PresentationResolution>(resolution);
         state->video_settings.aspect =
@@ -1392,7 +1395,8 @@ namespace melee::render {
                    << static_cast<int>(state.video_settings.aspect) << ' '
                    << static_cast<int>(state.video_settings.filter) << ' '
                    << static_cast<int>(state.video_settings.window_mode) << ' '
-                   << static_cast<int>(state.video_settings.rate) << '\n';
+                   << static_cast<int>(state.video_settings.rate) << ' '
+                   << (state.video_settings.show_fps ? 1 : 0) << '\n';
         }
     }
 
@@ -1408,7 +1412,7 @@ namespace melee::render {
         }
         const char* value = video_menu_row_value(settings, row);
         return title + " — VIDEO: " + kVideoMenuRowNames[row] + " = " +
-               value + " (setas, Enter, Esc)";
+               value + " (arrows, Enter, Esc)";
     }
 
     std::array<std::uint8_t, 7> menu_glyph(char character)
@@ -1567,6 +1571,48 @@ namespace melee::render {
             SDL_MaximizeWindow(state.window.window);
             break;
         }
+    }
+
+    void draw_fps_counter(FramePresenter::State& state)
+    {
+        if (!state.video_settings.show_fps) {
+            return;
+        }
+        int win_w = 0;
+        int win_h = 0;
+        SDL_GetWindowSizeInPixels(state.window.window, &win_w, &win_h);
+        if (win_w <= 0 || win_h <= 0) {
+            win_w = 960;
+            win_h = 720;
+        }
+
+        glUseProgram(0);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, win_w, win_h, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        char fps_text[32];
+        std::snprintf(fps_text, sizeof(fps_text), "%.1f FPS", state.last_fps);
+
+        glColor4f(0.0F, 0.0F, 0.0F, 1.0F);
+        menu_text(12.0F, 12.0F, 3.0F, fps_text);
+        
+        glColor4f(0.1F, 1.0F, 0.3F, 1.0F);
+        menu_text(10.0F, 10.0F, 3.0F, fps_text);
+
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        restore_draw_defaults();
     }
 
     void draw_video_menu(FramePresenter::State& state)
@@ -1977,11 +2023,13 @@ namespace melee::render {
                               filter);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             draw_video_menu(state);
+            draw_fps_counter(state);
             SDL_GL_SwapWindow(state.window.window);
             double frames_per_second = 0.0;
             if (state.frame_rate.add_frame(SDL_GetTicksNS(),
                                            &frames_per_second))
             {
+                state.last_fps = frames_per_second;
                 SDL_SetWindowTitle(state.window.window,
                                    video_menu_title(state.video_settings,
                                                     state.video_menu_open,

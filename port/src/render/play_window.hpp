@@ -14,7 +14,7 @@ namespace melee::render {
         "Enter é START, WASD o analógico; Esc abre Video";
 
     /* Number of interactive rows in the video settings menu. */
-    inline constexpr std::uint8_t kVideoMenuRows = 5;
+    inline constexpr std::uint8_t kVideoMenuRows = 6;
 
     /* The menu intentionally has a closed list of rates: the simulation
      * remains 60 Hz and the presenter must never expose an unbounded busy
@@ -65,6 +65,7 @@ namespace melee::render {
         PresentationFilter filter = PresentationFilter::Nearest;
         PresentationWindowMode window_mode = PresentationWindowMode::Windowed;
         PresentationRate rate = PresentationRate::Fps60;
+        bool show_fps = false;
     };
 
     /* Returns the integer scale factor for the given resolution enum. */
@@ -120,7 +121,7 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationResolution::x1:
-            return "1x Nativo";
+            return "1x Native";
         case PresentationResolution::x2:
             return "2x";
         case PresentationResolution::x3:
@@ -130,7 +131,7 @@ namespace melee::render {
         case PresentationResolution::x5:
             return "5x";
         }
-        return "1x Nativo";
+        return "1x Native";
     }
 
     [[nodiscard]] constexpr const char* label(PresentationFilter value)
@@ -148,13 +149,13 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationWindowMode::Windowed:
-            return "Janela";
+            return "Windowed";
         case PresentationWindowMode::Fullscreen:
-            return "Tela Cheia";
+            return "Fullscreen";
         case PresentationWindowMode::Borderless:
-            return "Sem Bordas";
+            return "Borderless";
         }
-        return "Janela";
+        return "Windowed";
     }
 
     /* Row order: 0=Resolution, 1=Aspect, 2=Filter, 3=WindowMode, 4=Rate */
@@ -198,7 +199,7 @@ namespace melee::render {
 
     /* The name of each menu row, indexed by row number. */
     inline constexpr const char* kVideoMenuRowNames[] = {
-        "RESOLUCAO", "ASPECTO", "FILTRO", "JANELA", "FREQUENCIA"
+        "RESOLUTION", "ASPECT RATIO", "TEXTURE FILTER", "WINDOW MODE", "TARGET RATE", "SHOW FPS"
     };
 
     /* The current value label of each menu row. */
@@ -216,6 +217,8 @@ namespace melee::render {
             return label(settings.window_mode);
         case 4:
             return label(settings.rate);
+        case 5:
+            return settings.show_fps ? "ON" : "OFF";
         default:
             return "";
         }
