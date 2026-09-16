@@ -1596,6 +1596,82 @@ static void* stage_item_data(MeleeHostHsdReader* reader, mh_u32 root)
     return stage_pointer_table(reader, root, stage_item_entry);
 }
 
+/* ALDYakuAll: the state scripts the stage gives the random item.
+ * Ground_801C0800 walks the table from index 1 until a NULL entry and writes
+ * each script into it_804D6D38's state descriptors, so index 0 is never read
+ * and is zero on every stage of the disc.  The scripts are item command
+ * streams; in GrSh.dat the only one lives in the words right after
+ * yakumono_param. */
+static void* stage_yaku_scripts(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 limit = melee_host_hsd_reader_extent(reader, root) / 4;
+    void** table;
+    mh_u32 count;
+    mh_u32 i;
+    bool present;
+
+    (void) target_of(reader, root, &present);
+    if (limit < 2 || present) {
+        melee_host_hsd_reader_fail(
+            reader, "ALDYakuAll does not start with the entry the game skips");
+        return NULL;
+    }
+    for (count = 1; count < limit; count++) {
+        (void) target_of(reader, root + count * 4, &present);
+        if (!present) {
+            break;
+        }
+    }
+    table = melee_host_hsd_reader_allocate(reader, sizeof(void*) * (count + 1),
+                                           alignof(void*));
+    if (table == NULL) {
+        return NULL;
+    }
+    table[0] = NULL;
+    for (i = 1; i < count; i++) {
+        const mh_u32 target = target_of(reader, root + i * 4, &present);
+        table[i] = melee_host_hsd_reader_command_stream(reader, target);
+    }
+    table[count] = NULL;
+    return melee_host_hsd_reader_failed(reader) ? NULL : table;
+}
+
+/* yakumono_param: the parameters a stage keeps for itself, read through the
+ * struct its own grXXX.c declares.  Every stage has a different one - floats,
+ * ints, pairs of u16 packed in a word, and pointers - and a block of disc
+ * bytes cannot be turned into host values without knowing those widths, so
+ * the host translates only the block that is all zeroes, which is what the
+ * stages that keep the symbol without reading it store: Hyrule Temple and 27
+ * other archives.  A stage with parameters of its own stops here with its
+ * size, and needs that stage's layout written out. */
+static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
+{
+    const mh_u32 size = melee_host_hsd_reader_extent(reader, root);
+    void* block;
+    mh_u32 at;
+
+    for (at = 0; at < size; at += 4) {
+        /* A word is read before it is asked about, because a value that is
+         * not a relocation is a field, not a broken pointer. */
+        if (melee_host_hsd_reader_u32(reader, root + at) != 0) {
+            melee_host_hsd_reader_fail(
+                reader, "yakumono_param holds this stage's own parameters, "
+                        "whose layout the host does not know");
+            return NULL;
+        }
+    }
+    if (size == 0) {
+        melee_host_hsd_reader_fail(reader, "yakumono_param has no room");
+        return NULL;
+    }
+    block = melee_host_hsd_reader_allocate(reader, size, alignof(mh_u32));
+    if (block == NULL) {
+        return NULL;
+    }
+    memset(block, 0, size);
+    return melee_host_hsd_reader_failed(reader) ? NULL : block;
+}
+
 static void* stage_map_head(MeleeHostHsdReader* reader, mh_u32 root)
 {
     UnkStageDat* const dat = melee_host_hsd_reader_allocate(
@@ -3144,6 +3220,9 @@ void melee_host_game_register_data_translators(void)
     (void) melee_host_hsd_register_translator("quake_model_set",
                                               stage_quake_model_set);
     (void) melee_host_hsd_register_translator("itemdata", stage_item_data);
+    (void) melee_host_hsd_register_translator("ALDYakuAll", stage_yaku_scripts);
+    (void) melee_host_hsd_register_translator("yakumono_param",
+                                              stage_yakumono_param);
     (void) melee_host_hsd_register_translator("lbRefData", refract_data);
     (void) melee_host_hsd_register_translator("plLoadCommonData",
                                               player_common_data);

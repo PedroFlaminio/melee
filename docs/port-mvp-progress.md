@@ -18,14 +18,22 @@ de 13 de setembro.
 | Assets e renderização HSD/GX | funcional para as cenas da rota VS, com a imagem conferida em BMP; as cópias da EFB em cor (retratos dos resultados, bolha da lupa) são rasterizadas na CPU a partir da captura do frame, sem a bolha da lupa conferida na imagem; faltam texturas de profundidade no presenter, bump e fog | 20% |
 | Inicialização, título e menu principal | título e rota até o menu validados | 15% |
 | Configuração de VS | CSS, menu de regras e SSS com dois pads; seleção, regras em estoque e estágio conferidos pelo estado do jogo e pela imagem do menu de regras e da SSS | 10% |
-| Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox, Mario e Link em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP, com os retratos dos painéis e as luzes do estágio (`map_plit`) nos lutadores; do estágio faltam `ALDYakuAll` e `yakumono_param`, que Hyrule Temple não lê. Uma luta por tempo que termina empatada passa pela morte súbita (um estoque a 300%) e volta aos resultados com as colocações que ela decidiu | 30% |
+| Luta (fighters, stage, colisão, câmera, HUD, KO) | Fox, Mario e Link em Hyrule Temple pelo código do jogo: movimento, corrida, ataque, blaster, pausa e L+R+A+START; com um estoque P1 cai, a luta termina por eliminação, o "Game!" aparece e os resultados mostram o vencedor ("FOX"), a colocação e as estatísticas e voltam à CSS. Imagem conferida em BMP, com os retratos dos painéis e as luzes do estágio (`map_plit`) nos lutadores; do estágio, `ALDYakuAll` traduz em todos os arquivos e `yakumono_param` no
+bloco de zeros que Hyrule Temple guarda sem ler. Uma luta por tempo que termina empatada passa pela morte súbita (um estoque a 300%) e volta aos resultados com as colocações que ela decidiu | 30% |
 | Áudio, distribuição e regressão end-to-end | efeitos e música pelo código do jogo: o mixer AX do host toca os descritores dos `.ssm`, os comandos do `.sem` e o stream `.hps` num relógio de 5 ms preso aos retraces, com saída no dispositivo de som no `--play` e em WAV nas rotas; a música e um efeito batem com decodificadores de referência (correlação 1,000000); o reverb e o delay do jogo tocam nos barramentos aux, com o `HandleReverb` portado da assembly para C; duas rotas título → resultados → menu são testes; a rota de estoque dá o mesmo trace canônico entre execuções e entre o `host-debug` e um build `-O2`; sem apresentar, a luta roda a cerca de 200 frames por segundo no `-O2` e a 19 no `host-debug`; com `--play` a rota inteira fica em 60 | 10% |
 
 ### Evidências verificadas
 
+- Dados de estágio: com `ALDYakuAll` e `yakumono_param`, o `--sweep-archives`
+  passa de 886 símbolos de `game_data`, 884 traduzidos, para 1038 e 989. As
+  105 traduções novas são as 76 tabelas de script do item aleatório e os 29
+  `yakumono_param` que são um bloco de zeros; as 47 falhas novas são os
+  `yakumono_param` com parâmetros próprios, que param com nome. Na rota o
+  jogo passa a escrever o script do estágio no estado do item aleatório, e o
+  trace da rota de estoque fica igual nos 1739 frames.
 - `ctest --preset host-debug`: 24/24 (os 14 curtos, os dados do Mario e do
   Link, os dois de banco de som, o de áudio da rota e as cinco rotas de VS,
-  estas com as vozes ligadas); 223/223 testes unitários; com `-j4` a suíte
+  estas com as vozes ligadas); 224/224 testes unitários; com `-j4` a suíte
   leva 54,9 s, com as rotas entre 30 e 32 s.
 - Cópias da EFB em cor: na rota de estoque, `1450:EFBCOPY` acha 3 texturas
   copiadas com até 893 cores, e o BMP do frame 1450 mostra os retratos do 2º
@@ -87,7 +95,9 @@ de 13 de setembro.
   (`outcome 1 winners 2`, três estoques para cada um) com as colocações da
   morte súbita (`places P1=2 P2=1`). Título (122) → menu (120) → CSS (141) →
   SSS (149) → luta (501) → morte súbita (469) → resultados (407) → CSS (120),
-  31 s no `host-debug`. A mesma rota sem o atalho do relógio, com os dois
+  31 s no `host-debug` (sob ASan a suíte dá 24/24 em 221,9 s, sem relato do
+  ASan e com um ponto novo do UBSan, o `team_standings[5]` de um vetor de
+  cinco em `gm_80166CCC`). A mesma rota sem o atalho do relógio, com os dois
   minutos inteiros, dá a mesma sequência (a luta com 7.438 frames) e o mesmo
   desfecho, em 49 s no build `-O2`. Nos BMPs: o "Time!" com o relógio em
   00:00:00, o "Go!" da morte súbita com os dois em 300% e os resultados de
@@ -118,8 +128,9 @@ de 13 de setembro.
 O fluxo local vai do título aos resultados pelo código do jogo, com a imagem
 conferida, som e rotas repetíveis. Falta, em ordem: jogar de verdade no
 `--play`, que abre a janela, segue o ritmo do console, mapeia o pad inteiro e
-toca som, mas não foi jogado por uma pessoa; `ALDYakuAll` e `yakumono_param`,
-que variam por estágio. Do modo VS faltam o desafiante e o aviso de prêmio. Hyrule Temple segue como alvo por estar
+toca som, mas não foi jogado por uma pessoa. Do modo VS faltam o desafiante e
+o aviso de prêmio, e dos dados de estágio os `yakumono_param` dos 47 arquivos
+que têm parâmetros próprios, um layout por estágio. Hyrule Temple segue como alvo por estar
 liberado sem cartão de memória e ter o menor módulo (`grshrine.c`); Final
 Destination e Battlefield ficam travados na SSS sem dados salvos.
 
@@ -215,3 +226,4 @@ menos 0,1 unidade.
 | 2026-09-15 | 97% | Pernas do Mario e do Link. Sumiam porque as matrizes das coxas e de tudo abaixo delas ficavam NaN: o IK das pernas (`lbBgFlash_80021410`, que `ft_80089B08` roda ao pousar e parado) media os ossos com `sqrtf_store`, e `src/placeholder.h` definia `__frsqrte(x)` como `sqrt(x)`, quando o `frsqrte` do PowerPC estima 1/sqrt(x). Os passos de Newton de cerca de 50 lugares do jogo divergiam longe de x = 1 (a raiz de 44 dava -1,9e41). Um watchpoint de hardware que só para em NaN achou a escrita. A macro passa a `1.0 / sqrt(x)`, o que acerta também `acosf` e `asinf` (`acosf(0,99)` dava 1,1308 no lugar de 0,1415) e a dinâmica do chapéu do Link. Os três commits de contorno do Codex saem: esconder variantes de DObj não mudava um pixel da rota, e a dinâmica do chapéu estava desligada. Na rota Mario contra Link havia NaN nas pernas a partir dos frames 610 e 618; agora não há nenhum em 65 amostras, e as pernas aparecem nos BMPs. A bola de fogo do Mario (item 48) para com nome, porque os itens especiais não têm tradutor. O trace da rota de estoque muda no frame 910 (x de P1 em 0,01), com o mesmo desfecho. O teste de ARAM volta a passar com os 24 MiB do host, e um teste cobre `lbVector_Angle`. `host-debug` 21/21, 222/222 unitários; sob ASan, sem relato do ASan e com os mesmos 32 pontos do UBSan. |
 | 2026-09-15 | 98% | Mario e Link jogáveis. Os sete itens dos dois (bola de fogo 48, capa 83, bomba 58, bumerangue 60, hookshot 62, flecha 64 e arco 76) ganharam tradutor por slot: blocos de escalares onde o disco só tem escalares, e campo a campo onde há modelos e animações, porque os ponteiros do host são mais largos. A ficha de atributos do Link é traduzida inteira, mantendo os offsets do PowerPC, já que `ftCo_0D8E.c` lê os mesmos bytes por outra struct. `it_802A4BFC_sqrtf_offset` escrevia no slot de pilha vizinho para casar com o MWCC e arrasava o quadro de quem chamava; a corrente do hookshot chegava lá (SIGBUS no `host-debug`, silencioso no `-O2`), e o truque ficou sob `MELEE_HOST`. As rotas escolhem os dois pela CSS sem gdb (cursor a 1,24 unidade por frame; Mario 15 frames para cima, Link 30 para a direita) e entram na suíte: uma luta de um estoque até os resultados, com o Link vencedor e os retratos copiados da EFB, e uma rota de especiais que confere os estados do Mario (343, 345, 350, 347 e 212) e cria os sete itens. Também saiu um defeito de render que valia para tudo: com iluminação desligada o GX entrega só a cor de material, e o host multiplicava pelo ambiente do último material, o que deixava o estágio escuro e vermelho enquanto o bumerangue voava. `host-debug` 23/23, 223/223 unitários; sob ASan os 23 testes passam sem relato do ASan, com 36 pontos do UBSan, quatro deles novos e das famílias já registradas (três `1 << 31` e uma chamada por ponteiro de outro tipo). |
 | 2026-09-16 | 99% | Morte súbita. Uma luta por tempo empatada vai para a cena `GS_SUDDEN_DEATH` pelo caminho do próprio jogo: `gmVsMelee_ExitVs` conta dois vencedores, `gm_SetupSuddenDeath` troca as regras por um estoque a 300% e `gm_80166CCC` devolve ao fim da luta por tempo só as colocações que a morte súbita decidiu. Como o menu não oferece menos de um minuto, o roteiro ganhou `FRAME:CLOCK[=SEGUNDOS]`, que lê e escreve o relógio da cena, e o `RESULT` passou a imprimir as colocações. O teste novo deixa 3 s no relógio, o jogo esgota o tempo em `0s+59` e entra na morte súbita, onde o pad 1 cai: 501 frames de luta, 469 de morte súbita e 407 de resultados, 31 s no `host-debug`. A rota longa, sem atalho, dá a mesma sequência com 7.438 frames de luta e o mesmo `outcome 1 winners 2` com `places P1=2 P2=1`, em 49 s no `-O2`. `host-debug` 24/24 e 223/223 unitários. |
+| 2026-09-16 | 99% | `ALDYakuAll` e `yakumono_param`. A tabela de scripts que o estágio dá ao item aleatório traduz em todos os 76 arquivos que a têm: o índice 0 é o zero que `Ground_801C0800` pula, cada entrada vira command stream e a tabela fecha com NULL; em `GrSh.dat` o único script mora nos words logo depois de `yakumono_param`. Deste, o host traduz o bloco de zeros que 29 arquivos guardam (Hyrule Temple entre eles) e recusa com nome os 47 com parâmetros próprios, porque o layout é a struct de cada `grXXX.c` e sem as larguras dos campos não se troca a ordem dos bytes. `--sweep-archives`: `game_data` de 886/884 para 1038/989. Na rota o `stage_info.ald_yaku_all` deixa de ser NULL e o jogo escreve o script no estado do item aleatório; o trace da rota de estoque fica igual nos 1739 frames entre o `-O2` de antes e o de depois. `host-debug` 24/24 e 224/224 unitários. |

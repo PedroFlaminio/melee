@@ -1366,6 +1366,56 @@ TEST_CASE("a stage's map_plit, quake_model_set and itemdata translate")
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
 }
 
+TEST_CASE("a stage's ALDYakuAll and yakumono_param translate")
+{
+    // GrSh.dat's shape: yakumono_param is a block of zeroes the stage keeps
+    // without ever reading it, the one state script the stage gives the
+    // random item lives in the words after it, and ALDYakuAll is the table
+    // Ground_801C0800 walks from index 1 until a NULL.
+    const auto command = [](std::uint32_t opcode, std::uint32_t value) {
+        return (opcode << 26U) | value;
+    };
+    ArchiveBuilder builder(0x80);
+    builder.u32(0x010, command(1, 5));
+    builder.u32(0x014, command(0, 0));
+    builder.pointer(0x024, 0x010);
+    builder.public_symbol(0x000, "yakumono_param");
+    builder.public_symbol(0x020, "ALDYakuAll");
+    std::vector<std::byte> bytes = builder.build();
+
+    melee_host_game_register_data_translators();
+    HSD_Archive archive{};
+    REQUIRE(HSD_ArchiveParse(&archive, bytes_of(bytes), bytes.size()) == 0);
+    auto* const scripts = static_cast<void**>(
+        HSD_ArchiveGetPublicAddress(&archive, "ALDYakuAll"));
+    REQUIRE(scripts != nullptr);
+    REQUIRE(scripts[0] == nullptr);
+    REQUIRE(scripts[1] != nullptr);
+    REQUIRE(scripts[2] == nullptr);
+    // The script is a converted command stream, in native words.
+    REQUIRE(static_cast<std::uint32_t*>(scripts[1])[0] == command(1, 5));
+    auto* const params = static_cast<std::uint32_t*>(
+        HSD_ArchiveGetPublicAddress(&archive, "yakumono_param"));
+    REQUIRE(params != nullptr);
+    REQUIRE(params[0] == 0);
+    REQUIRE(params[3] == 0);
+    REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A stage that keeps parameters of its own is refused: their widths are
+    // the struct its grXXX.c declares, which the host does not know.
+    ArchiveBuilder own(0x40);
+    own.f32(0x000, 1.5F);
+    own.public_symbol(0x000, "yakumono_param");
+    std::vector<std::byte> own_bytes = own.build();
+    HSD_Archive own_archive{};
+    REQUIRE(HSD_ArchiveParse(&own_archive, bytes_of(own_bytes),
+                             own_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&own_archive, "yakumono_param") ==
+            nullptr);
+    REQUIRE(melee_host_hsd_archive_release(own_bytes.data()) ==
+            MELEE_HOST_OK);
+}
+
 extern "C" int melee_host_test_check_fighter_common_data(void* translated,
                                                         char* message,
                                                         std::size_t size);

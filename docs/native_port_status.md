@@ -2423,7 +2423,31 @@ Atualizado em 15 de setembro de 2026.
   desfecho em 49 s no build `-O2`. Nos BMPs aparecem o "Time!" com o relogio
   em 00:00:00, o "Go!" da morte subita com os dois em 300%, e os resultados de
   "Time Battle" com o Fox do pad 2 em 1st e o do pad 1 em 2nd, o que confere
-  com `outcome 1 winners 2` e `places P1=2 P2=1`.
+  com `outcome 1 winners 2` e `places P1=2 P2=1`. Sob ASan a suite passa 24/24
+  sem relato do ASan, com 223/223 unitarios em 221,9 s, e o UBSan ganha um
+  ponto, `gm_1601.c:3232`, o `team_standings[5]` de um vetor de cinco que
+  `gm_80166CCC` le so nesse caminho; no host o membro seguinte e o mesmo do
+  console.
+- [x] `ALDYakuAll` e `yakumono_param`, os dois simbolos de estagio que
+  faltavam. `ALDYakuAll` e a tabela de scripts de estado que o estagio da ao
+  item aleatorio: `Ground_801C0800` a percorre do indice 1 ate um NULL e
+  escreve cada script nos descritores de `it_804D6D38`, entao o indice 0 nunca
+  e lido e vale zero em todos os 76 arquivos que tem o simbolo. O tradutor
+  guarda esse zero, converte cada entrada como command stream e fecha a tabela
+  com NULL; em `GrSh.dat` o unico script fica nos words logo depois de
+  `yakumono_param`, que e como a entrada 1 aponta "para dentro" dele. De
+  `yakumono_param` o host traduz o bloco de zeros (29 arquivos, Hyrule Temple
+  entre eles) e recusa com nome os 47 com parametros proprios, porque cada
+  estagio declara sua struct e sem as larguras dos campos nao da para trocar
+  a ordem dos bytes. No `--sweep-archives` o `game_data` passa de 886
+  simbolos, 884 traduzidos, para 1038 e 989: 105 a mais (76 `ALDYakuAll` e 29
+  `yakumono_param`), com as 4 falhas de antes e 47 novas, todas de
+  `yakumono_param`. Na rota de Hyrule Temple o `stage_info.ald_yaku_all` deixa
+  de ser NULL e o jogo escreve o script da entrada 1 no estado do item
+  aleatorio (visto com breakpoint em `ground.c:498`); o trace canonico da rota
+  de estoque fica igual nos 1739 frames entre o build `-O2` de antes e o de
+  depois. `host-debug` 24/24 e 224/224 unitarios, com um teste do formato dos
+  dois simbolos e da recusa.
 
 ## Em andamento
 
@@ -2437,8 +2461,7 @@ Atualizado em 15 de setembro de 2026.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
   codigo do jogo, com a imagem conferida em BMP e som, e uma luta empatada
-  passa pela morte subita; faltam jogar na janela com entrada real e
-  `ALDYakuAll` e `yakumono_param`.
+  passa pela morte subita; falta jogar na janela com entrada real.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2660,7 +2683,8 @@ Atualizado em 15 de setembro de 2026.
   luta sao 17 pontos distintos; a lista esta na entrada de
   `melee-host-vs-match-asset`. Com a rota de estoque a suite mostrava 28 pontos
   distintos; com o audio ligado eram 31, os mesmos em duas execucoes, e com
-  os barramentos aux sao 32 (o novo e `ax_mixer.c:588`, o callback do reverb).
+  os barramentos aux sao 32 (o novo e `ax_mixer.c:588`, o callback do reverb);
+  com as rotas do Mario e do Link sao 36 e com a da morte subita 37.
   Quatro vieram antes, chamadas por ponteiro de funcao de outro tipo nos
   callbacks do audio: `devcom.c:84` (`HSD_SynthSFXGroupDataReaddressCallback`),
   `devcom.c:229` (`HSD_Synth_8038B120`), `devcom.c:255`
@@ -2692,13 +2716,14 @@ Atualizado em 15 de setembro de 2026.
   uma imagem por outro meio continua mostrando a primeira.
 - A tabela `stage_datas` de `ground.c` liga todos os estagios, mas nenhum
   carrega ainda por inteiro: a API de arquivo do host traduz `grGroundParam`,
-  `coll_data`, `map_head` (69 de 71), `map_plit`, `quake_model_set` e
-  `itemdata`, mas nao `ALDYakuAll` nem `yakumono_param`. `yakumono_param` tem
-  um layout por estagio (Hyrule Temple guarda o ponteiro e nao le);
-  `ALDYakuAll` troca os scripts de estado dos itens aleatorios e, em
-  `GrSh.dat`, nao e uma tabela simples (a entrada 1 aponta para dentro de
-  `yakumono_param`). Os itens de estagio criados de `itemdata` param com nome
-  onde o item precisa dos atributos por tipo.
+  `coll_data`, `map_head` (69 de 71), `map_plit`, `quake_model_set`,
+  `itemdata` e `ALDYakuAll`, e de `yakumono_param` so o bloco de zeros que 29
+  arquivos guardam, Hyrule Temple entre eles. Os outros 47 tem parametros
+  proprios, com o layout da struct que cada `grXXX.c` declara (floats, ints,
+  pares de u16 num mesmo word e ponteiros), e param com nome: sem as larguras
+  dos campos, um bloco de bytes do disco nao vira valores do host. Os itens de
+  estagio criados de `itemdata` param com nome onde o item precisa dos
+  atributos por tipo.
 - `lbFile_800164A4` escolhe leitura direta em RAM porque o destino esta acima
   de `0x80000000`, o que os enderecos do host em 64 bits satisfazem; a
   separacao entre ARAM e RAM de `lbmemory.c` usa 16 MB no host.
