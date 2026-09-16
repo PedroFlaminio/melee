@@ -2498,6 +2498,18 @@ Atualizado em 15 de setembro de 2026.
   em 256 casos, nos dois arquivos de referencia). O trace canonico da rota de
   estoque segue igual nos 1739 frames. `host-debug` 26/26 e 225/225
   unitarios.
+- [x] O teclado da janela, por evento de verdade. As rotas roteirizadas
+  chegam ao jogo pelo mesmo `PADRead` que a janela preenche, entao nunca
+  passavam pelo teclado; `port/tools/play_keyboard_probe.py` passa. Ele abre
+  o `--play` no X11, espera a linha `scene 0x02 from frame N` (com
+  `stdbuf -oL`, porque num pipe o stdout do jogo sai em bloco), manda a tecla
+  com `xdotool keydown --window`, que vai so para aquela janela, e le o
+  lutador de volta com `FIGHTERS` e `ACTION`. Com `d` o pad 1 anda 109 a 131
+  unidades e passa por `Dash` (20); com `j` fica no lugar e entra em
+  `Attack11` (44); sem tecla fica em `Wait` (14) onde nasceu, no mesmo x nos
+  dois frames. O caminho do teclado da janela esta exercitado de ponta a
+  ponta; o que falta e uma pessoa jogando e dizendo se o jogo responde como
+  no console.
 
 ## Em andamento
 
@@ -2549,6 +2561,10 @@ Atualizado em 15 de setembro de 2026.
    120, 144, 165 e 240 FPS, sem modo ilimitado. O tick de jogo, os inputs e a
    fisica continuarao em 60 Hz; cortes e estados descontinuos devem manter a
    pose valida, sem extrapolar gameplay.
+9. Criar a sobreposicao de configuracoes aberta por `Esc`, sem substituir os
+   menus do jogo, com pagina Video para frequencia, aspecto e upscaling. As
+   configuracoes devem persistir, ser navegaveis por teclado/mouse/controle e
+   informar tanto a preferencia quanto a taxa efetiva de apresentacao.
 
 ## Limitacoes atuais
 
@@ -2763,12 +2779,13 @@ Atualizado em 15 de setembro de 2026.
   titulo desenha seu quad com a profundidade da propria geometria, na metade
   entre near e far, em vez de limpar para o far; so esconde o que estiver
   alem dessa metade. As SObj que usam `GX_ZT_REPLACE` tem o mesmo desvio.
-- A janela do `--play` abriu e manteve 60 Hz no titulo, mas ninguem jogou
-  com teclado ou gamepad de verdade: a entrada foi conferida so por roteiro,
-  que chega ao jogo pelo mesmo `PADRead`, e o eixo Y do gamepad so por teste
-  unitario, sem gamepad ligado. O teclado numerico da o D-pad, H e L
-  dao o L e o R com o clique digital, e no gamepad o D-pad e os gatilhos no
-  fim do curso fazem o mesmo; nada disso foi apertado numa tecla real.
+- A janela do `--play` abriu e manteve 60 Hz no titulo. O teclado ja foi
+  exercitado por evento de verdade (`play_keyboard_probe.py`: `d` faz o
+  lutador correr, `j` faz o jab), mas so nessas duas teclas, e ninguem jogou
+  uma partida inteira; o gamepad nao foi tocado, e o eixo Y dele so tem teste
+  unitario, sem gamepad ligado. O teclado numerico da o D-pad, H e L dao o L
+  e o R com o clique digital, e no gamepad o D-pad e os gatilhos no fim do
+  curso fazem o mesmo; nada disso foi apertado.
   `--view-title-scene` segue com o caminho da janela sem uso.
 - `--view-title-scene` termina quando `gm_801A4D34` retorna: START encerra a
   cena, e a seguinte nao existe no host ainda.

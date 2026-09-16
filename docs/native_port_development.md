@@ -432,6 +432,25 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   numa luta sem relogio. A rota do teste de morte subita e a longa, sem o
   atalho, dao a mesma sequencia de cenas e o mesmo desfecho; a longa leva 49 s
   no build `-O2`.
+- O teclado da janela so e exercitado por evento de verdade.
+  `port/tools/play_keyboard_probe.py` abre o `--play` no X11, espera a luta
+  comecar (le a linha `scene 0x02 from frame N` da saida, que so sai a tempo
+  com `stdbuf -oL`, porque num pipe o stdout do jogo sai em bloco) e manda a
+  tecla com `xdotool keydown --window`, que vai so para aquela janela e nao
+  passa pelo foco do desktop. Duas entradas `FIGHTERS` e duas `ACTION` dizem
+  o que o lutador fez:
+
+```sh
+DISPLAY=:1 python3 port/tools/play_keyboard_probe.py --press --key d
+DISPLAY=:1 python3 port/tools/play_keyboard_probe.py --press --key j --hold 0.3
+DISPLAY=:1 python3 port/tools/play_keyboard_probe.py --no-press
+```
+
+  Com `d` o lutador anda 109 a 131 unidades e passa por `Dash` (20), com `j`
+  fica no lugar e entra em `Attack11` (44), e sem tecla fica em `Wait` (14)
+  onde nasceu. Procure a janela pelo PID do processo, nao pelo nome: uma
+  execucao anterior deixa o titulo na lista do servidor X por um tempo e o
+  envio para um id morto e um BadWindow que o jogo nunca ve.
 - O fog entra entre o TEV e o blend, nos dois caminhos que desenham a
   captura, e `MELEE_HOST_FOG=0` captura tudo com `GX_FOG_NONE`. Para ver o
   que ele muda, grave os mesmos frames com e sem e compare os BMPs; na rota
@@ -443,7 +462,9 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   volta entre modos. `FRAME:STOP` encerra o roteiro naquele frame, com
   "stopped at frame N" e codigo 0, depois das outras entradas do frame; as
   linhas de resumo (`scenes:`, `route:`) nao saem, e o teste confere as
-  linhas `scene 0xNN from frame N` que saem ao vivo.
+  linhas `scene 0xNN from frame N` que saem ao vivo. As conferencias de fim
+  de rota tambem nao rodam: uma rota que pare cedo nunca falha por `MOVE` sem
+  deslocamento ou por `FALLS` sem KO.
 - O que a tela de resultados faz depois depende do save, que sem cartao
   comeca zerado: `FRAME:MATCHES[=TOTAL]` le e escreve o total de lutas VS (50
   e o menor que libera um personagem) e `FRAME:TROPHY=ID` da um trofeu pelo

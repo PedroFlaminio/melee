@@ -108,6 +108,8 @@ A versao 1.0 acrescenta:
 - apresentacao de alta taxa de atualizacao, ate 240 Hz quando o hardware
   permitir, por interpolacao visual entre ticks de simulacao de 60 Hz;
 - hotplug, rumble, remapeamento completo e perfis de controle;
+- menu de configuracoes aberto por `Esc`, navegavel por teclado, mouse e
+  controle, com alteracoes persistentes por perfil;
 - pacote de recursos versionado, verificavel e recompativel;
 - API basica de mods e pacotes de assets substitutos;
 - instalador/updater sem conteudo do jogo.
@@ -142,6 +144,25 @@ Essa camada sera desenvolvida e validada depois da paridade visual basica a 60
 Hz. Cortes de camera, teleporte, spawn, troca de cena, efeitos sem estado
 interpolavel e qualquer descontinuidade devem preservar o quadro valido, nunca
 inventar uma posicao que afete a simulacao.
+
+O menu de configuracoes sera uma sobreposicao nativa, aberto e fechado por
+`Esc`, inspirado na organizacao de configuracoes do Ship of Harkinian, sem
+reutilizar sua interface ou codigo. Ele nao substitui os menus originais do
+Melee e devera pausar ou apenas capturar a entrada conforme o contexto seguro
+da cena. A primeira pagina sera **Video** e exibira:
+
+- **Frequencia de apresentacao:** 60, 120, 144, 165 ou 240 FPS;
+- **Aspecto:** 4:3 original ou 16:9, com letterboxing/pillarboxing correto e
+  sem alterar a logica da luta;
+- **Upscaling:** resolucao interna e filtro de escala configuraveis, sempre
+  separados da resolucao da janela; o backend deve expor somente metodos que
+  tenham sido validados em todas as plataformas suportadas.
+
+As escolhas devem ser persistidas em configuracao versionada, aplicadas ao
+renderer sem reiniciar a simulacao quando isso for seguro e revertidas
+automaticamente se uma troca de modo de video falhar. A interface mostrara a
+taxa efetiva de apresentacao e o modo de escala ativo, para distinguir uma
+preferencia selecionada de uma taxa que a GPU nao conseguiu sustentar.
 
 Compatibilidade com Slippi nao e requisito da primeira versao. Se for adotada
 posteriormente, ela sera entregue em uma build especifica, opcional e separada
