@@ -422,6 +422,16 @@ gravada. Para olhar a imagem, converta com `magick f.bmp f.png`:
   cada cena ao comecar (`scene 0xNN from frame N`), e um `N:RULES` a cada 50
   frames serve de marcador barato para medir o ritmo, amostrado junto com o
   `VmRSS`.
+- O relogio da luta so desce de um em um segundo, e a regra mais curta que o
+  menu oferece e um minuto, entao uma rota que espere o tempo acabar leva
+  7.200 frames de luta. `FRAME:CLOCK` imprime o relogio (`119s+3`, segundos e
+  frames dentro do segundo) e `FRAME:CLOCK=N` o deixa em N segundos: a cena
+  segue contando dali e termina a luta sozinha, com o tempo esgotado em
+  `0s+59`, que e onde `gm_GetMatchOutcome` le o time-up. O relogio so anda
+  com o HUD ligado (frame 655 nas rotas), e a entrada responde `no timer`
+  numa luta sem relogio. A rota do teste de morte subita e a longa, sem o
+  atalho, dao a mesma sequencia de cenas e o mesmo desfecho; a longa leva 49 s
+  no build `-O2`.
 - Um valor que no console vem de um registrador some no host. Uma variavel
   sem atribuicao num caminho (`base` em `gm_80168B34`) valia o que o MWCC
   deixou no registrador que ela divide com um parametro, e uma funcao que

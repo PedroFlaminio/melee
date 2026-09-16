@@ -744,6 +744,36 @@ if(MELEE_HOST_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION
                 "rules frame 520: mode 1 time 2 stock 1\n.*result frame 1300: outcome 2 winners 1 first 1 stocks P1=0 P2=1\n.*efb copy frame 1450: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(361\\) 0x09 \\(149\\) 0x02 \\(460\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1497 frames\\) 0x01\n"
         )
+        # A match that ends tied, which the game breaks with a sudden death.
+        # The default rules are a two minute Time match, so the route leaves
+        # the rules alone and only moves the clock: CLOCK=3 puts three
+        # seconds on it once the HUD is up, and the scene counts them down
+        # itself, with the time-up at 0s+59 the way the console's match does.
+        # Neither Fox scored, so the match ends with two winners and the mode
+        # goes to its sudden death state (scene 0x03): one stock each at 300%,
+        # where pad 1 runs off the stage again.  The results screen keeps the
+        # tied Time match's end - outcome 1 (time-up), two winners, three
+        # stocks each - and shows the places the sudden death decided, 2nd for
+        # pad 1 and 1st for pad 2.
+        add_test(
+            NAME melee-host-vs-sudden-death-asset
+            COMMAND melee-pc --run-modes
+                    ${CMAKE_SOURCE_DIR}/assets-local 0 3
+                    120:START 160:DOWN 200:A 240:A
+                    300-315:SY=127 300-315:SY=127@2 320:A 320:A@2
+                    330-337:SX=127 330-333:SX=-127@2
+                    345-354:SY=127 345-354:SY=127@2 360:A 360:A@2
+                    380:START 420-421:SX=-127 425-439:SY=127 445:A
+                    660:RULES 680:CLOCK=3 950:CLOCK
+                    1100:FALLS 1150-1420:SX=-127 1215:X 1450:FALLS
+                    1600:RESULT 1700:EFBCOPY
+                    1756:START 1896:START 1896:START@2 1996-2196:B
+        )
+        set_tests_properties(melee-host-vs-sudden-death-asset PROPERTIES
+            TIMEOUT 3600
+            PASS_REGULAR_EXPRESSION
+                "rules frame 660: mode 0 time 2 stock 3\nclock frame 680: set 3s\nclock frame 950: 0s\\+59\n.*falls frame 1450: P1=1 P2=0\n.*result frame 1600: outcome 1 winners 2 first 0 stocks P1=3 P2=3\nplaces frame 1600: P1=2 P2=1\n.*efb copy frame 1700: [0-9]+ copied texture\\(s\\), at most [0-9]+ colour\\(s\\), ok\n.*vs selection: stage 14 0=2 1=2\nscenes: 0x00 \\(122\\) 0x01 \\(120\\) 0x08 \\(141\\) 0x09 \\(149\\) 0x02 \\(501\\) 0x03 \\(469\\) 0x05 \\(407\\) 0x08 \\(120\\)\nroute: 0x00 \\(122 frames\\) 0x01 \\(120 frames\\) 0x02 \\(1787 frames\\) 0x01\n"
+        )
         # The same stock match with Mario and Link, both chosen from the
         # character select rather than forced: pad 1 holds up five frames
         # longer than the Fox route to reach Mario's icon in the top row, and
@@ -805,6 +835,7 @@ if(MELEE_HOST_BUILD_TESTS)
             set_property(TEST melee-host-title-mode-asset
                 melee-host-main-menu-asset melee-host-vs-match-asset
                 melee-host-vs-stock-match-asset
+                melee-host-vs-sudden-death-asset
                 melee-host-vs-mario-link-asset
                 melee-host-mario-link-specials-asset
                 APPEND PROPERTY

@@ -2,6 +2,7 @@
 
 #include <melee/ft/ftlib.h>
 #include <melee/gm/gmmain_lib.h>
+#include <melee/gm/gmvs.h>
 #include <melee/gm/gmresult.h>
 #include <melee/gm/types.h>
 #include <melee/ft/inlines.h>
@@ -78,6 +79,45 @@ bool melee_host_match_result(mh_u32* outcome, mh_u32* winners,
     *first_winner = end->winners[0];
     *stocks_p1 = end->player_standings[0].stocks;
     *stocks_p2 = end->player_standings[1].stocks;
+    return true;
+}
+
+bool melee_host_match_place(mh_u32 slot, mh_s32* place)
+{
+    MatchEnd* end = fn_80174274();
+
+    if (slot >= 4 || place == NULL || end == NULL ||
+        end->player_standings[slot].pkind == Gm_PKind_NA)
+    {
+        return false;
+    }
+    *place = end->player_standings[slot].is_small_loser + 1;
+    return true;
+}
+
+bool melee_host_match_clock(mh_u32* seconds, mh_u32* frames)
+{
+    VsSceneController* scene = gmVs_GetSceneController();
+
+    if (seconds == NULL || frames == NULL || !scene->start.timer_enabled) {
+        return false;
+    }
+    *seconds = scene->state.timer_seconds;
+    *frames = scene->state.unk_2C;
+    return true;
+}
+
+bool melee_host_match_set_clock(mh_u32 seconds)
+{
+    VsSceneController* scene = gmVs_GetSceneController();
+
+    if (!scene->start.timer_enabled) {
+        return false;
+    }
+    /* The scene counts frames up to 60 and then takes a second off, so the
+     * frames inside the second start over with the new value. */
+    scene->state.timer_seconds = seconds;
+    scene->state.unk_2C = 0;
     return true;
 }
 

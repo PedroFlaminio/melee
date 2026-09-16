@@ -2224,7 +2224,7 @@ int main(int argc, char** argv)
              * and come back up; with LAST it is held through that frame.  An
              * input is a button name, SX=N or SY=N for the main stick, or
              * the headless diagnostics SHADOW, EFBCOPY, FIGHTERS, MOVE, ACTION,
-             * FALLS, RULES, RESULT and TRACE=PATH. PORT is 1 to 4,
+             * FALLS, RULES, RESULT, CLOCK[=SECONDS] and TRACE=PATH. PORT is 1 to 4,
              * 1 when omitted; a port the script names is
              * connected from the start.  Frames count across modes. */
             struct ScriptedPress {
@@ -2278,6 +2278,8 @@ int main(int argc, char** argv)
                 std::vector<mh_s32> falls_samples;
                 std::vector<mh_u32> rules_traces;
                 std::vector<mh_u32> result_traces;
+                std::vector<mh_u32> clock_traces;
+                std::vector<std::array<mh_u32, 2>> clock_sets;
                 /* The running mode's report, to print each scene as it
                  * starts, with the frame it starts on. */
                 MeleeHostGameModeReport* report = nullptr;
@@ -2415,6 +2417,23 @@ int main(int argc, char** argv)
                     }
                     input.rules_traces.push_back(
                         static_cast<mh_u32>(std::stoul(frames)));
+                    continue;
+                }
+                if (inputs == "CLOCK" || inputs.rfind("CLOCK=", 0) == 0) {
+                    if (frames.find('-') != std::string::npos) {
+                        std::cerr << "expected FRAME:CLOCK[=SECONDS], got "
+                                  << entry << '\n';
+                        return 2;
+                    }
+                    const auto frame =
+                        static_cast<mh_u32>(std::stoul(frames));
+                    if (inputs.size() > 5) {
+                        input.clock_sets.push_back(
+                            { frame, static_cast<mh_u32>(std::stoul(
+                                         inputs.substr(6))) });
+                    } else {
+                        input.clock_traces.push_back(frame);
+                    }
                     continue;
                 }
                 if (inputs == "RESULT") {
@@ -2900,6 +2919,36 @@ int main(int argc, char** argv)
                               << mode << " time " << time_limit << " stock "
                               << stock_count << '\n';
                 }
+                /* The clock the match counts down, and the entry that
+                 * moves it: a time-up is a minute of match away under the
+                 * shortest rule the menu offers, and the scene keeps
+                 * counting from wherever the clock is left. */
+                for (const auto& entry : state->clock_sets) {
+                    if (entry[0] != state->frames) {
+                        continue;
+                    }
+                    if (melee_host_match_set_clock(entry[1])) {
+                        std::cout << "clock frame " << entry[0] << ": set "
+                                  << entry[1] << "s\n";
+                    } else {
+                        std::cout << "clock frame " << entry[0]
+                                  << ": no timer\n";
+                    }
+                }
+                for (const mh_u32 frame : state->clock_traces) {
+                    if (frame != state->frames) {
+                        continue;
+                    }
+                    mh_u32 seconds = 0;
+                    mh_u32 clock_frames = 0;
+                    if (melee_host_match_clock(&seconds, &clock_frames)) {
+                        std::cout << "clock frame " << frame << ": "
+                                  << seconds << "s+" << clock_frames << '\n';
+                    } else {
+                        std::cout << "clock frame " << frame
+                                  << ": no timer\n";
+                    }
+                }
                 for (const mh_u32 frame : state->result_traces) {
                     if (frame != state->frames) {
                         continue;
@@ -2918,6 +2967,20 @@ int main(int argc, char** argv)
                                   << " first " << first_winner
                                   << " stocks P1=" << stocks_p1
                                   << " P2=" << stocks_p2 << '\n';
+                        /* The places the results screen shows, which after a
+                         * sudden death are the only part of the match end
+                         * that the tie-breaking match decides. */
+                        std::cout << "places frame " << frame << ':';
+                        for (mh_u32 slot = 0; slot < 2; ++slot) {
+                            mh_s32 place = 0;
+                            std::cout << " P" << slot + 1 << '=';
+                            if (melee_host_match_place(slot, &place)) {
+                                std::cout << place;
+                            } else {
+                                std::cout << "none";
+                            }
+                        }
+                        std::cout << '\n';
                     } else {
                         std::cout << "result frame " << frame << ": none\n";
                     }

@@ -2403,6 +2403,27 @@ Atualizado em 15 de setembro de 2026.
   material onde esperava o ambiente. A imagem muda em todas as rotas, e as
   suites seguem passando: as contagens de triangulos, as cenas e os frames de
   cada rota ficam iguais, e o que muda sao as cores.
+- [x] Morte subita. Uma luta por tempo que acaba empatada passa pelo estado
+  `gmVsMode_State_SuddenDeath` da tabela de modos, que o host ja tinha, e pela
+  cena `GS_SUDDEN_DEATH` (0x03): `gmVsMelee_ExitVs` ve dois vencedores
+  (`gm_MatchHasMultipleWinners`) e manda o modo para la, `gm_SetupSuddenDeath`
+  troca as regras por um estoque com 300% de dano, e `gm_80166CCC` devolve ao
+  fim da luta por tempo so as colocacoes que a morte subita decidiu. Como o
+  relogio mais curto do menu e de um minuto, o roteiro ganhou
+  `FRAME:CLOCK[=SEGUNDOS]`, que le e escreve o relogio da cena
+  (`melee_host_match_clock` e `melee_host_match_set_clock`), e `RESULT` passou
+  a imprimir tambem as colocacoes (`melee_host_match_place`, o
+  `is_small_loser` do fim de luta mais um). O teste
+  `melee-host-vs-sudden-death-asset` deixa 3 s no relogio com o HUD ligado, o
+  jogo esgota o tempo sozinho em `0s+59`, entra na morte subita, e o pad 1 cai
+  do estagio: titulo (122) -> menu (120) -> CSS (141) -> SSS (149) -> luta
+  (501) -> morte subita (469) -> resultados (407) -> CSS (120), 31 s no
+  `host-debug`. A mesma rota sem o atalho, com os dois minutos inteiros da
+  regra padrao, da a mesma sequencia (a luta com 7.438 frames) e o mesmo
+  desfecho em 49 s no build `-O2`. Nos BMPs aparecem o "Time!" com o relogio
+  em 00:00:00, o "Go!" da morte subita com os dois em 300%, e os resultados de
+  "Time Battle" com o Fox do pad 2 em 1st e o do pad 1 em 2nd, o que confere
+  com `outcome 1 winners 2` e `places P1=2 P2=1`.
 
 ## Em andamento
 
@@ -2415,8 +2436,9 @@ Atualizado em 15 de setembro de 2026.
   estagio e `ftData*` dos personagens alem de Fox, Mario e Link.
 - [ ] Fluxo vertical de luta local (roteiro em `docs/fight_flow_port.md`).
   Titulo, menu, CSS com o menu de regras, SSS, luta e resultados rodam pelo
-  codigo do jogo, com a imagem conferida em BMP e som; faltam jogar na janela
-  com entrada real e `ALDYakuAll` e `yakumono_param`.
+  codigo do jogo, com a imagem conferida em BMP e som, e uma luta empatada
+  passa pela morte subita; faltam jogar na janela com entrada real e
+  `ALDYakuAll` e `yakumono_param`.
 - [ ] Coordenadas de bump (`GX_TG_BUMPn`), os 1,7% de triangulos que o TEV por
   fragmento ainda nao reproduz: exigem a direcao da luz projetada em tangente e
   binormal, e hoje a coordenada de origem passa sem perturbacao.
@@ -2570,9 +2592,9 @@ Atualizado em 15 de setembro de 2026.
   amostras de pad na fila nao avanca. Nada apresenta os frames a 60 Hz de
   relogio de parede ainda.
 - A tabela de modos e cenas do host tem o titulo, o menu principal e o modo VS
-  com as duas cenas de selecao, a luta e os resultados, na tabela de estados
-  do console. Morte subita, desafiante e o aviso de premio param com nome como
-  cenas ausentes.
+  com as duas cenas de selecao, a luta, a morte subita e os resultados, na
+  tabela de estados do console. O desafiante e o aviso de premio param com
+  nome como cenas ausentes.
   Pedir um modo fora da tabela e recusado antes de o jogo seguir o NULL que
   acharia, e uma cena fora da tabela encerra o modo; nos dois casos
   `--run-modes` termina o roteiro com `stopped:`.

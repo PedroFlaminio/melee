@@ -26,6 +26,21 @@ bool melee_host_match_result(mh_u32* outcome, mh_u32* winners,
                              mh_u32* first_winner, mh_s32* stocks_p1,
                              mh_s32* stocks_p2);
 
+/* Where a player slot finished the match the results screen reads: the place
+ * the screen shows, counting from 1, which the match end keeps as the number
+ * of players ahead with ties already broken.  False for an empty slot or
+ * while no match end is set. */
+bool melee_host_match_place(mh_u32 slot, mh_s32* place);
+
+/* The clock the running VS scene counts, in whole seconds left and frames
+ * inside the current second (0 to 59).  False when the scene has no timer. */
+bool melee_host_match_clock(mh_u32* seconds, mh_u32* frames);
+/* Leave the running match that many seconds on the clock, so a route can
+ * reach a time-up without playing the whole minute the shortest rule allows.
+ * The game keeps counting from there and ends the match itself.  False when
+ * the scene has no timer. */
+bool melee_host_match_set_clock(mh_u32 seconds);
+
 /* One fighter's gameplay state for a canonical trace: the fields two runs of
  * the same route are compared on, with no host addresses or padding. */
 typedef struct MeleeHostMatchFighterSample {
