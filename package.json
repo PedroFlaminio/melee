@@ -1,0 +1,8 @@
+{
+  "name": "melee-pc-port",
+  "version": "1.0.0",
+  "description": "Super Smash Bros. Melee PC Port",
+  "scripts": {
+    "play": "cmake --build --preset host-release --target melee-pc -j2 ./build/host-release/port/melee-pc --play assets-local"
+  }
+}

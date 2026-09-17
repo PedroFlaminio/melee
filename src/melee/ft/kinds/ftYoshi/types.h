@@ -105,17 +105,6 @@ struct ftYs_DatAttrs {
 };
 ASSERT_SIZE(struct ftYs_DatAttrs, 0x120);
 
-struct S_UNK_YOSHI2 {
-    s32 x0;
-    s32 x4;
-    s32 x8_end_index;
-    u8* xC_start_index;
-};
-
-struct S_UNK_YOSHI1 {
-    s32 x0;
-    struct S_UNK_YOSHI2* unk_struct;
-};
 
 union ftYoshi_MotionVars {
     struct ftYoshi_SpecialNVars {

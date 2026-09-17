@@ -1535,15 +1535,15 @@ struct Fighter {
         /* fp+1860 */ u32 x1860_element;
         /* fp+1864 */ int x1864;
         /* fp+1868 */ HSD_GObj* x1868_source;
-        /* fp+186C */ int x186c;
-        /* fp+1870 */ struct DmgLogEntry* x1870;
+        /* fp+186C */ float x186c;
+        /* fp+1870 */ float x1870;
         /* fp+1874 */ int x1874;
         /* fp+1878 */ int x1878;
         /* fp+187C */ float x187c;
         /* fp+1880 */ Vec3 x1880;
         /* fp+188C */ int x188c;
         /* fp+1890 */ int x1890;
-        /* fp+1894 */ int x1894;
+        /* fp+1894 */ struct HSD_GObj* x1894;
         /* fp+1898 */ float x1898;
         /* fp+189C */ float x189C_unk_num_frames;
         /* fp+18A0 */ float x18a0;

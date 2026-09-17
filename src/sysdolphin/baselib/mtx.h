@@ -37,7 +37,10 @@ void HSD_MtxInitAllocData(void);
 
 static inline f32 fabsf_bitwise(f32 v)
 {
-    *(u32*) &v &= ~0x80000000;
+    u32 bitwise;
+    __builtin_memcpy(&bitwise, &v, sizeof(f32));
+    bitwise &= ~0x80000000;
+    __builtin_memcpy(&v, &bitwise, sizeof(f32));
     return v;
 }
 

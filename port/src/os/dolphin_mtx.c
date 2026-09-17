@@ -265,77 +265,83 @@ void PSMTXRotAxisRad(Mtx m, Vec* axis, f32 rad)
  * code passes an Mtx44.
  * ------------------------------------------------------------------------- */
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
 void MTXFrustum(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 n, f32 f)
 {
+    f32 (*m44)[4] = (f32 (*)[4])m;
     const f32 width_scale = 1.0F / (r - l);
     const f32 height_scale = 1.0F / (t - b);
     const f32 depth_scale = 1.0F / (f - n);
 
-    m[0][0] = 2.0F * n * width_scale;
-    m[0][1] = 0.0F;
-    m[0][2] = (r + l) * width_scale;
-    m[0][3] = 0.0F;
-    m[1][0] = 0.0F;
-    m[1][1] = 2.0F * n * height_scale;
-    m[1][2] = (t + b) * height_scale;
-    m[1][3] = 0.0F;
-    m[2][0] = 0.0F;
-    m[2][1] = 0.0F;
-    m[2][2] = -n * depth_scale;
-    m[2][3] = -(f * n) * depth_scale;
-    m[3][0] = 0.0F;
-    m[3][1] = 0.0F;
-    m[3][2] = -1.0F;
-    m[3][3] = 0.0F;
+    m44[0][0] = 2.0F * n * width_scale;
+    m44[0][1] = 0.0F;
+    m44[0][2] = (r + l) * width_scale;
+    m44[0][3] = 0.0F;
+    m44[1][0] = 0.0F;
+    m44[1][1] = 2.0F * n * height_scale;
+    m44[1][2] = (t + b) * height_scale;
+    m44[1][3] = 0.0F;
+    m44[2][0] = 0.0F;
+    m44[2][1] = 0.0F;
+    m44[2][2] = -n * depth_scale;
+    m44[2][3] = -(f * n) * depth_scale;
+    m44[3][0] = 0.0F;
+    m44[3][1] = 0.0F;
+    m44[3][2] = -1.0F;
+    m44[3][3] = 0.0F;
 }
 
 void MTXPerspective(Mtx m, f32 fovY, f32 aspect, f32 n, f32 f)
 {
+    f32 (*m44)[4] = (f32 (*)[4])m;
     const f32 half_angle = MTXDegToRad(fovY) * 0.5F;
     const f32 cotangent = cosf(half_angle) / sinf(half_angle);
     const f32 depth_scale = 1.0F / (f - n);
 
-    m[0][0] = cotangent / aspect;
-    m[0][1] = 0.0F;
-    m[0][2] = 0.0F;
-    m[0][3] = 0.0F;
-    m[1][0] = 0.0F;
-    m[1][1] = cotangent;
-    m[1][2] = 0.0F;
-    m[1][3] = 0.0F;
-    m[2][0] = 0.0F;
-    m[2][1] = 0.0F;
-    m[2][2] = -n * depth_scale;
-    m[2][3] = -(f * n) * depth_scale;
-    m[3][0] = 0.0F;
-    m[3][1] = 0.0F;
-    m[3][2] = -1.0F;
-    m[3][3] = 0.0F;
+    m44[0][0] = cotangent / aspect;
+    m44[0][1] = 0.0F;
+    m44[0][2] = 0.0F;
+    m44[0][3] = 0.0F;
+    m44[1][0] = 0.0F;
+    m44[1][1] = cotangent;
+    m44[1][2] = 0.0F;
+    m44[1][3] = 0.0F;
+    m44[2][0] = 0.0F;
+    m44[2][1] = 0.0F;
+    m44[2][2] = -n * depth_scale;
+    m44[2][3] = -(f * n) * depth_scale;
+    m44[3][0] = 0.0F;
+    m44[3][1] = 0.0F;
+    m44[3][2] = -1.0F;
+    m44[3][3] = 0.0F;
 }
 
 void MTXOrtho(Mtx m, f32 t, f32 b, f32 l, f32 r, f32 n, f32 f)
 {
+    f32 (*m44)[4] = (f32 (*)[4])m;
     const f32 width_scale = 1.0F / (r - l);
     const f32 height_scale = 1.0F / (t - b);
     const f32 depth_scale = 1.0F / (f - n);
 
-    m[0][0] = 2.0F * width_scale;
-    m[0][1] = 0.0F;
-    m[0][2] = 0.0F;
-    m[0][3] = -(r + l) * width_scale;
-    m[1][0] = 0.0F;
-    m[1][1] = 2.0F * height_scale;
-    m[1][2] = 0.0F;
-    m[1][3] = -(t + b) * height_scale;
-    m[2][0] = 0.0F;
-    m[2][1] = 0.0F;
-    m[2][2] = -depth_scale;
-    m[2][3] = -f * depth_scale;
-    m[3][0] = 0.0F;
-    m[3][1] = 0.0F;
-    m[3][2] = 0.0F;
-    m[3][3] = 1.0F;
+    m44[0][0] = 2.0F * width_scale;
+    m44[0][1] = 0.0F;
+    m44[0][2] = 0.0F;
+    m44[0][3] = -(r + l) * width_scale;
+    m44[1][0] = 0.0F;
+    m44[1][1] = 2.0F * height_scale;
+    m44[1][2] = 0.0F;
+    m44[1][3] = -(t + b) * height_scale;
+    m44[2][0] = 0.0F;
+    m44[2][1] = 0.0F;
+    m44[2][2] = -depth_scale;
+    m44[2][3] = -f * depth_scale;
+    m44[3][0] = 0.0F;
+    m44[3][1] = 0.0F;
+    m44[3][2] = 0.0F;
+    m44[3][3] = 1.0F;
 }
+#pragma GCC diagnostic pop
 
 /* Builds a view matrix whose +z axis points from the target back to the
  * camera, matching the SDK's right-handed convention. */

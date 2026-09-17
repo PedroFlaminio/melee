@@ -344,11 +344,11 @@ extern char* ftYs_Unk2_804D3E70;
 extern char* ftYs_Unk2_804D3E78;
 
 /// https://decomp.me/scratch/ufrFK
-void ftYs_Init_8012B6E8(Fighter* fp, struct S_UNK_YOSHI1* unk_struct_arg)
+void ftYs_Init_8012B6E8(Fighter* fp, FtPartsVisLookup* unk_struct_arg)
 {
     u8 _[12];
 
-    struct S_UNK_YOSHI1* unk_struct1;
+    FtPartsVisLookup* unk_struct1;
     s32* ptr2EndIndex;
     ftYoshiAttributes* attr_r26;
     u8* index;
@@ -356,11 +356,12 @@ void ftYs_Init_8012B6E8(Fighter* fp, struct S_UNK_YOSHI1* unk_struct_arg)
     float zero_float;
 
     attr_r26 = fp->ft_data->ext_attr;
-    index = (unk_struct1 = unk_struct_arg)->unk_struct->xC_start_index;
-    ptr2EndIndex = (&unk_struct1->unk_struct->x8_end_index);
+    index = unk_struct_arg->x4[1].x4;
+    ptr2EndIndex = &unk_struct_arg->x4[1].x0;
     zero_float = 0.0f;
 
-    for (i = 0; i < *ptr2EndIndex; i++) {
+    printf("LOOP LIMIT=%d\n", *ptr2EndIndex);
+        for (i = 0; i < *ptr2EndIndex; i++) {
         HSD_DObj* dobj_r3 = fp->dobj_list.data[index[i]];
         HSD_MObj* mobj_r3;
         HSD_AObj* aobj_r24;
@@ -384,20 +385,21 @@ void ftYs_Init_8012B6E8(Fighter* fp, struct S_UNK_YOSHI1* unk_struct_arg)
     }
 }
 
-void ftYs_Init_8012B804(Fighter* fp, struct S_UNK_YOSHI1* unk_struct_arg,
+void ftYs_Init_8012B804(Fighter* fp, FtPartsVisLookup* unk_struct_arg,
                         float start_frame)
 {
     u8 _[8];
 
     if (unk_struct_arg) {
-        struct S_UNK_YOSHI2* unk_struct = unk_struct_arg->unk_struct;
+        
         s32* ptr2EndIndex;
         u8* index;
         s32 i;
 
-        index = unk_struct->xC_start_index;
-        ptr2EndIndex = (&unk_struct->x8_end_index);
+        index = unk_struct_arg->x4[1].x4;
+        ptr2EndIndex = &unk_struct_arg->x4[1].x0;
 
+        printf("LOOP LIMIT=%d\n", *ptr2EndIndex);
         for (i = 0; i < *ptr2EndIndex; i++) {
             HSD_DObj* dobj_r3 = fp->dobj_list.data[index[i]];
             HSD_MObj* mobj_r3;
@@ -424,16 +426,16 @@ void ftYs_Init_8012B8A4(HSD_GObj* gobj)
     float tempf =
         da->xC *
         (1.0f - (fp->shield_health / p_ftCommonData->x260_startShieldHealth));
-    ftYs_Init_8012B804(fp, (struct S_UNK_YOSHI1*) fp->x5AC.xC[0], tempf);
-    ftYs_Init_8012B804(fp, (struct S_UNK_YOSHI1*) fp->x5AC.xC[1], tempf);
+    ftYs_Init_8012B804(fp, (FtPartsVisLookup*) fp->x5AC.xC[0], tempf);
+    ftYs_Init_8012B804(fp, (FtPartsVisLookup*) fp->x5AC.xC[1], tempf);
 }
 
 void ftYs_Init_8012B918(HSD_GObj* gobj)
 {
     Fighter* fp = GET_FIGHTER(gobj);
 
-    ftYs_Init_8012B804(fp, (struct S_UNK_YOSHI1*) fp->x5AC.xC[0], 0.0F);
-    ftYs_Init_8012B804(fp, (struct S_UNK_YOSHI1*) fp->x5AC.xC[1], 0.0F);
+    ftYs_Init_8012B804(fp, (FtPartsVisLookup*) fp->x5AC.xC[0], 0.0F);
+    ftYs_Init_8012B804(fp, (FtPartsVisLookup*) fp->x5AC.xC[1], 0.0F);
 }
 
 void ftYs_Init_OnDeath(HSD_GObj* gobj)
@@ -448,16 +450,16 @@ void ftYs_Init_OnLoad(HSD_GObj* gobj)
 {
     void** item_list;
     ftYoshiAttributes* other_attr;
-    struct S_UNK_YOSHI1* temp_r28;
-    struct S_UNK_YOSHI1* temp;
+    FtPartsVisLookup* temp_r28;
+    FtPartsVisLookup* temp;
     ftData* ft;
-    struct S_UNK_YOSHI1* temp_r27;
+    FtPartsVisLookup* temp_r27;
     Fighter* fp;
 
     fp = GET_FIGHTER(gobj);
-    temp = temp_r27 = (struct S_UNK_YOSHI1*) fp->x5AC.xC[0];
+    temp = temp_r27 = (FtPartsVisLookup*) fp->x5AC.xC[0];
     ft = fp->ft_data;
-    temp_r28 = (struct S_UNK_YOSHI1*) fp->x5AC.xC[1];
+    temp_r28 = (FtPartsVisLookup*) fp->x5AC.xC[1];
     item_list = ft->x48_items;
     other_attr = ft->ext_attr;
 

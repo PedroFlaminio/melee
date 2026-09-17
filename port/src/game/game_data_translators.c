@@ -2600,7 +2600,12 @@ static void* fighter_yoshi_attrs(MeleeHostHsdReader* reader, mh_u32 at)
     if (attrs == NULL) {
         return NULL;
     }
-    copy_words(reader, at, attrs, 0x00, sizeof(*attrs) & ~3);
+    memset(attrs, 0, sizeof(*attrs));
+    
+    mh_u32 extent = melee_host_hsd_reader_extent(reader, at);
+    mh_u32 copy_size = extent < sizeof(*attrs) ? extent : sizeof(*attrs);
+    
+    copy_words(reader, at, attrs, 0x00, copy_size & ~3);
     return attrs;
 }
 
@@ -2816,6 +2821,7 @@ static struct ftData_x8* fighter_parts(MeleeHostHsdReader* reader, mh_u32 at)
 
 static void* fighter_part_anim_set(MeleeHostHsdReader* reader, mh_u32 at)
 {
+    if (at == 0) return NULL;
     ftData_x1C* const set = melee_host_hsd_reader_allocate(
         reader, sizeof(*set), alignof(ftData_x1C));
     bool present;
@@ -2827,7 +2833,59 @@ static void* fighter_part_anim_set(MeleeHostHsdReader* reader, mh_u32 at)
     set->x0 = melee_host_hsd_reader_u16(reader, at + 0x0);
     set->x2 = melee_host_hsd_reader_u16(reader, at + 0x2);
     target = target_of(reader, at + 0x4, &present);
-    set->x4 = present ? melee_host_hsd_reader_payload(reader, target, 1) : NULL;
+    if (present) {
+        mh_u32 extent = melee_host_hsd_reader_extent(reader, target);
+        mh_u32 alloc_size = extent < 16 ? 16 : extent;
+        set->x4 = melee_host_hsd_reader_allocate(reader, alloc_size, 4);
+        if (set->x4) {
+            memset(set->x4, 0, alloc_size);
+            copy_bytes(reader, target, set->x4, 0, extent);
+        }
+    } else {
+        set->x4 = NULL;
+    }
+    
+    target = target_of(reader, at + 0x8, &present);
+    set->x8 = present ? (HSD_AnimJoint**) per_entry_table(
+                            reader, target, melee_host_hsd_reader_anim_joint)
+                      : NULL;
+    return set;
+}
+
+static void* fighter_parts_vis_lookup_set(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    if (at == 0) return NULL;
+    ftData_x1C* const set = melee_host_hsd_reader_allocate(
+        reader, sizeof(*set), alignof(ftData_x1C));
+    bool present;
+    mh_u32 target;
+
+    if (set == NULL) {
+        return NULL;
+    }
+    set->x0 = melee_host_hsd_reader_u16(reader, at + 0x0);
+    set->x2 = melee_host_hsd_reader_u16(reader, at + 0x2);
+    target = target_of(reader, at + 0x4, &present);
+    if (present) {
+        mh_u32 extent = melee_host_hsd_reader_extent(reader, target);
+        // S_UNK_YOSHI2 has 3 s32s (12 bytes) followed by u8 array
+        struct S_UNK_YOSHI2 {
+            mh_u32 x0, x4, x8;
+            mh_u8 xC[0];
+        }* yoshi2 = melee_host_hsd_reader_allocate(reader, extent, 4);
+        if (yoshi2) {
+            yoshi2->x0 = melee_host_hsd_reader_u32(reader, target + 0x0);
+            if (extent >= 8) yoshi2->x4 = melee_host_hsd_reader_u32(reader, target + 0x4);
+            if (extent >= 12) yoshi2->x8 = melee_host_hsd_reader_u32(reader, target + 0x8);
+            if (extent > 12) {
+                copy_bytes(reader, target, yoshi2->xC, 12, extent);
+            }
+        }
+        set->x4 = (mh_u8*) yoshi2;
+    } else {
+        set->x4 = NULL;
+    }
+    
     target = target_of(reader, at + 0x8, &present);
     set->x8 = present ? (HSD_AnimJoint**) per_entry_table(
                             reader, target, melee_host_hsd_reader_anim_joint)
@@ -3423,6 +3481,7 @@ static struct ftData_x58_t* fighter_ik(MeleeHostHsdReader* reader, mh_u32 at)
 
 static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
                           void* (*special_attrs)(MeleeHostHsdReader*, mh_u32),
+                          void* (*x1C_translator)(MeleeHostHsdReader*, mh_u32),
                           const struct FighterItemAttrs* items)
 {
     struct ftData* const data = melee_host_hsd_reader_allocate(
@@ -3445,7 +3504,7 @@ static void* fighter_data(MeleeHostHsdReader* reader, mh_u32 root,
     if (FT_FIELD(0x18)) data->x18 = melee_host_hsd_reader_payload(reader, target, 1);
     if (FT_FIELD(0x1C))
         data->x1C = (ftData_x1C**) per_entry_table(reader, target,
-                                                   fighter_part_anim_set);
+                                                   x1C_translator);
     if (FT_FIELD(0x20)) data->x20 = fighter_guard_joints(reader, target);
     if (FT_FIELD(0x24)) data->x24 = fighter_wait_pairs(reader, target);
     if (FT_FIELD(0x28)) data->x28 = fighter_wait_pairs(reader, target);
@@ -3491,7 +3550,7 @@ static void* fighter_data_fox(MeleeHostHsdReader* reader, mh_u32 root)
         0,
     };
 
-    return fighter_data(reader, root, fighter_fox_attrs, &items);
+    return fighter_data(reader, root, fighter_fox_attrs, fighter_part_anim_set, &items);
 }
 
 static void* fighter_data_mario(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3511,7 +3570,7 @@ static void* fighter_data_mario(MeleeHostHsdReader* reader, mh_u32 root)
         sizeof(mario_item_specials) / sizeof(mario_item_specials[0]),
     };
 
-    return fighter_data(reader, root, fighter_mario_attrs, &mario_items);
+    return fighter_data(reader, root, fighter_mario_attrs, fighter_part_anim_set, &mario_items);
 }
 
 static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3531,7 +3590,7 @@ static void* fighter_data_link(MeleeHostHsdReader* reader, mh_u32 root)
         sizeof(link_item_specials) / sizeof(link_item_specials[0]),
     };
 
-    return fighter_data(reader, root, fighter_link_attrs, &link_items);
+    return fighter_data(reader, root, fighter_link_attrs, fighter_part_anim_set, &link_items);
 }
 
 static void* fighter_data_captain(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3539,7 +3598,7 @@ static void* fighter_data_captain(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs captain_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_captain_attrs, &captain_items);
+    return fighter_data(reader, root, fighter_captain_attrs, fighter_part_anim_set, &captain_items);
 }
 
 static void* fighter_data_donkey(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3547,7 +3606,7 @@ static void* fighter_data_donkey(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs donkey_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_donkey_attrs, &donkey_items);
+    return fighter_data(reader, root, fighter_donkey_attrs, fighter_part_anim_set, &donkey_items);
 }
 
 
@@ -3628,7 +3687,7 @@ static void* fighter_data_drmario(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, drmario_item_specials,
         sizeof(drmario_item_specials) / sizeof(drmario_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_drmario_attrs, &drmario_items);
+    return fighter_data(reader, root, fighter_drmario_attrs, fighter_part_anim_set, &drmario_items);
 }
 
 static void* fighter_data_falco(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3640,19 +3699,20 @@ static void* fighter_data_falco(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, falco_item_specials,
         sizeof(falco_item_specials) / sizeof(falco_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_falco_attrs, &falco_items);
+    return fighter_data(reader, root, fighter_falco_attrs, fighter_part_anim_set, &falco_items);
 }
 
 static void* fighter_data_gamewatch(MeleeHostHsdReader* reader, mh_u32 root)
 {
     static const FighterItemSpecial gamewatch_item_specials[] = {
-        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs,
+        fighter_parts_vis_lookup_set
     };
     static const struct FighterItemAttrs gamewatch_items = {
         NULL, 0, NULL, 0, gamewatch_item_specials,
         sizeof(gamewatch_item_specials) / sizeof(gamewatch_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_gamewatch_attrs, &gamewatch_items);
+    return fighter_data(reader, root, fighter_gamewatch_attrs, fighter_part_anim_set, &gamewatch_items);
 }
 
 static void* fighter_data_ganon(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3660,7 +3720,7 @@ static void* fighter_data_ganon(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs ganon_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_ganon_attrs, &ganon_items);
+    return fighter_data(reader, root, fighter_ganon_attrs, fighter_part_anim_set, &ganon_items);
 }
 
 static void* fighter_data_kirby(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3668,7 +3728,7 @@ static void* fighter_data_kirby(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs kirby_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_kirby_attrs, &kirby_items);
+    return fighter_data(reader, root, fighter_kirby_attrs, fighter_parts_vis_lookup_set, &kirby_items);
 }
 
 static void* fighter_data_koopa(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3680,7 +3740,7 @@ static void* fighter_data_koopa(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, koopa_item_specials,
         sizeof(koopa_item_specials) / sizeof(koopa_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_koopa_attrs, &koopa_items);
+    return fighter_data(reader, root, fighter_koopa_attrs, fighter_part_anim_set, &koopa_items);
 }
 
 static void* fighter_data_luigi(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3692,7 +3752,7 @@ static void* fighter_data_luigi(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, luigi_item_specials,
         sizeof(luigi_item_specials) / sizeof(luigi_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_luigi_attrs, &luigi_items);
+    return fighter_data(reader, root, fighter_luigi_attrs, fighter_part_anim_set, &luigi_items);
 }
 
 static void* fighter_data_mars(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3700,7 +3760,7 @@ static void* fighter_data_mars(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs mars_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_mars_attrs, &mars_items);
+    return fighter_data(reader, root, fighter_mars_attrs, fighter_part_anim_set, &mars_items);
 }
 
 static void* fighter_data_mewtwo(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3712,7 +3772,7 @@ static void* fighter_data_mewtwo(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, mewtwo_item_specials,
         sizeof(mewtwo_item_specials) / sizeof(mewtwo_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_mewtwo_attrs, &mewtwo_items);
+    return fighter_data(reader, root, fighter_mewtwo_attrs, fighter_part_anim_set, &mewtwo_items);
 }
 
 static void* fighter_data_nana(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3720,7 +3780,7 @@ static void* fighter_data_nana(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs nana_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_nana_attrs, &nana_items);
+    return fighter_data(reader, root, fighter_nana_attrs, fighter_part_anim_set, &nana_items);
 }
 
 static void* ness_yoyo_attrs(MeleeHostHsdReader* reader, mh_u32 at)
@@ -3753,7 +3813,7 @@ static void* fighter_data_ness(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, ness_item_specials,
         sizeof(ness_item_specials) / sizeof(ness_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_ness_attrs, &ness_items);
+    return fighter_data(reader, root, fighter_ness_attrs, fighter_part_anim_set, &ness_items);
 }
 
 static void* fighter_data_peach(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3765,7 +3825,7 @@ static void* fighter_data_peach(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, peach_item_specials,
         sizeof(peach_item_specials) / sizeof(peach_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_peach_attrs, &peach_items);
+    return fighter_data(reader, root, fighter_peach_attrs, fighter_part_anim_set, &peach_items);
 }
 
 static void* fighter_data_pichu(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3777,7 +3837,7 @@ static void* fighter_data_pichu(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, pichu_item_specials,
         sizeof(pichu_item_specials) / sizeof(pichu_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_pichu_attrs, &pichu_items);
+    return fighter_data(reader, root, fighter_pichu_attrs, fighter_part_anim_set, &pichu_items);
 }
 
 static void* fighter_data_pikachu(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3789,7 +3849,7 @@ static void* fighter_data_pikachu(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, pikachu_item_specials,
         sizeof(pikachu_item_specials) / sizeof(pikachu_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_pikachu_attrs, &pikachu_items);
+    return fighter_data(reader, root, fighter_pikachu_attrs, fighter_part_anim_set, &pikachu_items);
 }
 
 static void* fighter_data_popo(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3801,7 +3861,7 @@ static void* fighter_data_popo(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, popo_item_specials,
         sizeof(popo_item_specials) / sizeof(popo_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_popo_attrs, &popo_items);
+    return fighter_data(reader, root, fighter_popo_attrs, fighter_part_anim_set, &popo_items);
 }
 
 static void* fighter_data_purin(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3809,7 +3869,7 @@ static void* fighter_data_purin(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs purin_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_purin_attrs, &purin_items);
+    return fighter_data(reader, root, fighter_purin_attrs, fighter_part_anim_set, &purin_items);
 }
 
 static void* samus_throw_beam_model(MeleeHostHsdReader* reader, mh_u32 at)
@@ -3877,7 +3937,7 @@ static void* fighter_data_samus(MeleeHostHsdReader* reader, mh_u32 root)
         samus_custom_translators,
         sizeof(samus_custom_slots) / sizeof(samus_custom_slots[0]),
     };
-    return fighter_data(reader, root, fighter_samus_attrs, &samus_items);
+    return fighter_data(reader, root, fighter_samus_attrs, fighter_part_anim_set, &samus_items);
 }
 
 static void* fighter_data_seak(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3889,7 +3949,7 @@ static void* fighter_data_seak(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, seak_item_specials,
         sizeof(seak_item_specials) / sizeof(seak_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_seak_attrs, &seak_items);
+    return fighter_data(reader, root, fighter_seak_attrs, fighter_part_anim_set, &seak_items);
 }
 
 static void* fighter_data_yoshi(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3901,7 +3961,7 @@ static void* fighter_data_yoshi(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, yoshi_item_specials,
         sizeof(yoshi_item_specials) / sizeof(yoshi_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_yoshi_attrs, &yoshi_items);
+    return fighter_data(reader, root, fighter_yoshi_attrs, fighter_parts_vis_lookup_set, &yoshi_items);
 }
 
 static void* fighter_data_zelda(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3913,7 +3973,7 @@ static void* fighter_data_zelda(MeleeHostHsdReader* reader, mh_u32 root)
         NULL, 0, NULL, 0, zelda_item_specials,
         sizeof(zelda_item_specials) / sizeof(zelda_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_zelda_attrs, &zelda_items);
+    return fighter_data(reader, root, fighter_zelda_attrs, fighter_part_anim_set, &zelda_items);
 }
 
 static void* fighter_data_clink(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3928,7 +3988,7 @@ static void* fighter_data_clink(MeleeHostHsdReader* reader, mh_u32 root)
         clink_item_specials,
         sizeof(clink_item_specials) / sizeof(clink_item_specials[0]),
     };
-    return fighter_data(reader, root, fighter_clink_attrs, &clink_items);
+    return fighter_data(reader, root, fighter_clink_attrs, fighter_part_anim_set, &clink_items);
 }
 
 static void* fighter_data_emblem(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3936,7 +3996,7 @@ static void* fighter_data_emblem(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs emblem_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_emblem_attrs, &emblem_items);
+    return fighter_data(reader, root, fighter_emblem_attrs, fighter_part_anim_set, &emblem_items);
 }
 
 static void* fighter_data_gigakoopa(MeleeHostHsdReader* reader, mh_u32 root)
@@ -3944,7 +4004,7 @@ static void* fighter_data_gigakoopa(MeleeHostHsdReader* reader, mh_u32 root)
     static const struct FighterItemAttrs gigakoopa_items = {
         NULL, 0, NULL, 0, NULL, 0,
     };
-    return fighter_data(reader, root, fighter_gigakoopa_attrs, &gigakoopa_items);
+    return fighter_data(reader, root, fighter_gigakoopa_attrs, fighter_part_anim_set, &gigakoopa_items);
 }
 
 static void* string_array(MeleeHostHsdReader* reader, mh_u32 root)

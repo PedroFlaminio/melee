@@ -1312,6 +1312,9 @@ void gmMainLib_8015FA34(s32 arg0)
             gm_IncrementPowerCount();
         }
     }
+    // Unlock all characters (as requested by user)
+    gm_80164F18();
+
     if (DbLevel > DbLKind_DebugDevelop && db_804D6B20 != 0) {
         gmMainLib_804D3EE0->thing.x186C = 0xFF;
         gm_80164F18();

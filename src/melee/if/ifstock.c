@@ -123,16 +123,14 @@ int ifStock_802F7EFC(int arg0, int arg1)
 /// @todo remove these cursed macros for something proper.
 /// Per-player animation data, addressed as a 0x54-byte element from the struct
 /// base with the x204 array offset applied afterwards.
-#define ifStock_802F8298_elem(p)                                              \
-    ((struct IfStockDataOffset*) ((struct ifStock_804A1378_x204*) stock + (p)))
 #define ifStock_802F8298_data_in(e, p)                                        \
-    ((struct ifStock_804A1378_x204*) (((e) = ifStock_802F8298_elem(p)) + 1))
-#define ifStock_802F8298_data_at(p) ifStock_802F8298_data_in(elem, p)
-#define ifStock_802F8298_data ifStock_802F8298_data_at(user_data->player)
+    (&stock->x204[p])
+#define ifStock_802F8298_data_at(p) (&stock->x204[p])
+#define ifStock_802F8298_data (&stock->x204[user_data->player])
 /// The same element, with the array offset committed before the field
 /// accesses.
 #define ifStock_802F8298_player_data(p)                                       \
-    ((elem = ifStock_802F8298_elem(p)), (struct ifStock_804A1378_x204*) ++elem)
+    (&stock->x204[p])
 
 static inline f32 ifStock_802F8298_tobj_frame(u8 player)
 {
@@ -357,14 +355,14 @@ void ifStock_802F89F8(HSD_GObj* gobj)
         if (i < count) {
             divisor = ifStock_802F89F8_divisor(i);
             HSD_JObjClearFlagsAll(
-                ifStock_804A1378.player[user_data->player].x4[13 - i],
+                (&ifStock_804A1378.player[user_data->player].x2C)[3 - i],
                 JOBJ_HIDDEN);
             digit = ifStock_802F89F8_digit(coins, count - i);
             HSD_JObjReqAnimAll(
-                ifStock_804A1378.player[user_data->player].x4[13 - i], digit);
+                (&ifStock_804A1378.player[user_data->player].x2C)[3 - i], digit);
         } else {
             HSD_JObjSetFlagsAll(
-                ifStock_804A1378.player[user_data->player].x4[13 - i],
+                (&ifStock_804A1378.player[user_data->player].x2C)[3 - i],
                 JOBJ_HIDDEN);
             if (count == 0 && i == 0) {
                 HSD_JObjReqAnimAll(
@@ -568,10 +566,7 @@ ifStock_802F98E8_get_match_info(VsSceneState* data, int player)
 /// Per-player data, formed from the byte offset so the array offset is
 /// applied after the index.
 #define ifStock_802F98E8_get_data(stock, player)                              \
-    ((u8*) &(                                                                 \
-        (struct ifStock_804A1378_x204*) ((u8*) (stock) +                      \
-                                         offsetof(struct ifStock_804A1378,    \
-                                                  x204)))[player])
+    (&((stock)->x204[player]))
 
 static const GXColor ifStock_802F98E8_color1 = { 0x08, 0x08, 0x08, 0x80 };
 static const GXColor ifStock_802F98E8_color2 = { 0x3C, 0x3C, 0x46, 0x80 };
@@ -590,7 +585,7 @@ void ifStock_802F98E8(u8 player, u8 b)
     PAD_STACK(20);
 
     if (stock->x0 != NULL) {
-        ifStock_802F98E8_get_data(stock, player)[0] = player;
+        ifStock_802F98E8_get_data(stock, player)->player = player;
         stock->x204[player].mode = b;
         stock->x204[player].flag = 1;
         if (stock->player[player].x0 != NULL) {
@@ -631,20 +626,17 @@ void ifStock_802F98E8(u8 player, u8 b)
                             if (i < ifStock_804A1378.player[player].stocks ||
                                 i >= 5)
                             {
-                                ifStock_802F98E8_get_data(stock,
-                                                          player)[i + 5] = 0;
+                                ifStock_802F98E8_get_data(stock, player)->anim[i] = 0;
                                 if (i >= 5) {
                                     HSD_JObjSetFlagsAll(icon_jobj,
                                                         JOBJ_HIDDEN);
                                 }
                             } else {
-                                ifStock_802F98E8_get_data(stock,
-                                                          player)[i + 5] = 10;
+                                ifStock_802F98E8_get_data(stock, player)->anim[i] = 10;
                                 HSD_JObjSetFlagsAll(icon_jobj, JOBJ_HIDDEN);
                             }
                             HSD_JObjReqAnimAll(icon_jobj,
-                                               ifStock_802F98E8_get_data(
-                                                   stock, player)[i + 5]);
+                                               ifStock_802F98E8_get_data(stock, player)->anim[i]);
                             HSD_TObjReqAnimAll(icon_jobj->u.dobj->mobj->tobj,
                                                gm_80168BF8(player));
                             HSD_AObjSetRate(
@@ -661,16 +653,15 @@ void ifStock_802F98E8(u8 player, u8 b)
                         HSD_JObj* icon_jobj =
                             ifStock_804A1378.player[player].x4[i + 1];
                         if (i == 0) {
-                            ifStock_802F98E8_get_data(stock, player)[i + 5] =
+                            ifStock_802F98E8_get_data(stock, player)->anim[i] =
                                 0;
                         } else {
-                            ifStock_802F98E8_get_data(stock, player)[i + 5] =
+                            ifStock_802F98E8_get_data(stock, player)->anim[i] =
                                 10;
                         }
                         if (i < 5) {
                             HSD_JObjReqAnimAll(icon_jobj,
-                                               ifStock_802F98E8_get_data(
-                                                   stock, player)[i + 5]);
+                                               ifStock_802F98E8_get_data(stock, player)->anim[i]);
                             HSD_TObjReqAnimAll(icon_jobj->u.dobj->mobj->tobj,
                                                gm_80168BF8(player));
                             HSD_AObjSetRate(
@@ -698,16 +689,15 @@ void ifStock_802F98E8(u8 player, u8 b)
                         HSD_JObj* icon_jobj =
                             ifStock_804A1378.player[player].x4[i + 1];
                         if (i == 0) {
-                            ifStock_802F98E8_get_data(stock, player)[i + 5] =
+                            ifStock_802F98E8_get_data(stock, player)->anim[i] =
                                 0;
                         } else {
-                            ifStock_802F98E8_get_data(stock, player)[i + 5] =
+                            ifStock_802F98E8_get_data(stock, player)->anim[i] =
                                 10;
                         }
                         if (i < 5) {
                             HSD_JObjReqAnimAll(icon_jobj,
-                                               ifStock_802F98E8_get_data(
-                                                   stock, player)[i + 5]);
+                                               ifStock_802F98E8_get_data(stock, player)->anim[i]);
                             HSD_TObjReqAnimAll(icon_jobj->u.dobj->mobj->tobj,
                                                gm_80168BF8(player));
                             HSD_AObjSetRate(

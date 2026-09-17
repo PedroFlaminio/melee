@@ -10,9 +10,9 @@
 #include <melee/ft/types.h>
 
 /* 12B6E8 */ void ftYs_Init_8012B6E8(Fighter* fp,
-                                     struct S_UNK_YOSHI1* unk_struct_arg);
+                                     FtPartsVisLookup* unk_struct_arg);
 /* 12B804 */ void ftYs_Init_8012B804(Fighter* fp,
-                                     struct S_UNK_YOSHI1* unk_struct_arg,
+                                     FtPartsVisLookup* unk_struct_arg,
                                      float start_frame);
 /* 12B8A4 */ void ftYs_Init_8012B8A4(HSD_GObj* gobj);
 /* 12B918 */ void ftYs_Init_8012B918(HSD_GObj* gobj);

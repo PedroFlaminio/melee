@@ -4,7 +4,7 @@
 #include <melee/ft/forward.h>
 #include <melee/ft/kinds/ftCommon/forward.h>
 
-struct S_UNK_YOSHI1;
+FtPartsVisLookup;
 typedef struct ftYs_DatAttrs ftYs_DatAttrs;
 
 /// @todo Fix names
