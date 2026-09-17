@@ -45,6 +45,7 @@
 #include <melee/it/itCharItems.h>
 #include <melee/it/itCommonItems.h>
 #include <melee/it/types.h>
+#include <melee/it/itYoyo.h>
 #include <melee/lb/types.h>
 #include <melee/mp/types.h>
 #include <melee/pl/types.h>
@@ -2593,8 +2594,8 @@ static void* fighter_seak_attrs(MeleeHostHsdReader* reader, mh_u32 at)
 
 static void* fighter_yoshi_attrs(MeleeHostHsdReader* reader, mh_u32 at)
 {
-    struct ftYs_DatAttrs* const attrs = melee_host_hsd_reader_allocate(
-        reader, sizeof(*attrs), alignof(struct ftYs_DatAttrs));
+    ftYoshiAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(ftYoshiAttributes));
 
     if (attrs == NULL) {
         return NULL;
@@ -3722,10 +3723,31 @@ static void* fighter_data_nana(MeleeHostHsdReader* reader, mh_u32 root)
     return fighter_data(reader, root, fighter_nana_attrs, &nana_items);
 }
 
+static void* ness_yoyo_attrs(MeleeHostHsdReader* reader, mh_u32 at)
+{
+    itYoyoAttributes* const attrs = melee_host_hsd_reader_allocate(
+        reader, sizeof(*attrs), alignof(itYoyoAttributes));
+
+    if (attrs == NULL) {
+        return NULL;
+    }
+    memset(attrs, 0, sizeof(*attrs));
+    copy_words(reader, at, attrs, 0x00, 0x50);
+    attrs->x50_string_joint = item_special_joint(reader, at + 0x50);
+    attrs->x54_yoyo_joint = item_special_joint(reader, at + 0x54);
+    
+    bool present;
+    mh_u32 target = target_of(reader, at + 0x58, &present);
+    attrs->x58_yoyo_matanim = present ? melee_host_hsd_reader_mat_anim_joint(reader, target) : NULL;
+    attrs->x5C_UNK7 = melee_host_hsd_reader_u32(reader, at + 0x5C);
+
+    return melee_host_hsd_reader_failed(reader) ? NULL : attrs;
+}
+
 static void* fighter_data_ness(MeleeHostHsdReader* reader, mh_u32 root)
 {
     static const FighterItemSpecial ness_item_specials[] = {
-        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs
+        item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, item_generic_scalar_attrs, ness_yoyo_attrs
     };
     static const struct FighterItemAttrs ness_items = {
         NULL, 0, NULL, 0, ness_item_specials,
