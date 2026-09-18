@@ -776,8 +776,9 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         MeleeHostGxTlutDesc tlut{};
         if (desc.color_indexed) melee_host_gx_captured_texture_tlut(id, &tlut);
         std::vector<std::uint8_t> custom_rgba;
-        if (melee::render::load_custom_texture(desc, tlut, custom_rgba)) {
-            image = { desc.width, desc.height, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0, image.generation };
+        std::uint16_t custom_w = 0, custom_h = 0;
+        if (melee::render::load_custom_texture(desc, tlut, custom_rgba, custom_w, custom_h)) {
+            image = { custom_w, custom_h, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0, image.generation };
             *decoded_out = true;
             return image;
         }

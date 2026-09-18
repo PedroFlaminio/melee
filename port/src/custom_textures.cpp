@@ -41,7 +41,7 @@ static std::string format_hash(std::uint64_t hash) {
     return ss.str();
 }
 
-bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTlutDesc& tlut, std::vector<std::uint8_t>& rgba_out) {
+bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTlutDesc& tlut, std::vector<std::uint8_t>& rgba_out, std::uint16_t& out_w, std::uint16_t& out_h) {
     if (!is_custom_textures_enabled()) return false;
     
     build_texture_index();
@@ -83,6 +83,8 @@ bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTl
 
     std::size_t out_size = static_cast<std::size_t>(w) * h * 4;
     rgba_out.assign(pixels, pixels + out_size);
+    out_w = static_cast<std::uint16_t>(w);
+    out_h = static_cast<std::uint16_t>(h);
     stbi_image_free(pixels);
     
 
