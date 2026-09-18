@@ -27,6 +27,12 @@
 #include <SDL3/SDL.h>
 
 namespace melee::render {
+
+    static bool g_custom_textures_enabled = true;
+
+    bool is_custom_textures_enabled() {
+        return g_custom_textures_enabled;
+    }
     namespace {
 
         std::vector<TextureImage> texture_images;
@@ -2209,14 +2215,3 @@ namespace melee::render {
 
 } // namespace melee::render
 
-    bool FramePresenter::is_custom_textures_enabled() const
-    {
-        return state_ != nullptr && state_->video_settings.custom_textures;
-    }
-
-
-    static bool g_custom_textures_enabled = true;
-
-    bool is_custom_textures_enabled() {
-        return g_custom_textures_enabled;
-    }

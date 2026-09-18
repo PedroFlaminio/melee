@@ -9,6 +9,7 @@
 
 #if defined(MELEE_HOST_SDL_RENDERER)
 #include "render/sdl_gl_renderer.hpp"
+#include "custom_textures.hpp"
 #endif
 
 #include <dolphin/dvd.h>
@@ -776,7 +777,7 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         if (desc.color_indexed) melee_host_gx_captured_texture_tlut(id, &tlut);
         std::vector<std::uint8_t> custom_rgba;
         if (melee::render::load_custom_texture(desc, tlut, custom_rgba)) {
-            image = { desc.width, desc.height, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0 };
+            image = { desc.width, desc.height, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0, image.generation };
             *decoded_out = true;
             return image;
         }

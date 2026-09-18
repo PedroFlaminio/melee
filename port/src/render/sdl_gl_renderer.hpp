@@ -85,7 +85,6 @@ namespace melee::render {
         /* Queues one batch of the mixer's stereo pairs.  A batch that finds
          * the device more than a quarter second behind is dropped, so a device
          * clock slower than the game's cannot build up delay. */
-        bool is_custom_textures_enabled() const;
         void queue_audio(const std::int16_t* stereo, std::uint32_t pairs);
 
     private:
