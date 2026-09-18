@@ -89,7 +89,7 @@ TEST_CASE("video settings only cycle through supported presentation choices")
             "Tela Cheia");
     /* Row 4 is rate. */
     melee::render::cycle(&settings, 4, -1);
-    REQUIRE(settings.rate == melee::render::PresentationRate::Fps240);
+    REQUIRE(settings.rate == melee::render::PresentationRate::Unlimited);
     melee::render::cycle(&settings, 4, 1);
     REQUIRE(settings.rate == melee::render::PresentationRate::Fps60);
 }

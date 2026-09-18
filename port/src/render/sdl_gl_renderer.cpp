@@ -3,6 +3,7 @@
 #include "gx/tev.hpp"
 #include "gx/view.hpp"
 #include "render/play_window.hpp"
+#include "render/settings_ui.hpp"
 #include <melee_host/gx.h>
 #include <melee_host/host.h>
 #include <melee_host/input.h>
@@ -1309,7 +1310,9 @@ namespace melee::render {
         int width = 0;
         int height = 0;
         int render_scale = 1;
-        Uint64 next_frame_ns = 0;
+        Uint64 next_sim_ns = 0;
+        Uint64 next_blit_ns = 0;
+        Uint64 next_pace_ns = 0;
         VideoSettings video_settings{};
         bool video_menu_open = false;
         std::uint8_t video_menu_row = 0;
@@ -1785,6 +1788,7 @@ namespace melee::render {
         if (state_->audio != nullptr) {
             SDL_DestroyAudioStream(state_->audio);
         }
+        destroy_settings_ui();
         close_gl_window(&state_->window);
     }
 
@@ -1832,6 +1836,7 @@ namespace melee::render {
         if (!hidden) {
             apply_window_mode(*state_);
         }
+        init_settings_ui(state_->window.window, state_->window.context);
         return true;
     }
 
@@ -2026,55 +2031,60 @@ namespace melee::render {
                                   copy_bottom + copy_height,
                                   GL_COLOR_BUFFER_BIT, blit_filter);
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                draw_video_menu(state);
-                draw_fps_counter(state);
+                if (draw_settings_ui(&state.video_settings, &state.video_menu_open, state.last_fps)) {
+                    configure_render_target(state, nullptr);
+                    apply_window_mode(state);
+                    SDL_GL_SetSwapInterval(state.video_settings.rate == PresentationRate::Unlimited ? 0 : 1);
+                    save_video_settings(state);
+                }
                 SDL_GL_SwapWindow(state.window.window);
             };
 
+            constexpr std::uint64_t kSimTickNs = 1'000'000'000ULL / 60;
+            const Uint64 now = SDL_GetTicksNS();
+            Uint64& next_sim = state.next_sim_ns;
+            if (next_sim == 0 || now > next_sim + kSimTickNs) {
+                next_sim = now;
+            }
+            next_sim += kSimTickNs;
+
             if (state.video_settings.rate == PresentationRate::Unlimited) {
-                /* Unlimited: the simulation still advances at 60 Hz, but
-                 * the last frame is re-blitted to the window as fast as
-                 * the GPU allows until the next simulation tick.  The FPS
-                 * counter shows the actual presentation rate. */
-                constexpr std::uint64_t kSimTickNs = 1'000'000'000ULL / 60;
-
-                /* Initialise the pacing deadline on the first frame. */
-                const Uint64 now = SDL_GetTicksNS();
-                Uint64& next = state.next_frame_ns;
-                if (next == 0 || now > next + kSimTickNs) {
-                    next = now;
-                }
-                next += kSimTickNs;
-
-                /* Present repeatedly until the deadline. */
+                /* Unlimited: blit as fast as possible until the 60 Hz tick ends. */
                 do {
                     blit_and_swap();
                     double fps = 0.0;
                     if (state.frame_rate.add_frame(SDL_GetTicksNS(), &fps)) {
                         state.last_fps = fps;
-                        SDL_SetWindowTitle(
-                            state.window.window,
-                            video_menu_title(state.video_settings,
-                                             state.video_menu_open,
-                                             state.video_menu_row, fps)
-                                .c_str());
                     }
-                } while (SDL_GetTicksNS() < next);
+                } while (SDL_GetTicksNS() < next_sim);
             } else {
-                /* Fixed target rate: single blit, then pace. */
-                blit_and_swap();
-                pace(1'000'000'000ULL /
-                     static_cast<std::uint16_t>(state.video_settings.rate));
-                double fps = 0.0;
-                if (state.frame_rate.add_frame(SDL_GetTicksNS(), &fps)) {
-                    state.last_fps = fps;
-                    SDL_SetWindowTitle(
-                        state.window.window,
-                        video_menu_title(state.video_settings,
-                                         state.video_menu_open,
-                                         state.video_menu_row, fps)
-                            .c_str());
+                /* Fixed target rate: pace presentation blits, but still block until 60 Hz tick. */
+                std::uint64_t frame_ns = 1'000'000'000ULL / static_cast<std::uint16_t>(state.video_settings.rate);
+                Uint64& next_blit = state.next_blit_ns;
+                if (next_blit == 0 || now > next_blit + frame_ns) {
+                    next_blit = now;
                 }
+
+                do {
+                    blit_and_swap();
+                    double fps = 0.0;
+                    if (state.frame_rate.add_frame(SDL_GetTicksNS(), &fps)) {
+                        state.last_fps = fps;
+                    }
+
+                    next_blit += frame_ns;
+                    Uint64 current_time = SDL_GetTicksNS();
+                    if (next_blit > current_time) {
+                        Uint64 delay = next_blit - current_time;
+                        // Never delay past the next simulation tick
+                        if (current_time + delay > next_sim) {
+                            delay = next_sim > current_time ? next_sim - current_time : 0;
+                        }
+                        if (delay > 0) {
+                            SDL_DelayPrecise(delay);
+                        }
+                    }
+                } while (SDL_GetTicksNS() < next_sim);
             }
         }
     }
@@ -2101,77 +2111,20 @@ namespace melee::render {
         bool running = true;
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
+            if (process_settings_event(&event)) {
+                continue;
+            }
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN &&
-                       event.key.scancode == SDL_SCANCODE_ESCAPE)
-            {
-            state.video_menu_open = !state.video_menu_open;
-            state.video_menu_dirty = true;
-                SDL_SetWindowTitle(state.window.window,
-                                   video_menu_title(state.video_settings,
-                                                    state.video_menu_open,
-                                                    state.video_menu_row)
-                                       .c_str());
-            } else if (event.type == SDL_EVENT_KEY_DOWN &&
-                       state.video_menu_open)
-            {
-                const auto apply_change = [&]() {
-                    cycle(&state.video_settings, state.video_menu_row,
-                          event.key.scancode == SDL_SCANCODE_LEFT ? -1 : 1);
-                    state.video_menu_dirty = true;
-                    /* Apply the change for the active row. */
-                    switch (state.video_menu_row) {
-                    case 0: /* Resolution: recreate render target. */
-                        configure_render_target(state, nullptr);
-                        break;
-                    case 3: /* Window mode: apply immediately. */
-                        apply_window_mode(state);
-                        break;
-                    case 4: /* Target rate: update VSync. */
-                        SDL_GL_SetSwapInterval(state.video_settings.rate == PresentationRate::Unlimited ? 0 : 1);
-                        break;
-                    default:
-                        /* Aspect (1) and filter (2) are read every frame
-                         * during blit, rate (4) during pace — no extra
-                         * action needed. */
-                        break;
-                    }
-                    save_video_settings(state);
-                };
-                switch (event.key.scancode) {
-                case SDL_SCANCODE_UP:
-                state.video_menu_row = static_cast<std::uint8_t>(
-                    (state.video_menu_row + kVideoMenuRows - 1) %
-                    kVideoMenuRows);
-                state.video_menu_dirty = true;
-                    break;
-                case SDL_SCANCODE_DOWN:
-                state.video_menu_row = static_cast<std::uint8_t>(
-                    (state.video_menu_row + 1) % kVideoMenuRows);
-                state.video_menu_dirty = true;
-                    break;
-            case SDL_SCANCODE_LEFT:
-            case SDL_SCANCODE_RIGHT:
-            case SDL_SCANCODE_RETURN:
-                    apply_change();
-                    break;
-                default:
-                    break;
-                }
-                SDL_SetWindowTitle(state.window.window,
-                                   video_menu_title(state.video_settings,
-                                                    state.video_menu_open,
-                                                    state.video_menu_row)
-                                       .c_str());
+                       event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                state.video_menu_open = !state.video_menu_open;
             } else if (event.type == SDL_EVENT_GAMEPAD_ADDED &&
-                       state.gamepad == nullptr)
-            {
+                       state.gamepad == nullptr) {
                 state.gamepad = SDL_OpenGamepad(event.gdevice.which);
             } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED &&
                        state.gamepad != nullptr &&
-                       SDL_GetGamepadID(state.gamepad) == event.gdevice.which)
-            {
+                       SDL_GetGamepadID(state.gamepad) == event.gdevice.which) {
                 SDL_CloseGamepad(state.gamepad);
                 state.gamepad = nullptr;
             }
@@ -2197,7 +2150,7 @@ namespace melee::render {
             return;
         }
         const Uint64 now = SDL_GetTicksNS();
-        Uint64& next = state_->next_frame_ns;
+        Uint64& next = state_->next_pace_ns;
         if (next == 0 || now > next + frame_nanoseconds) {
             next = now;
         }

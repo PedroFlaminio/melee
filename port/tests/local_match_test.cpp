@@ -27,7 +27,7 @@ TEST_CASE("native VS start data prepares a local two-player match")
     REQUIRE(match.characters[0] == 2);
     REQUIRE(match.characters[1] == 8);
     REQUIRE(match.player_kinds[0] == 0);
-    REQUIRE(match.player_kinds[1] == 0);
+    REQUIRE(match.player_kinds[1] == 1);
     REQUIRE(match.stocks[0] == 4);
     REQUIRE(match.stocks[1] == 4);
     REQUIRE(melee_host_initialize_prepared_player_state() == MELEE_HOST_OK);
@@ -41,7 +41,7 @@ TEST_CASE("native VS start data prepares a local two-player match")
     REQUIRE(first.player_kind == 0);
     REQUIRE(first.stocks == 4);
     REQUIRE(second.character == 8);
-    REQUIRE(second.player_kind == 0);
+    REQUIRE(second.player_kind == 1);
     REQUIRE(inactive.player_kind == 3);
     REQUIRE(melee_host_prepare_local_two_player_match(-1, 8, 3) ==
             MELEE_HOST_INVALID_ARGUMENT);

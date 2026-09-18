@@ -125,7 +125,7 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationResolution::x1:
-            return "1x Native";
+            return "1x Nativo";
         case PresentationResolution::x2:
             return "2x";
         case PresentationResolution::x3:
@@ -135,7 +135,7 @@ namespace melee::render {
         case PresentationResolution::x5:
             return "5x";
         }
-        return "1x Native";
+        return "1x Nativo";
     }
 
     [[nodiscard]] constexpr const char* label(PresentationFilter value)
@@ -153,13 +153,13 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationWindowMode::Windowed:
-            return "Windowed";
+            return "Janela";
         case PresentationWindowMode::Fullscreen:
-            return "Fullscreen";
+            return "Tela Cheia";
         case PresentationWindowMode::Borderless:
-            return "Borderless";
+            return "Sem Bordas";
         }
-        return "Windowed";
+        return "Janela";
     }
 
     /* Row order: 0=Resolution, 1=Aspect, 2=Filter, 3=WindowMode, 4=Rate,
@@ -294,7 +294,7 @@ namespace melee::render {
     play_window_title(double frames_per_second)
     {
         char rate[32];
-        std::snprintf(rate, sizeof(rate), "%.0f FPS", frames_per_second);
+        std::snprintf(rate, sizeof(rate), "%.1f FPS", frames_per_second);
         return std::string(kPlayWindowName) + " — " + rate + " — " +
                kPlayWindowControls;
     }
