@@ -11,7 +11,7 @@ namespace melee::render {
 
     inline constexpr const char* kPlayWindowName = "Melee PC";
     inline constexpr const char* kPlayWindowControls =
-        "Enter é START, WASD o analógico; Esc abre Video";
+        "Enter is START, WASD is stick; Esc opens Video";
 
     /* Number of interactive rows in the video settings menu. */
     inline constexpr std::uint8_t kVideoMenuRows = 6;
@@ -61,6 +61,8 @@ namespace melee::render {
         Borderless
     };
 
+    bool is_custom_textures_enabled();
+
     struct VideoSettings {
         PresentationResolution resolution = PresentationResolution::x1;
         PresentationAspect aspect = PresentationAspect::Original4x3;
@@ -68,6 +70,7 @@ namespace melee::render {
         PresentationWindowMode window_mode = PresentationWindowMode::Windowed;
         PresentationRate rate = PresentationRate::Fps60;
         bool show_fps = false;
+        bool custom_textures = true;
     };
 
     /* Returns the integer scale factor for the given resolution enum. */
@@ -125,7 +128,7 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationResolution::x1:
-            return "1x Nativo";
+            return "1x Native";
         case PresentationResolution::x2:
             return "2x";
         case PresentationResolution::x3:
@@ -135,7 +138,7 @@ namespace melee::render {
         case PresentationResolution::x5:
             return "5x";
         }
-        return "1x Nativo";
+        return "1x Native";
     }
 
     [[nodiscard]] constexpr const char* label(PresentationFilter value)
@@ -153,13 +156,13 @@ namespace melee::render {
     {
         switch (value) {
         case PresentationWindowMode::Windowed:
-            return "Janela";
+            return "Windowed";
         case PresentationWindowMode::Fullscreen:
-            return "Tela Cheia";
+            return "Fullscreen";
         case PresentationWindowMode::Borderless:
-            return "Sem Bordas";
+            return "Borderless";
         }
-        return "Janela";
+        return "Windowed";
     }
 
     /* Row order: 0=Resolution, 1=Aspect, 2=Filter, 3=WindowMode, 4=Rate,

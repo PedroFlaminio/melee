@@ -104,11 +104,11 @@ namespace melee::render {
 
         if (*open) {
             ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Video", open)) {
+            if (ImGui::Begin("Video Settings", open)) {
                 int res = static_cast<int>(settings->resolution);
-                const char* res_items[] = { "1x Nativo", "2x", "3x", "4x",
+                const char* res_items[] = { "1x Native", "2x", "3x", "4x",
                                             "5x" };
-                if (ImGui::Combo("Resolucao Interna", &res, res_items, 5)) {
+                if (ImGui::Combo("Internal Resolution", &res, res_items, 5)) {
                     settings->resolution =
                         static_cast<PresentationResolution>(res);
                     changed = true;
@@ -116,23 +116,23 @@ namespace melee::render {
 
                 int aspect = static_cast<int>(settings->aspect);
                 const char* aspect_items[] = { "4:3", "16:9", "21:9" };
-                if (ImGui::Combo("Aspecto", &aspect, aspect_items, 3)) {
+                if (ImGui::Combo("Aspect Ratio", &aspect, aspect_items, 3)) {
                     settings->aspect = static_cast<PresentationAspect>(aspect);
                     changed = true;
                 }
 
                 int filter = static_cast<int>(settings->filter);
                 const char* filter_items[] = { "Nearest", "Linear" };
-                if (ImGui::Combo("Filtro de Escala", &filter, filter_items, 2))
+                if (ImGui::Combo("Upscaling Filter", &filter, filter_items, 2))
                 {
                     settings->filter = static_cast<PresentationFilter>(filter);
                     changed = true;
                 }
 
                 int window_mode = static_cast<int>(settings->window_mode);
-                const char* window_mode_items[] = { "Janela", "Tela Cheia",
-                                                    "Sem Bordas" };
-                if (ImGui::Combo("Modo de Janela", &window_mode,
+                const char* window_mode_items[] = { "Windowed", "Fullscreen",
+                                                    "Borderless" };
+                if (ImGui::Combo("Window Mode", &window_mode,
                                  window_mode_items, 3))
                 {
                     settings->window_mode =
@@ -148,19 +148,22 @@ namespace melee::render {
                 };
                 const char* rate_items[] = {
                     "60 FPS",  "120 FPS", "144 FPS",
-                    "165 FPS", "240 FPS", "Ilimitado"
+                    "165 FPS", "240 FPS", "Unlimited"
                 };
                 for (int i = 0; i < 6; ++i) {
                     if (rates[i] == settings->rate) {
                         rate_idx = i;
                     }
                 }
-                if (ImGui::Combo("Frequencia", &rate_idx, rate_items, 6)) {
+                if (ImGui::Combo("Presentation Rate", &rate_idx, rate_items, 6)) {
                     settings->rate = rates[rate_idx];
                     changed = true;
                 }
 
-                if (ImGui::Checkbox("Mostrar FPS", &settings->show_fps)) {
+                if (ImGui::Checkbox("Show FPS", &settings->show_fps)) {
+                    changed = true;
+                }
+                if (ImGui::Checkbox("Enable Custom Textures", &settings->custom_textures)) {
                     changed = true;
                 }
             }

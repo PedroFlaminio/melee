@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.25)
+project(melee-pc)
 add_library(melee_host STATIC
     src/assets/dol_image.cpp
     src/assets/hsd_archive.cpp
@@ -402,7 +404,7 @@ if(MELEE_HOST_BUILD_SDL_RENDERER)
     find_package(OpenGL QUIET)
     if(SDL3_FOUND AND OpenGL_FOUND)
         include(cmake/imgui.cmake)
-        target_sources(melee-pc PRIVATE src/render/sdl_gl_renderer.cpp src/render/settings_ui.cpp)
+        target_sources(melee-pc PRIVATE src/render/sdl_gl_renderer.cpp src/render/settings_ui.cpp src/stb_image.cpp src/custom_textures.cpp)
         target_link_libraries(melee-pc PRIVATE SDL3::SDL3 OpenGL::GL imgui)
         target_compile_definitions(melee-pc PRIVATE MELEE_HOST_SDL_RENDERER=1)
     else()

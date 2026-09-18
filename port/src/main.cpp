@@ -772,6 +772,15 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         return image;
     }
     try {
+        MeleeHostGxTlutDesc tlut{};
+        if (desc.color_indexed) melee_host_gx_captured_texture_tlut(id, &tlut);
+        std::vector<std::uint8_t> custom_rgba;
+        if (melee::render::load_custom_texture(desc, tlut, custom_rgba)) {
+            image = { desc.width, desc.height, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0 };
+            *decoded_out = true;
+            return image;
+        }
+
         /* The size throws for a format the decoder does not know, so it
          * belongs inside the try like the decode itself. */
         const std::size_t byte_count = melee::assets::gx_texture_data_size(
@@ -780,7 +789,6 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
             static_cast<const std::byte*>(desc.image), byte_count
         };
         melee::assets::DecodedTexture decoded{};
-        MeleeHostGxTlutDesc tlut{};
         if (desc.color_indexed &&
             melee_host_gx_captured_texture_tlut(id, &tlut) && tlut.loaded &&
             tlut.entries != nullptr)

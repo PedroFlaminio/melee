@@ -1365,7 +1365,8 @@ namespace melee::render {
         int window_mode = -1;
         int rate = 0;
         int show_fps = 0;
-        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps) ||
+        int custom_textures = 1;
+        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps >> custom_textures) ||
             resolution < 0 || resolution > 4 ||
             aspect < 0 || aspect > 2 ||
             filter < 0 || filter > 1 ||
@@ -1376,6 +1377,8 @@ namespace melee::render {
             return;
         }
         state->video_settings.show_fps = show_fps != 0;
+        state->video_settings.custom_textures = custom_textures != 0;
+        g_custom_textures_enabled = state->video_settings.custom_textures;
         state->video_settings.resolution =
             static_cast<PresentationResolution>(resolution);
         state->video_settings.aspect =
@@ -2032,6 +2035,7 @@ namespace melee::render {
                                   GL_COLOR_BUFFER_BIT, blit_filter);
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 if (draw_settings_ui(&state.video_settings, &state.video_menu_open, state.last_fps)) {
+                    g_custom_textures_enabled = state.video_settings.custom_textures;
                     configure_render_target(state, nullptr);
                     apply_window_mode(state);
                     SDL_GL_SetSwapInterval(state.video_settings.rate == PresentationRate::Unlimited ? 0 : 1);
@@ -2204,3 +2208,15 @@ namespace melee::render {
     }
 
 } // namespace melee::render
+
+    bool FramePresenter::is_custom_textures_enabled() const
+    {
+        return state_ != nullptr && state_->video_settings.custom_textures;
+    }
+
+
+    static bool g_custom_textures_enabled = true;
+
+    bool is_custom_textures_enabled() {
+        return g_custom_textures_enabled;
+    }
