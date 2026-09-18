@@ -576,6 +576,7 @@ uniform int u_alpha_ref1;
 uniform int u_fog_type;
 uniform vec2 u_fog_range;
 uniform ivec4 u_fog_color;
+uniform int u_z_texture_op;
 out vec4 frag_color;
 
 /* The same curve as melee::gx::fog_blend, over the fragment's eye-space
@@ -636,6 +637,7 @@ void main()
 )";
 
     const std::size_t stages = stage_count(tev);
+    code += "    ivec4 last_texel = ivec4(0);\n";
     for (std::size_t index = 0; index < stages; ++index) {
         const MeleeHostGxTevStage& stage = tev.stages[index];
         code += "    // stage " + std::to_string(index) + "\n    {\n";
@@ -666,6 +668,7 @@ void main()
                         : "raster" + std::to_string(channel);
         code += "        ivec4 tex = (" + texel + ")." +
                 kSwapSwizzles[swap_table(stage.texture_swap)] + ";\n";
+        code += "        last_texel = tex;\n";
         code += "        ivec4 ras = (" + raster + ")." +
                 kSwapSwizzles[swap_table(stage.raster_swap)] + ";\n";
         code += "        ivec4 konst = ivec4(" +
@@ -758,6 +761,9 @@ void main()
     final_color.rgb = (final_color.rgb * (256 - fog) +
                        u_fog_color.rgb * fog + 128) >> 8;
     frag_color = vec4(final_color) / 255.0;
+    if (u_z_texture_op == 1) {
+        gl_FragDepth = float(last_texel.r) / 255.0;
+    }
 }
 )";
     return code;

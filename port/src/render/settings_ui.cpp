@@ -179,6 +179,9 @@ namespace melee::render {
                 if (ImGui::Checkbox("Show FPS", &settings->show_fps)) {
                     changed = true;
                 }
+                if (ImGui::Checkbox("Unlock Everything", &settings->unlock_all)) {
+                    changed = true;
+                }
                 if (ImGui::Checkbox("Enable Custom Textures", &settings->custom_textures)) {
                     changed = true;
                 }

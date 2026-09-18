@@ -562,7 +562,7 @@ int inspect_pobj(const std::filesystem::path& path, std::string_view symbol,
                     renderer_textures.push_back({
                         decoded.width, decoded.height,
                         geometry.material.texture_wrap_s,
-                        geometry.material.texture_wrap_t, decoded.rgba, false
+                        geometry.material.texture_wrap_t, decoded.rgba, false, false
                     });
                 }
 #else
@@ -765,7 +765,7 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
 {
     MeleeHostGxTextureDesc desc{};
     melee::render::TextureImage image{ 1, 1, 0, 0, { 255, 255, 255, 255 },
-                                       false };
+                                       false, false };
     *decoded_out = false;
     if (!melee_host_gx_captured_texture_at(id, &desc) ||
         desc.image == nullptr)
@@ -778,7 +778,7 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         std::vector<std::uint8_t> custom_rgba;
         std::uint16_t custom_w = 0, custom_h = 0;
         if (melee::render::load_custom_texture(desc, tlut, custom_rgba, custom_w, custom_h)) {
-            image = { custom_w, custom_h, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0, image.generation };
+            image = { custom_w, custom_h, desc.wrap_s, desc.wrap_t, std::move(custom_rgba), desc.mag_filter != 0, desc.mipmap != 0, image.generation };
             *decoded_out = true;
             return image;
         }
@@ -807,7 +807,7 @@ melee::render::TextureImage decode_captured_texture(mh_u32 id,
         if (!decoded.rgba.empty()) {
             image = { decoded.width, decoded.height, desc.wrap_s,
                       desc.wrap_t,   std::move(decoded.rgba),
-                      desc.mag_filter != 0 };
+                      desc.mag_filter != 0, desc.mipmap != 0 };
             *decoded_out = true;
         }
     } catch (const std::exception& error) {

@@ -4,7 +4,12 @@
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wsign-conversion\"")
+_Pragma("GCC diagnostic ignored \"-Wmissing-field-initializers\"")
+_Pragma("GCC diagnostic ignored \"-Wimplicit-int-conversion\"")
 #include "stb_image.h"
+_Pragma("GCC diagnostic pop")
 
 #include <filesystem>
 #include <sstream>
@@ -81,7 +86,7 @@ bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTl
         return false;
     }
 
-    std::size_t out_size = static_cast<std::size_t>(w) * h * 4;
+    std::size_t out_size = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
     rgba_out.assign(pixels, pixels + out_size);
     out_w = static_cast<std::uint16_t>(w);
     out_h = static_cast<std::uint16_t>(h);

@@ -22,6 +22,7 @@ namespace melee::render {
         /* The texture asked for bilinear magnification.  Mipmaps are not
          * decoded, so minification follows the same choice. */
         bool linear_filter;
+        bool mipmap;
         /* Bumped when the image is decoded again at the same address, as an
          * EFB copy the game makes every frame is; the presenter uploads it
          * again. */

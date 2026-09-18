@@ -88,6 +88,7 @@ namespace melee::render {
         PresentationAntiAliasing anti_aliasing = PresentationAntiAliasing::Off;
         PresentationAnisotropy anisotropy = PresentationAnisotropy::Off;
         bool custom_textures = true;
+        bool unlock_all = false;
     };
 
     /* Returns the integer scale factor for the given resolution enum. */

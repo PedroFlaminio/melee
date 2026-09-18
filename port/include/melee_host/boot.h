@@ -125,6 +125,7 @@ bool melee_host_game_mode_available(mh_u32 mode);
 /* Starts the scene manager's routing at `first_mode`, as gm_801A4510 starts it
  * at the boot mode: every mode's on_init runs and there is no previous mode.
  * A mode the table lacks is refused. */
+void melee_host_game_unlock_all(void);
 MeleeHostStatus melee_host_game_begin(mh_u32 first_mode);
 
 /* The GameModeKind the routing runs next. */

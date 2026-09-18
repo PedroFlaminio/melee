@@ -8,6 +8,7 @@
 #include <melee_host/host.h>
 #include <melee_host/input.h>
 #include <melee_host/video.h>
+#include <melee_host/boot.h>
 
 #define GL_GLEXT_PROTOTYPES 1
 #include <algorithm>
@@ -292,6 +293,7 @@ namespace melee::render {
             GLint fog_type = -1;
             GLint fog_range = -1;
             GLint fog_color = -1;
+            GLint z_texture_op = -1;
         };
 
         /* One linked program per distinct shader source.  The source is
@@ -377,6 +379,8 @@ namespace melee::render {
                     glGetUniformLocation(program.program, "u_fog_range");
                 program.fog_color =
                     glGetUniformLocation(program.program, "u_fog_color");
+                program.z_texture_op =
+                    glGetUniformLocation(program.program, "u_z_texture_op");
                 glUseProgram(program.program);
                 const GLint samplers =
                     glGetUniformLocation(program.program, "u_texmap");
@@ -433,7 +437,7 @@ namespace melee::render {
 
         /* position, COLOR0A0, COLOR1A1, then eight s/t/q texture coordinates.
          */
-        constexpr std::size_t kFloatsPerVertex = 3 + 4 + 4 + 3 * 8;
+        constexpr std::size_t kFloatsPerVertex = 3 + 4 + 4 + 3 * 8 + 3 + 3 + 3;
 
         /* Vertex layout shared by the preview and the conformance runner. */
         void bind_vertex_layout()
@@ -455,6 +459,9 @@ namespace melee::render {
                 pointer(3 + coord, 3,
                         11 + 3 * static_cast<std::size_t>(coord));
             }
+            pointer(11, 3, 11 + 3 * MELEE_HOST_GX_MAX_TEXCOORD);
+            pointer(12, 3, 11 + 3 * MELEE_HOST_GX_MAX_TEXCOORD + 3);
+            pointer(13, 3, 11 + 3 * MELEE_HOST_GX_MAX_TEXCOORD + 6);
         }
 
         void append_vertex(std::vector<float>* out,
@@ -476,6 +483,15 @@ namespace melee::render {
                 out->push_back(coord[1]);
                 out->push_back(coord[2]);
             }
+            out->push_back(vertex.normal.x);
+            out->push_back(vertex.normal.y);
+            out->push_back(vertex.normal.z);
+            out->push_back(vertex.tangent.x);
+            out->push_back(vertex.tangent.y);
+            out->push_back(vertex.tangent.z);
+            out->push_back(vertex.binormal.x);
+            out->push_back(vertex.binormal.y);
+            out->push_back(vertex.binormal.z);
         }
 
         /* A run of consecutive triangles sharing pixel state, TEV program,
@@ -572,9 +588,13 @@ namespace melee::render {
             GLuint texture = 0;
             glGenTextures(1, &texture);
             glBindTexture(GL_TEXTURE_2D, texture);
-            const GLint filter = image.linear_filter ? GL_LINEAR : GL_NEAREST;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+            
+            GLint min_filter = image.linear_filter ? GL_LINEAR : GL_NEAREST;
+            if (image.mipmap) {
+                min_filter = image.linear_filter ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+            }
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, image.linear_filter ? GL_LINEAR : GL_NEAREST);
             const auto wrap = [](std::uint32_t mode) {
                 return mode == 1   ? GL_REPEAT
                        : mode == 2 ? GL_MIRRORED_REPEAT
@@ -587,6 +607,9 @@ namespace melee::render {
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height,
                          0, GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
+            if (image.mipmap) {
+                glGenerateMipmap(GL_TEXTURE_2D);
+            }
             return texture;
         }
 
@@ -932,7 +955,7 @@ namespace melee::render {
 
         constexpr std::array<std::uint8_t, 4> kWhite{ 255, 255, 255, 255 };
         const GLuint white_texture = create_texture(
-            { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false });
+            { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false, false });
         std::vector<GLuint> textures;
         textures.reserve(texture_images.size());
         for (const auto& image : texture_images) {
@@ -1877,7 +1900,7 @@ namespace melee::render {
 
         constexpr std::array<std::uint8_t, 4> kWhite{ 255, 255, 255, 255 };
         state->white_texture = create_texture(
-            { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false });
+            { 1, 1, 1, 1, { kWhite.begin(), kWhite.end() }, false, false });
         state->programs = std::make_unique<ProgramCache>();
         glGenVertexArrays(1, &state->vertex_array);
         glBindVertexArray(state->vertex_array);
@@ -2098,6 +2121,9 @@ namespace melee::render {
                                   copy_bottom + copy_height,
                                   GL_COLOR_BUFFER_BIT, blit_filter);
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                if (state.video_settings.unlock_all) {
+                    melee_host_game_unlock_all();
+                }
                 if (draw_settings_ui(&state.video_settings, &state.video_menu_open, state.last_fps)) {
                     g_custom_textures_enabled = state.video_settings.custom_textures;
             int aa = static_cast<int>(state.video_settings.anti_aliasing);

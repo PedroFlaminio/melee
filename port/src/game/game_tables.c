@@ -243,3 +243,12 @@ MeleeHostStatus melee_host_game_run_current_mode(
     out_report->stopped_at_missing_scene = out_report->missing_scene != GS_COUNT;
     return MELEE_HOST_OK;
 }
+
+extern void gm_8016468C(void);
+extern void gm_80164F18(void);
+
+void melee_host_game_unlock_all(void)
+{
+    gm_8016468C();
+    gm_80164F18();
+}
