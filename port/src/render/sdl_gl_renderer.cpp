@@ -29,6 +29,8 @@
 namespace melee::render {
 
     static bool g_custom_textures_enabled = true;
+    static int g_msaa_samples = 0;
+    static int g_anisotropy_level = 0;
 
     bool is_custom_textures_enabled() {
         return g_custom_textures_enabled;
@@ -698,6 +700,8 @@ namespace melee::render {
             GLuint framebuffer = 0;
             GLuint color = 0;
             GLuint depth = 0;
+            GLuint resolve_framebuffer = 0;
+            GLuint resolve_color = 0;
 
             OffscreenTarget(GLsizei width, GLsizei height)
             {
@@ -705,16 +709,36 @@ namespace melee::render {
                 glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
                 glGenRenderbuffers(1, &color);
                 glBindRenderbuffer(GL_RENDERBUFFER, color);
-                glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width,
-                                      height);
+                
+                int msaa = g_msaa_samples;
+                if (msaa > 1) {
+                    glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, GL_RGBA8, width, height);
+                } else {
+                    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
+                }
+                
                 glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                           GL_RENDERBUFFER, color);
                 glGenRenderbuffers(1, &depth);
                 glBindRenderbuffer(GL_RENDERBUFFER, depth);
-                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
-                                      width, height);
+                
+                if (msaa > 1) {
+                    glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa, GL_DEPTH_COMPONENT24, width, height);
+                } else {
+                    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+                }
+                
                 glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                                           GL_RENDERBUFFER, depth);
+                                          
+                if (msaa > 1) {
+                    glGenFramebuffers(1, &resolve_framebuffer);
+                    glBindFramebuffer(GL_FRAMEBUFFER, resolve_framebuffer);
+                    glGenRenderbuffers(1, &resolve_color);
+                    glBindRenderbuffer(GL_RENDERBUFFER, resolve_color);
+                    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
+                    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, resolve_color);
+                }
             }
 
             OffscreenTarget(const OffscreenTarget&) = delete;
@@ -726,6 +750,10 @@ namespace melee::render {
                 glDeleteRenderbuffers(1, &depth);
                 glDeleteRenderbuffers(1, &color);
                 glDeleteFramebuffers(1, &framebuffer);
+                if (resolve_framebuffer != 0) {
+                    glDeleteRenderbuffers(1, &resolve_color);
+                    glDeleteFramebuffers(1, &resolve_framebuffer);
+                }
             }
 
             [[nodiscard]] bool complete() const
@@ -1372,11 +1400,15 @@ namespace melee::render {
         int rate = 0;
         int show_fps = 0;
         int custom_textures = 1;
-        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps >> custom_textures) ||
+        int anti_aliasing = 0;
+        int anisotropy = 0;
+        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps >> custom_textures >> anti_aliasing >> anisotropy) ||
             resolution < 0 || resolution > 4 ||
             aspect < 0 || aspect > 2 ||
             filter < 0 || filter > 1 ||
             window_mode < 0 || window_mode > 2 ||
+            anti_aliasing < 0 || anti_aliasing > 3 ||
+            anisotropy < 0 || anisotropy > 4 ||
             (rate != 60 && rate != 120 && rate != 144 && rate != 165 &&
              rate != 240 && rate != 0))
         {
@@ -1385,6 +1417,17 @@ namespace melee::render {
         state->video_settings.show_fps = show_fps != 0;
         state->video_settings.custom_textures = custom_textures != 0;
         g_custom_textures_enabled = state->video_settings.custom_textures;
+        state->video_settings.anti_aliasing = static_cast<PresentationAntiAliasing>(anti_aliasing);
+        if (anti_aliasing == 1) g_msaa_samples = 2;
+        else if (anti_aliasing == 2) g_msaa_samples = 4;
+        else if (anti_aliasing == 3) g_msaa_samples = 8;
+        else g_msaa_samples = 0;
+        state->video_settings.anisotropy = static_cast<PresentationAnisotropy>(anisotropy);
+        if (anisotropy == 1) g_anisotropy_level = 2;
+        else if (anisotropy == 2) g_anisotropy_level = 4;
+        else if (anisotropy == 3) g_anisotropy_level = 8;
+        else if (anisotropy == 4) g_anisotropy_level = 16;
+        else g_anisotropy_level = 0;
         state->video_settings.resolution =
             static_cast<PresentationResolution>(resolution);
         state->video_settings.aspect =
@@ -2032,8 +2075,15 @@ namespace melee::render {
                 glDisable(GL_SCISSOR_TEST);
                 glClearColor(0, 0, 0, 1);
                 glClear(GL_COLOR_BUFFER_BIT);
-                glBindFramebuffer(GL_READ_FRAMEBUFFER,
-                                  state.target->framebuffer);
+                if (state.target->resolve_framebuffer != 0) {
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, state.target->framebuffer);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, state.target->resolve_framebuffer);
+                    glBlitFramebuffer(0, 0, state.width, state.height, 0, 0, state.width, state.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, state.target->resolve_framebuffer);
+                } else {
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, state.target->framebuffer);
+                }
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
                 glBlitFramebuffer(0, 0, state.width, state.height,
                                   copy_left, copy_bottom,
                                   copy_left + copy_width,
@@ -2042,6 +2092,24 @@ namespace melee::render {
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 if (draw_settings_ui(&state.video_settings, &state.video_menu_open, state.last_fps)) {
                     g_custom_textures_enabled = state.video_settings.custom_textures;
+            int aa = static_cast<int>(state.video_settings.anti_aliasing);
+            if (aa == 1) g_msaa_samples = 2;
+            else if (aa == 2) g_msaa_samples = 4;
+            else if (aa == 3) g_msaa_samples = 8;
+            else g_msaa_samples = 0;
+            
+            int aniso = static_cast<int>(state.video_settings.anisotropy);
+            if (aniso == 1) g_anisotropy_level = 2;
+            else if (aniso == 2) g_anisotropy_level = 4;
+            else if (aniso == 3) g_anisotropy_level = 8;
+            else if (aniso == 4) g_anisotropy_level = 16;
+            else g_anisotropy_level = 0;
+            
+            for (auto& pair : state.textures) {
+                glBindTexture(GL_TEXTURE_2D, pair.second.first);
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, g_anisotropy_level > 0 ? static_cast<float>(g_anisotropy_level) : 1.0f);
+            }
+            
                     configure_render_target(state, nullptr);
                     apply_window_mode(state);
                     SDL_GL_SetSwapInterval(state.video_settings.rate == PresentationRate::Unlimited ? 0 : 1);

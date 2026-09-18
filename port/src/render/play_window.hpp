@@ -14,7 +14,7 @@ namespace melee::render {
         "Enter is START, WASD is stick; Esc opens Video";
 
     /* Number of interactive rows in the video settings menu. */
-    inline constexpr std::uint8_t kVideoMenuRows = 6;
+    inline constexpr std::uint8_t kVideoMenuRows = 8;
 
     /* The simulation remains 60 Hz for all rates.  Fixed rates pace
      * presentation at the selected frequency.  "Unlimited" re-presents
@@ -50,6 +50,21 @@ namespace melee::render {
 
     /* The blit filter applied when compositing the internal FBO onto the
      * window backbuffer. */
+    enum class PresentationAntiAliasing : std::uint8_t {
+        Off,
+        Msaa2x,
+        Msaa4x,
+        Msaa8x
+    };
+
+    enum class PresentationAnisotropy : std::uint8_t {
+        Off,
+        x2,
+        x4,
+        x8,
+        x16
+    };
+
     enum class PresentationFilter : std::uint8_t {
         Nearest,
         Linear
@@ -70,6 +85,8 @@ namespace melee::render {
         PresentationWindowMode window_mode = PresentationWindowMode::Windowed;
         PresentationRate rate = PresentationRate::Fps60;
         bool show_fps = false;
+        PresentationAntiAliasing anti_aliasing = PresentationAntiAliasing::Off;
+        PresentationAnisotropy anisotropy = PresentationAnisotropy::Off;
         bool custom_textures = true;
     };
 
@@ -141,6 +158,29 @@ namespace melee::render {
         return "1x Native";
     }
 
+    [[nodiscard]] constexpr const char* label(PresentationAntiAliasing value)
+    {
+        switch (value) {
+        case PresentationAntiAliasing::Off: return "Off";
+        case PresentationAntiAliasing::Msaa2x: return "2x MSAA";
+        case PresentationAntiAliasing::Msaa4x: return "4x MSAA";
+        case PresentationAntiAliasing::Msaa8x: return "8x MSAA";
+        }
+        return "Off";
+    }
+
+    [[nodiscard]] constexpr const char* label(PresentationAnisotropy value)
+    {
+        switch (value) {
+        case PresentationAnisotropy::Off: return "Off";
+        case PresentationAnisotropy::x2: return "2x";
+        case PresentationAnisotropy::x4: return "4x";
+        case PresentationAnisotropy::x8: return "8x";
+        case PresentationAnisotropy::x16: return "16x";
+        }
+        return "Off";
+    }
+
     [[nodiscard]] constexpr const char* label(PresentationFilter value)
     {
         switch (value) {
@@ -187,9 +227,15 @@ namespace melee::render {
             settings->filter = static_cast<PresentationFilter>(
                 next(static_cast<int>(settings->filter), 2));
         } else if (row == 3) {
+            settings->anti_aliasing = static_cast<PresentationAntiAliasing>(
+                next(static_cast<int>(settings->anti_aliasing), 4));
+        } else if (row == 4) {
+            settings->anisotropy = static_cast<PresentationAnisotropy>(
+                next(static_cast<int>(settings->anisotropy), 5));
+        } else if (row == 5) {
             settings->window_mode = static_cast<PresentationWindowMode>(
                 next(static_cast<int>(settings->window_mode), 3));
-        } else if (row == 4) {
+        } else if (row == 6) {
             constexpr PresentationRate values[] = { PresentationRate::Fps60,
                                                     PresentationRate::Fps120,
                                                     PresentationRate::Fps144,
@@ -203,14 +249,14 @@ namespace melee::render {
                 }
             }
             settings->rate = values[next(index, 6)];
-        } else if (row == 5) {
+        } else if (row == 7) {
             settings->show_fps = !settings->show_fps;
         }
     }
 
     /* The name of each menu row, indexed by row number. */
     inline constexpr const char* kVideoMenuRowNames[] = {
-        "RESOLUTION", "ASPECT RATIO", "TEXTURE FILTER", "WINDOW MODE", "TARGET RATE", "SHOW FPS"
+        "RESOLUTION", "ASPECT RATIO", "TEXTURE FILTER", "ANTI-ALIASING", "ANISOTROPIC FILTER", "WINDOW MODE", "TARGET RATE", "SHOW FPS"
     };
 
     /* The current value label of each menu row. */
@@ -225,10 +271,14 @@ namespace melee::render {
         case 2:
             return label(settings.filter);
         case 3:
-            return label(settings.window_mode);
+            return label(settings.anti_aliasing);
         case 4:
-            return label(settings.rate);
+            return label(settings.anisotropy);
         case 5:
+            return label(settings.window_mode);
+        case 6:
+            return label(settings.rate);
+        case 7:
             return settings.show_fps ? "ON" : "OFF";
         default:
             return "";
