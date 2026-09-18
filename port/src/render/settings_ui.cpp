@@ -129,6 +129,22 @@ namespace melee::render {
                     changed = true;
                 }
 
+                int aa = static_cast<int>(settings->anti_aliasing);
+                const char* aa_items[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA" };
+                if (ImGui::Combo("Anti-Aliasing", &aa, aa_items, 4))
+                {
+                    settings->anti_aliasing = static_cast<PresentationAntiAliasing>(aa);
+                    changed = true;
+                }
+
+                int aniso = static_cast<int>(settings->anisotropy);
+                const char* aniso_items[] = { "Off", "2x", "4x", "8x", "16x" };
+                if (ImGui::Combo("Anisotropic Filter", &aniso, aniso_items, 5))
+                {
+                    settings->anisotropy = static_cast<PresentationAnisotropy>(aniso);
+                    changed = true;
+                }
+
                 int window_mode = static_cast<int>(settings->window_mode);
                 const char* window_mode_items[] = { "Windowed", "Fullscreen",
                                                     "Borderless" };
