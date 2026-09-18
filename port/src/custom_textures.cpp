@@ -10,8 +10,30 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <unordered_map>
+#include <string>
 
 namespace melee::render {
+
+static std::unordered_map<std::string, std::filesystem::path> g_texture_index;
+static bool g_index_built = false;
+
+static void build_texture_index() {
+    if (g_index_built) return;
+    std::filesystem::path textures_dir = "textures";
+    if (std::filesystem::exists(textures_dir) && std::filesystem::is_directory(textures_dir)) {
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(textures_dir, ec)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                if (filename.ends_with(".png") || filename.ends_with(".dds")) {
+                    g_texture_index[filename] = entry.path();
+                }
+            }
+        }
+    }
+    g_index_built = true;
+}
 
 static std::string format_hash(std::uint64_t hash) {
     std::ostringstream ss;
@@ -22,8 +44,8 @@ static std::string format_hash(std::uint64_t hash) {
 bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTlutDesc& tlut, std::vector<std::uint8_t>& rgba_out) {
     if (!is_custom_textures_enabled()) return false;
     
-    std::filesystem::path textures_dir = "textures";
-    if (!std::filesystem::exists(textures_dir)) return false;
+    build_texture_index();
+    if (g_texture_index.empty()) return false;
 
     std::size_t byte_count = melee::assets::gx_texture_data_size(desc.width, desc.height, desc.format);
     if (byte_count == 0 || desc.image == nullptr) return false;
@@ -40,32 +62,29 @@ bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTl
                    format_hash(textureHash) + "_" + std::to_string(desc.format) + ".png";
     }
 
-    std::filesystem::path path = textures_dir / filename;
-    if (!std::filesystem::exists(path)) {
-        // try without tlut if indexed
+    auto it = g_texture_index.find(filename);
+    if (it == g_texture_index.end()) {
         if (desc.color_indexed) {
             filename = "tex1_" + std::to_string(desc.width) + "x" + std::to_string(desc.height) + "_" + 
                        format_hash(textureHash) + "_" + std::to_string(desc.format) + ".png";
-            path = textures_dir / filename;
-            if (!std::filesystem::exists(path)) return false;
-        } else {
-            return false;
+            it = g_texture_index.find(filename);
         }
     }
 
-    int w, h, channels;
-    stbi_uc* pixels = stbi_load(path.string().c_str(), &w, &h, &channels, 4);
-    if (!pixels) {
+    if (it == g_texture_index.end()) {
         return false;
     }
 
-    if (w != desc.width || h != desc.height) {
-        // Warning: mismatch
+    int w, h, channels;
+    stbi_uc* pixels = stbi_load(it->second.string().c_str(), &w, &h, &channels, 4);
+    if (!pixels) {
+        return false;
     }
 
     std::size_t out_size = static_cast<std::size_t>(w) * h * 4;
     rgba_out.assign(pixels, pixels + out_size);
     stbi_image_free(pixels);
+    
 
     return true;
 }
