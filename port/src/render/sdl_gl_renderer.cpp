@@ -1402,18 +1402,23 @@ namespace melee::render {
         int custom_textures = 1;
         int anti_aliasing = 0;
         int anisotropy = 0;
-        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps >> custom_textures >> anti_aliasing >> anisotropy) ||
+        if (!(input >> resolution >> aspect >> filter >> window_mode >> rate >> show_fps) ||
             resolution < 0 || resolution > 4 ||
             aspect < 0 || aspect > 2 ||
             filter < 0 || filter > 1 ||
             window_mode < 0 || window_mode > 2 ||
-            anti_aliasing < 0 || anti_aliasing > 3 ||
-            anisotropy < 0 || anisotropy > 4 ||
-            (rate != 60 && rate != 120 && rate != 144 && rate != 165 &&
-             rate != 240 && rate != 0))
+            (rate != 60 && rate != 120 && rate != 144 && rate != 165 && rate != 240 && rate != 0))
         {
             return;
         }
+        
+        // Optional newer fields
+        if (!(input >> custom_textures)) custom_textures = 1;
+        if (!(input >> anti_aliasing)) anti_aliasing = 0;
+        if (!(input >> anisotropy)) anisotropy = 0;
+        
+        if (anti_aliasing < 0 || anti_aliasing > 3) anti_aliasing = 0;
+        if (anisotropy < 0 || anisotropy > 4) anisotropy = 0;
         state->video_settings.show_fps = show_fps != 0;
         state->video_settings.custom_textures = custom_textures != 0;
         g_custom_textures_enabled = state->video_settings.custom_textures;
@@ -1451,7 +1456,10 @@ namespace melee::render {
                    << static_cast<int>(state.video_settings.filter) << ' '
                    << static_cast<int>(state.video_settings.window_mode) << ' '
                    << static_cast<int>(state.video_settings.rate) << ' '
-                   << (state.video_settings.show_fps ? 1 : 0) << '\n';
+                   << (state.video_settings.show_fps ? 1 : 0) << ' '
+                   << (state.video_settings.custom_textures ? 1 : 0) << ' '
+                   << static_cast<int>(state.video_settings.anti_aliasing) << ' '
+                   << static_cast<int>(state.video_settings.anisotropy) << '\n';
         }
     }
 
