@@ -307,7 +307,7 @@ int ftCo_800B4AB0(Fighter* fp, Fighter* target, void* arg2)
                                    0.5 * (f64) (tgtGrav * sq)) -
                                   (f64) fpPredY);
             } else {
-                sq = sqrtf_store(v, sqrt_tmp - 1);
+                sq = sqrtf_store(v, &sqrt_tmp[0]);
                 relPredY = (f32) (((f64) (tgtTermNeg * (t - v)) +
                                    ((f64) (tgtVy * t + tgtY) -
                                     0.5 * (f64) (tgtGrav * sq))) -
@@ -515,7 +515,7 @@ int ftCo_800B52AC(Fighter* fp, Fighter* target, void* arg2, f32 reach)
                                    0.5 * (f64) (tgtGrav * sq)) -
                                   (f64) fpPredY);
             } else {
-                sq = sqrtf_store(v, sqrt_tmp - 1);
+                sq = sqrtf_store(v, &sqrt_tmp[0]);
                 relPredY = (f32) (((f64) (tgtTermNeg * (t - v)) +
                                    ((f64) (tgtVy * t + tgtY) -
                                     0.5 * (f64) (tgtGrav * sq))) -

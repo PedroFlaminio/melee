@@ -198,24 +198,15 @@ HSD_AObj* HSD_AObjLoadDesc(HSD_AObjDesc* aobjdesc)
         fobjdesc = aobjdesc->fobjdesc;
         fobj = HSD_FObjLoadDesc(fobjdesc);
         HSD_AObjSetFObj(aobj, fobj);
-        id = aobjdesc->obj_id;
-        if (id != 0U) {
+        if (aobjdesc->obj_id != NULL) {
+            id = (u32)(uintptr_t)aobjdesc->obj_id;
             HSD_Obj* hsd_obj = HSD_IDGetDataFromTable(0, id, 0);
             phi_r30 = hsd_obj;
             if (hsd_obj != NULL) {
                 ref_INC(hsd_obj);
             } else {
-#ifdef MELEE_HOST
-                /* The materializer translates obj_id to the key of its
-                 * materialized HSD_Joint.  A missing entry means an AObj
-                 * escaped the graph that owns its target; reconstructing a
-                 * 64-bit pointer from this 32-bit key is not valid. */
-                HSD_ASSERTMSG(0xD0, 0,
-                              "host AObj JObj reference is not loaded");
-#else
                 phi_r30 =
-                    (HSD_Obj*) HSD_JObjLoadJoint((void*) aobjdesc->obj_id);
-#endif
+                    (HSD_Obj*) HSD_JObjLoadJoint((HSD_Joint*) aobjdesc->obj_id);
             }
             if (aobj != NULL) {
                 if (aobj->hsd_obj != NULL) {

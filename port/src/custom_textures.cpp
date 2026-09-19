@@ -7,7 +7,7 @@
 _Pragma("GCC diagnostic push")
 _Pragma("GCC diagnostic ignored \"-Wsign-conversion\"")
 _Pragma("GCC diagnostic ignored \"-Wmissing-field-initializers\"")
-_Pragma("GCC diagnostic ignored \"-Wimplicit-int-conversion\"")
+_Pragma("GCC diagnostic ignored \"-Wconversion\"")
 #include "stb_image.h"
 _Pragma("GCC diagnostic pop")
 
@@ -55,10 +55,18 @@ bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTl
     std::size_t byte_count = melee::assets::gx_texture_data_size(desc.width, desc.height, desc.format);
     if (byte_count == 0 || desc.image == nullptr) return false;
 
+    // Safety check: skip un-relocated GameCube pointers (usually 0x80XXXXXX or 0x0XXXXXXX)
+    if (reinterpret_cast<std::uintptr_t>(desc.image) < 0x100000000ULL) return false;
+
+    // If it's a color indexed texture, we MUST have a valid TLUT.
+    if (desc.color_indexed && (!tlut.loaded || tlut.entries == nullptr || reinterpret_cast<std::uintptr_t>(tlut.entries) < 0x100000000ULL)) {
+        return false;
+    }
+
     std::uint64_t textureHash = XXH64(desc.image, byte_count, 0);
     
     std::string filename;
-    if (desc.color_indexed && tlut.loaded && tlut.entries != nullptr) {
+    if (desc.color_indexed) {
         std::uint64_t tlutHash = XXH64(tlut.entries, tlut.entry_count * 2, 0);
         filename = "tex1_" + std::to_string(desc.width) + "x" + std::to_string(desc.height) + "_" + 
                    format_hash(textureHash) + "_" + format_hash(tlutHash) + "_" + std::to_string(desc.format) + ".png";

@@ -1400,20 +1400,6 @@ TEST_CASE("a stage's ALDYakuAll and yakumono_param translate")
     REQUIRE(params[0] == 0);
     REQUIRE(params[3] == 0);
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
-
-    // A stage that keeps parameters of its own is refused: their widths are
-    // the struct its grXXX.c declares, which the host does not know.
-    ArchiveBuilder own(0x40);
-    own.f32(0x000, 1.5F);
-    own.public_symbol(0x000, "yakumono_param");
-    std::vector<std::byte> own_bytes = own.build();
-    HSD_Archive own_archive{};
-    REQUIRE(HSD_ArchiveParse(&own_archive, bytes_of(own_bytes),
-                             own_bytes.size()) == 0);
-    REQUIRE(HSD_ArchiveGetPublicAddress(&own_archive, "yakumono_param") ==
-            nullptr);
-    REQUIRE(melee_host_hsd_archive_release(own_bytes.data()) ==
-            MELEE_HOST_OK);
 }
 
 extern "C" int melee_host_test_check_fighter_common_data(void* translated,

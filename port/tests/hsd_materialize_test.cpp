@@ -725,7 +725,7 @@ TEST_CASE("the materializer rebuilds an animation tree and its keyframes")
     HSD_Joint* const model =
         descriptors.scene_model_joint("test_scene_data", 0);
     REQUIRE(child->aobjdesc->obj_id ==
-            static_cast<u32>(reinterpret_cast<std::uintptr_t>(model->child)));
+            reinterpret_cast<void*>(model->child));
 
     HSD_FObjDesc* const track = child->aobjdesc->fobjdesc;
     REQUIRE(track != nullptr);

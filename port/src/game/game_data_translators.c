@@ -10,6 +10,8 @@
 #include <melee_host/boot.h>
 #include <melee_host/hsd_archive.h>
 
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
 #include <melee/ft/fighter.h>
 #include <melee/ft/dobjlist.h>
 #include <melee/ft/ftdata.h>
@@ -1666,33 +1668,8 @@ static void* stage_yaku_scripts(MeleeHostHsdReader* reader, mh_u32 root)
  * stages that keep the symbol without reading it store: Hyrule Temple and 27
  * other archives.  A stage with parameters of its own stops here with its
  * size, and needs that stage's layout written out. */
-static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
-{
-    const mh_u32 size = melee_host_hsd_reader_extent(reader, root);
-    void* block;
-    mh_u32 at;
-
-    for (at = 0; at < size; at += 4) {
-        /* A word is read before it is asked about, because a value that is
-         * not a relocation is a field, not a broken pointer. */
-        if (melee_host_hsd_reader_u32(reader, root + at) != 0) {
-            melee_host_hsd_reader_fail(
-                reader, "yakumono_param holds this stage's own parameters, "
-                        "whose layout the host does not know");
-            return NULL;
-        }
-    }
-    if (size == 0) {
-        melee_host_hsd_reader_fail(reader, "yakumono_param has no room");
-        return NULL;
-    }
-    block = melee_host_hsd_reader_allocate(reader, size, alignof(mh_u32));
-    if (block == NULL) {
-        return NULL;
-    }
-    memset(block, 0, size);
-    return melee_host_hsd_reader_failed(reader) ? NULL : block;
-}
+#include "yakumono_param.h"
+#include "yakumono_param.c.inc"
 
 static void* stage_map_head(MeleeHostHsdReader* reader, mh_u32 root)
 {

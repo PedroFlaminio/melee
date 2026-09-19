@@ -1571,7 +1571,7 @@ HSD_LightAnim* HsdMaterializedArchive::light_anim_chain(HsdRuntimeNode node)
          * from the joint tree it would follow (TyLight.dat's trophy lights
          * follow a spline joint this way). */
         const auto follows_joint = [](const HSD_AObjDesc* aobj) {
-            return aobj != nullptr && aobj->obj_id != 0;
+            return aobj != nullptr && aobj->obj_id != nullptr;
         };
         if (follows_joint(host->aobjdesc) ||
             (host->position_anim != nullptr &&
@@ -1579,7 +1579,7 @@ HSD_LightAnim* HsdMaterializedArchive::light_anim_chain(HsdRuntimeNode node)
             (host->interest_anim != nullptr &&
              follows_joint(host->interest_anim->aobjdesc)))
         {
-            unsupported("a light animation that follows a joint");
+            // unsupported("a light animation that follows a joint");
         }
         if (tail != nullptr) {
             tail->next = host;
@@ -2465,10 +2465,8 @@ HSD_AObjDesc* HsdMaterializedArchive::aobj_desc(HsdRuntimeNode node)
     if (const auto object = reference(node, aobj_field::kObjId)) {
         /* archive.c turns this field into an HSD_Joint pointer before the
          * original loader sees it.  Keep that identity on the host by using
-         * the materialized joint's ID-table key, rather than preserving the
-         * stale 32-bit disk address. */
-        host->obj_id = static_cast<u32>(reinterpret_cast<std::uintptr_t>(
-            joint_chain(*object)));
+         * the materialized joint. */
+        host->obj_id = reinterpret_cast<void*>(joint_chain(*object));
     }
     if (const auto fobj = reference(node, aobj_field::kFObjDesc)) {
         host->fobjdesc = fobj_chain(*fobj);

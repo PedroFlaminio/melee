@@ -5290,7 +5290,7 @@ bool mpLib_80056C54(int line_id, Vec3* pos, int* line_id_out, Vec3* vec_out,
             mpLineGetV1Pos(line_id, &sp4C);
             x_f2 = SQ(sp58.x - sp4C.x);
             y_f0 = SQ(sp58.y - sp4C.y);
-            dist_f28 = sqrtf_store(x_f2 + y_f0, sqrt_tmp - 4);
+            dist_f28 = sqrtf_store(x_f2 + y_f0, &sqrt_tmp[0]);
             flags_r0 = mpLineGetKind(line_id);
             if (flags_r0 & 0xC) {
                 total_dist_f27 += dist_f28;
@@ -5325,7 +5325,7 @@ bool mpLib_80056C54(int line_id, Vec3* pos, int* line_id_out, Vec3* vec_out,
             mpLineGetV0Pos(line_id, &sp4C);
             x_f2 = SQ(sp58.x - sp4C.x);
             y_f0 = SQ(sp58.y - sp4C.y);
-            dist_f28 = sqrtf_store(x_f2 + y_f0, sqrt_tmp - 5);
+            dist_f28 = sqrtf_store(x_f2 + y_f0, &sqrt_tmp[0]);
             flags_r0 = mpLineGetKind(line_id);
             if (flags_r0 & 0xC) {
                 total_dist_f27 += dist_f28;

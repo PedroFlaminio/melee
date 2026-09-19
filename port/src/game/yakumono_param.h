@@ -1,0 +1,710 @@
+#ifndef PORT_YAKUMONO_PARAM_H
+#define PORT_YAKUMONO_PARAM_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Types
+typedef float f32;
+typedef int32_t s32;
+typedef uint32_t u32;
+typedef int16_t s16;
+typedef uint16_t u16;
+typedef uint8_t u8;
+typedef int8_t s8;
+
+typedef struct grPushOn_Entry { uint8_t pad[8]; } grPushOn_Entry;
+typedef struct grPushOn_Lookup { uint8_t pad[8]; } grPushOn_Lookup;
+typedef struct grZe_AcidLevelEntry { uint8_t pad[4]; } grZe_AcidLevelEntry;
+typedef struct grCastleParams_Entry { uint8_t pad[20]; } grCastleParams_Entry;
+
+struct grBattle_YakumonoParam {
+    void* bg_curr_color_overlay;
+    void* bg_prev_color_overlay;
+};
+
+struct grCorneria_YakumonoParam {
+    f32 x0;
+    f32 x4;
+    f32 x8;
+    f32 xC;
+    f32 x10;
+    f32 x14;
+    f32 x18;
+    f32 x1C;
+    f32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+    u8 pad50[0x18];
+    f32 x68;
+    u8 pad6C[0x4];
+    f32 x70;
+    s32 x74;
+    s32 x78;
+    s32 x7C;
+    s32 x80;
+    void* x84;
+    f32 x88;
+};
+
+struct grFlatzone_YakumonoParam {
+    s32 unk0;
+    s32 unk4;
+    s32 unk8;
+    s32 unkC;
+    s32 unk10;
+    s32 unk14;
+    s32 unk18;
+    s32 unk1C;
+    s32 unk20;
+    f32 unk24;
+    f32 unk28;
+    s32 unk2C;
+    s32 unk30;
+    s32 unk34;
+    f32 unk38;
+    s32 unk3C;
+};
+
+struct grFourside_YakumonoParam {
+    s32 heli_wait;
+    s32 heli_wait_add;
+    s32 heli_stay_time;
+    s32 crane_wait;
+    s32 crane_wait_add;
+    s32 crane_iron_wait;
+    s32 crane_iron_wait_add;
+    f32 crane_iron_up_min;
+    f32 crane_iron_up_max;
+    f32 crane_iron_down_min;
+    f32 crane_iron_down_max;
+    f32 crane_iron_spd;
+    f32 crane_iron_stop_acl;
+    s32 ufo_wait;
+    f32 ufo_cs_offs;
+    s32 ufo_stay_time;
+    s32 ufo_stay_time_add;
+    u16 ufo_challenge;
+    u16 x46;
+    u16 x48;
+};
+
+struct grGarden_YakumonoParam {
+    f32 x0;
+    f32 x4;
+    s32 x8;
+    s32 xC;
+    s32 x10;
+    s32 x14;
+    f32 x18;
+    f32 x1C;
+};
+
+struct grIzumi_YakumonoParam {
+    f32 x0;
+    s32 x4;
+    f32 x8;
+    f32 xC;
+    f32 x10;
+    f32 x14;
+    f32 x18;
+    f32 x1C;
+    f32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+    f32 x50;
+};
+
+struct grMc_YakumonoParam {
+    void* x0;
+    void* x4;
+    struct DynamicsDesc* x8;
+    struct DynamicsDesc* xC;
+    u8 pad10[0x1C];
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+};
+
+struct grOldpupupu_YakumonoParam {
+    s16 x0;
+    s16 x2;
+    s16 x4;
+    s16 x6;
+    s32 x8;
+    s32 xC;
+    f32 x10;
+    f32 x14;
+    f32 x18;
+    f32 x1C;
+    f32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+};
+
+struct grPushon_YakumonoParam {
+    s32 x0;
+    struct DynamicsDesc* x4;
+    struct DynamicsDesc* x8;
+    struct DynamicsDesc* xC;
+    struct DynamicsDesc* x10;
+    struct DynamicsDesc* x14;
+    bool x18;
+    struct grPushOn_Entry x1c[0x1E];
+    struct grPushOn_Lookup x10c[0x21];
+};
+
+struct grRCruise_YakumonoParam {
+    f32 x0;
+    f32 x4;
+    f32 x8;
+    s32 xC;
+    s32 x10;
+    s32 x14;
+    s32 x18;
+    s32 x1C;
+    s32 x20;
+    s32 x24;
+    s32 x28;
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    s32 x3C;
+    s32 x40;
+    s32 x44;
+};
+
+struct grStory_YakumonoParam {
+    f32 timer_min;
+    f32 timer_rand;
+    f32 spawnmany_rarity;
+    f32 vpos[6];
+};
+
+struct grTFalco_YakumonoParam {
+    UNK_T unk_0;
+    UNK_T unk_4;
+    UNK_T unk_8;
+    UNK_T unk_C;
+};
+
+struct grTFox_YakumonoParam {
+    UNK_T unk0;
+    UNK_T unk4;
+    UNK_T unk8;
+    UNK_T unkC;
+};
+
+struct grTGn_YakumonoParam {
+    struct DynamicsDesc* x0;
+    struct DynamicsDesc* x4;
+    struct DynamicsDesc* x8;
+};
+
+struct grVenom_YakumonoParam {
+    f32 x0;
+    f32 x4;
+    f32 x8;
+    f32 xC;
+    f32 x10;
+    char x14[0x2C - 0x14];
+    f32 x2C;
+    char x30[0x34 - 0x30];
+    f32 x34;
+    void* x38;
+};
+
+struct grZe_YakumonoParam {
+    f32 x00;
+    f32 x04;
+    f32 x08;
+    f32 x0C;
+    s32 x10;
+    u8 pad_14[0x30 - 0x14];
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+    f32 x50;
+    f32 x54;
+    f32 x58;
+    f32 x5C;
+    f32 x60;
+    f32 x64;
+    f32 x68;
+    f32 x6C;
+    f32 x70;
+    f32 x74;
+    f32 x78;
+    f32 x7C;
+    f32 x80;
+    f32 x84;
+    f32 x88;
+    f32 x8C;
+    f32 x90;
+    f32 x94;
+    f32 x98;
+    f32 x9C;
+    grZe_AcidLevelEntry xA0_entries[30];
+};
+
+struct grZebesRoute_YakumonoParam {
+    s32 camera_timer;
+    s32 zako_spawn_chance;
+};
+
+struct grOldKongo_YakumonoParam {
+    s16 rframe_bird_wait_a;
+    s16 rframe_bird_wait_b;
+    f32 rrange_bird_random_offset_y;
+    f32 rframe_barrel_shoot_a;
+    f32 rframe_barrel_shoot_b;
+    f32 rframe_barrel_in;
+    f32 rframe_barrel_wait_a;
+    f32 rframe_barrel_wait_b;
+    f32 rspeed_barrel_rot_accel;
+    f32 rspeed_barrel_rot_max;
+    f32 rframe_barrel_roll_a;
+    f32 rframe_barrel_roll_b;
+    s16 rrate_barrel_ld;
+    s16 rrate_barrel_l;
+    s16 rrate_barrel_lu;
+    s16 rrate_barrel_u;
+    s16 rrate_barrel_ru;
+    s16 rrate_barrel_r;
+    s16 rrate_barrel_rd;
+    s16 rrate_barrel_d;
+    s32 rframe_barrel_interval_a;
+    s32 rframe_barrel_interval_b;
+    f32 rspeed_barrel_move_accel;
+    f32 rspeed_barrel_move_max;
+    s32 rframe_barrel_stop_a;
+    s32 rframe_barrel_stop_b;
+    s32 rpower_barrel_attack;
+    s32 rvector_barrel_attack;
+    s32 rreff_barrel_attack;
+    s32 rrfix_barrel_attack;
+    s32 rradd_barrel_attack;
+    s32 x68;
+    void* x6C;
+};
+
+struct grBigBlueRoute_YakumonoParam {
+    s32 x0;
+    f32 x4;
+    u8 pad_8[0x20 - 0x8];
+    f32 x20;
+    u8 pad_24[0x3C - 0x24];
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+};
+
+struct grCastle_YakumonoParam {
+    s16 x0;
+    s16 x2;
+    s16 x4;
+    s16 x6;
+    s16 x8;
+    s16 xA;
+    s16 xC;
+    s16 xE;
+    f32 x10;
+    f32 x14;
+    f32 x18;
+    u8 pad_x1C[4];
+    f32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    s16 x40;
+    s16 x42;
+    s16 x44;
+    u8 pad_x46[2];
+    f32 x48;
+    f32 x4C;
+    f32 x50;
+    s16 x54;
+    u8 pad_x56[2];
+    s16 x58;
+    u8 pad_x5A[2];
+    grCastleParams_Entry entries[9];
+    f32 x110;
+    void* x114;
+    f32 x118;
+    f32 x11C;
+    f32 x120;
+    f32 x124;
+    u8 pad_x128[4];
+    s16 x12C[4];
+    f32 x134;
+    f32 x138;
+    f32 x13C;
+    f32 x140;
+};
+
+struct grGreens_YakumonoParam {
+    s32 x0_blockTimerMin;
+    s32 x4_blockTimerMax;
+    s32 x8_blockBombChance;
+    s32 xC;
+    s32 x10;
+    s32 x14;
+    s32 x18;
+    s32 x1C;
+    s32 x20;
+    s32 x24;
+    s32 x28;
+    f32 x2C;
+    f32 x30;
+    s32 x34_windTimerMin;
+    s32 x38_windTimerMax;
+    f32 x3C_windSpeed;
+    f32 x40_left;
+    f32 x44_right;
+    f32 x48_top;
+    f32 x4C_bottom;
+    f32 x50;
+    f32 x54;
+    f32 x58;
+    s32 x5C;
+    s32 x60;
+    s32 x64;
+    s32 x68;
+    f32 x6C;
+    f32 x70;
+    f32 x74;
+    f32 x78;
+};
+
+struct grInishie1_YakumonoParam {
+    f32 unk0;
+    f32 unk4;
+    f32 unk8;
+    f32 unkC;
+    f32 unk10;
+    s16 unk14;
+    s16 unk16;
+    u16 unk18;
+    s16 unk1A;
+    s16 unk1C;
+    s16 unk1E;
+    f32 unk20;
+    f32 unk24;
+    f32 unk28;
+    Vec3 unk2C[2];
+    f32 unk44;
+    f32 unk48;
+    f32 unk4C;
+    f32 unk50;
+};
+
+struct grInishie2_YakumonoParam {
+    s16 unk0;
+    s16 unk2;
+    s16 unk4;
+    s16 unk6;
+    s16 unk8;
+    s16 unkA;
+    s16 unkC;
+    s16 unkE;
+    s16 unk10[2];
+    Vec3 unk14[2];
+    f32 unk2C;
+    Vec3 unk30[2];
+    s16 unk48;
+    s16 unk4A;
+};
+
+struct grKraid_YakumonoParam {
+    u32 map_time_min;
+    u32 map_time_max;
+    s32 map_time_acl;
+    f32 map_rot_spd_min;
+    f32 map_rot_spd_max;
+    u32 kraid_wait_time;
+    u32 kraid_wait_time_add;
+    f32 kraid_pos_x[6];
+};
+
+struct grShrineRoute_YakumonoParam {
+    void* x0;
+    void* x4;
+    void* x8;
+    void* xC;
+    s32 x10;
+    f32 x14;
+    f32 x18;
+    f32 x1C;
+    f32 x20;
+    s32 x24;
+    grZakoGenerator_SpawnDesc spawn_desc;
+};
+
+struct grPStadium_YakumonoParam {
+    s32 x0;
+    s32 x4;
+    s32 x8;
+    s32 xC;
+    s32 x10;
+    s32 x14;
+    s32 x18;
+    u8 r, g, b;
+    u32 x20;
+    u32 x24;
+    u32 x28;
+    u32 x2C;
+    u32 x30;
+    u32 x34;
+    u32 x38;
+    u32 x3C;
+    u32 x40;
+    u32 x44;
+    s16 x48;
+    s16 x4A;
+    s16 x4C;
+    s16 x4E;
+    s16 x50;
+};
+
+struct grIceMt_YakumonoParam {
+    s16 x0;
+    s16 x2;
+    s16 x4;
+    f32 x8;
+    f32 xC;
+    f32 x10;
+    f32 x14;
+    f32 x18;
+    f32 x1C;
+    f32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+    s16 x34;
+    s16 x36;
+    s16 x38;
+    u16 x3A;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+    f32 x50;
+    f32 x54;
+    f32 x58;
+    f32 x5C;
+    f32 x60;
+    f32 x64;
+    f32 x68;
+    f32 x6C;
+    f32 x70;
+    f32 x74;
+    f32 x78;
+    f32 x7C;
+    f32 x80;
+    f32 x84;
+    f32 x88;
+    f32 x8C;
+    f32 x90;
+    f32 x94;
+    s16 ft_max_y;
+    s16 x9E;
+    f32 x9C;
+    f32 xA0;
+    s16 xA4;
+    s16 xA6;
+    s16 xA8;
+    s16* field_ixs;
+    s16* xB0;
+    s16* xB4;
+    s16 xB8;
+    s16 pad;
+    grZakoGenerator_SpawnDesc xBC;
+    f32 xC0;
+    f32 xC4;
+    f32 xC8;
+    f32 xCC;
+};
+
+struct grLast_YakumonoParam {
+    void* x0;
+    void* x4;
+    void* x8;
+    void* xC;
+};
+
+struct grBb_YakumonoParam {
+    f32 x0;
+    f32 x4;
+    f32 x8;
+    f32 xC;
+    s32 x10;
+    s32 x14;
+    s32 x18;
+    s32 x1C;
+    s32 x20;
+    f32 x24;
+    f32 x28;
+    f32 x2C;
+    f32 x30;
+    f32 x34;
+    f32 x38;
+    f32 x3C;
+    f32 x40;
+    f32 x44;
+    f32 x48;
+    f32 x4C;
+    f32 x50;
+    f32 x54;
+    f32 x58;
+    f32 x5C;
+    f32 x60;
+    u8 pad64[0x68 - 0x64];
+    f32 x68;
+    f32 x6C;
+    f32 x70;
+    f32 x74;
+    f32 x78;
+    f32 x7C;
+    f32 x80;
+    f32 x84;
+    s32 x88;
+    s32 x8C;
+    f32 x90;
+    f32 x94;
+    f32 x98;
+    f32 x9C;
+    f32 xA0;
+    f32 xA4;
+    f32 xA8;
+    f32 xAC;
+    s32 xB0;
+    s32 xB4;
+    s32 xB8;
+    f32 xBC;
+    f32 xC0;
+    f32 xC4;
+    f32 xC8;
+    f32 xCC;
+    f32 xD0;
+    f32 xD4;
+    f32 xD8;
+    s32 xDC;
+    s32 xE0;
+    f32 xE4;
+    f32 xE8;
+    f32 xEC;
+    f32 xF0;
+    f32 xF4;
+    f32 xF8;
+    f32 xFC;
+    f32 x100;
+    f32 x104;
+    f32 x108;
+    s32 x10C;
+    s32 x110;
+    u8 pad114[0x11C - 0x114];
+    s32 x11C;
+    s32 x120;
+    f32 x124;
+    f32 x128;
+    f32 x12C;
+    f32 x130;
+    Vec3 x134_translate;
+    f32 x140_scale;
+};
+
+struct grKongo_YakumonoParam {
+    f32 unk0;
+    f32 unk4;
+    f32 unk8;
+    f32 unkC;
+    f32 unk10;
+    f32 unk14;
+    f32 unk18;
+    f32 unk1C;
+    f32 unk20;
+    f32 unk24;
+    f32 unk28;
+    f32 unk2C;
+    f32 unk30;
+    f32 unk34;
+    f32 unk38;
+    f32 unk3C;
+    f32 unk40;
+    s16 unk44;
+    s16 unk46;
+    s16 unk48;
+    s16 unk4A;
+    s16 unk4C;
+    s16 unk4E;
+    s16 unk50;
+    s16 unk52;
+    f32 unk54;
+    f32 unk58;
+    f32 unk5C;
+    f32 unk60;
+    s32 unk64;
+    s32 unk68;
+    f32 unk6C;
+    f32 unk70;
+    f32 unk74;
+    f32 unk78;
+    f32 unk7C;
+    f32 unk80;
+    void* unk84;
+    f32 unk88;
+    f32 unk8C;
+    f32 unk90;
+    f32 unk94;
+    f32 unk98;
+    f32 unk9C;
+    f32 unkA0;
+    f32 unkA4;
+    f32 unkA8;
+    f32 unkAC;
+    f32 unkB0;
+    f32 unkB4;
+    f32 unkB8;
+};
+
+#endif

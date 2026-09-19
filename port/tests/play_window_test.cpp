@@ -58,9 +58,9 @@ TEST_CASE("the play window's frame rate meter reports once per period")
 TEST_CASE("the play window's title carries the frame rate")
 {
     REQUIRE(melee::render::play_window_title() ==
-            "Melee PC — Enter é START, WASD o analógico; Esc abre Video");
+            "Melee PC — Enter is START, WASD is stick; Esc opens Video");
     REQUIRE(melee::render::play_window_title(59.94) ==
-            "Melee PC — 59.9 FPS — Enter é START, WASD o analógico; Esc abre "
+            "Melee PC — 59.9 FPS — Enter is START, WASD is stick; Esc opens "
             "Video");
 }
 
@@ -72,7 +72,7 @@ TEST_CASE("video settings only cycle through supported presentation choices")
     REQUIRE(std::string(melee::render::label(settings.resolution)) == "2x");
     melee::render::cycle(&settings, 0, -1);
     REQUIRE(std::string(melee::render::label(settings.resolution)) ==
-            "1x Nativo");
+            "1x Native");
     /* Row 1 is aspect. */
     melee::render::cycle(&settings, 1, 1);
     REQUIRE(std::string(melee::render::label(settings.aspect)) == "16:9");
@@ -83,14 +83,14 @@ TEST_CASE("video settings only cycle through supported presentation choices")
     REQUIRE(std::string(melee::render::label(settings.filter)) == "Linear");
     melee::render::cycle(&settings, 2, 1);
     REQUIRE(std::string(melee::render::label(settings.filter)) == "Nearest");
-    /* Row 3 is window mode. */
-    melee::render::cycle(&settings, 3, 1);
+    /* Row 5 is window mode. */
+    melee::render::cycle(&settings, 5, 1);
     REQUIRE(std::string(melee::render::label(settings.window_mode)) ==
-            "Tela Cheia");
-    /* Row 4 is rate. */
-    melee::render::cycle(&settings, 4, -1);
+            "Fullscreen");
+    /* Row 6 is rate. */
+    melee::render::cycle(&settings, 6, -1);
     REQUIRE(settings.rate == melee::render::PresentationRate::Unlimited);
-    melee::render::cycle(&settings, 4, 1);
+    melee::render::cycle(&settings, 6, 1);
     REQUIRE(settings.rate == melee::render::PresentationRate::Fps60);
 }
 
