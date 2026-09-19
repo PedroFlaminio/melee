@@ -451,7 +451,17 @@ def run_match(config, args):
     elif code != 0:
         record["status"] = "failed"
     elif config["until_end"]:
-        record["status"] = "ok" if "stopped at frame" in text else "short"
+        expected = [CHARACTERS[name].kind for name in config["picks"]]
+        if "match_from" not in record:
+            record["status"] = "no_match"
+        elif record.get("selected") != expected:
+            record["status"] = "misselected"
+            record["selected_names"] = [BY_KIND.get(kind, str(kind))
+                                        for kind in record.get("selected", [])]
+        elif record.get("match_until") is not None:
+            record["status"] = "ok"
+        else:
+            record["status"] = "budget"
     elif "selected" not in record:
         # A match that ran out of clock or stocks before the route quit it
         # leaves the rest of the route pressing buttons at the wrong screens.

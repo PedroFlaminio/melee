@@ -844,24 +844,30 @@ public:
             static_cast<mh_u32>(melee_host_gx_captured_texture_count());
         std::vector<const melee::render::TextureImage*> images;
         images.reserve(count);
+        const std::uint64_t revision = melee::render::custom_texture_revision();
         for (mh_u32 id = 0; id < count; ++id) {
             const TextureKey key = key_of(id);
             const mh_u32 generation = generation_of(id);
             auto found = images_.find(key);
             if (found == images_.end()) {
                 bool decoded = false;
-                found =
-                    images_.emplace(key, decode_captured_texture(id, &decoded))
-                        .first;
-                found->second.generation = generation;
-            } else if (found->second.generation != generation) {
+                CachedTexture entry;
+                entry.image = decode_captured_texture(id, &decoded);
+                entry.captured_generation = generation;
+                entry.custom_texture_revision = revision;
+                entry.image.generation = ++image_generation_;
+                found = images_.emplace(key, std::move(entry)).first;
+            } else if (found->second.captured_generation != generation ||
+                       found->second.custom_texture_revision != revision) {
                 /* An EFB copy wrote the image again: decode it in place, so
                  * the presenter keeps the address it knows it by. */
                 bool decoded = false;
-                found->second = decode_captured_texture(id, &decoded);
-                found->second.generation = generation;
+                found->second.image = decode_captured_texture(id, &decoded);
+                found->second.captured_generation = generation;
+                found->second.custom_texture_revision = revision;
+                found->second.image.generation = ++image_generation_;
             }
-            images.push_back(&found->second);
+            images.push_back(&found->second.image);
         }
         return images;
     }
@@ -898,7 +904,14 @@ private:
         };
     }
 
-    std::map<TextureKey, melee::render::TextureImage> images_;
+    struct CachedTexture {
+        melee::render::TextureImage image;
+        mh_u32 captured_generation = 0;
+        std::uint64_t custom_texture_revision = 0;
+    };
+
+    std::map<TextureKey, CachedTexture> images_;
+    mh_u32 image_generation_ = 0;
 };
 
 struct TitleView {

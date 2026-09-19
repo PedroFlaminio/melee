@@ -15,26 +15,56 @@ _Pragma("GCC diagnostic pop")
 #include <sstream>
 #include <iomanip>
 #include <iostream>
-#include <unordered_map>
+#include <map>
 #include <string>
 
 namespace melee::render {
 
-static std::unordered_map<std::string, std::filesystem::path> g_texture_index;
+static std::map<std::string, std::filesystem::path> g_texture_index;
 static bool g_index_built = false;
+static bool g_custom_textures_enabled = true;
+static std::uint64_t g_custom_texture_revision = 0;
+
+bool is_custom_textures_enabled()
+{
+    return g_custom_textures_enabled;
+}
+
+void set_custom_textures_enabled(bool enabled)
+{
+    if (g_custom_textures_enabled != enabled) {
+        g_custom_textures_enabled = enabled;
+        ++g_custom_texture_revision;
+    }
+}
+
+std::uint64_t custom_texture_revision()
+{
+    return g_custom_texture_revision;
+}
 
 static void build_texture_index() {
     if (g_index_built) return;
     std::filesystem::path textures_dir = "textures";
     if (std::filesystem::exists(textures_dir) && std::filesystem::is_directory(textures_dir)) {
         std::error_code ec;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(textures_dir, ec)) {
-            if (entry.is_regular_file()) {
+        for (std::filesystem::recursive_directory_iterator it(
+                 textures_dir, std::filesystem::directory_options::skip_permission_denied,
+                 ec), end;
+             it != end; it.increment(ec)) {
+            if (ec) {
+                ec.clear();
+                continue;
+            }
+            const auto& entry = *it;
+            if (entry.is_regular_file(ec) && !ec) {
                 std::string filename = entry.path().filename().string();
-                if (filename.ends_with(".png") || filename.ends_with(".dds")) {
-                    g_texture_index[filename] = entry.path();
+                if (filename.ends_with(".png")) {
+                    /* Keep duplicate names deterministic. */
+                    g_texture_index.try_emplace(filename, entry.path());
                 }
             }
+            ec.clear();
         }
     }
     g_index_built = true;
@@ -94,7 +124,12 @@ bool load_custom_texture(const MeleeHostGxTextureDesc& desc, const MeleeHostGxTl
         return false;
     }
 
-    std::size_t out_size = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4;
+    if (w <= 0 || h <= 0 || w > UINT16_MAX || h > UINT16_MAX) {
+        stbi_image_free(pixels);
+        return false;
+    }
+    const std::size_t out_size = static_cast<std::size_t>(w) *
+                                 static_cast<std::size_t>(h) * 4U;
     rgba_out.assign(pixels, pixels + out_size);
     out_w = static_cast<std::uint16_t>(w);
     out_h = static_cast<std::uint16_t>(h);

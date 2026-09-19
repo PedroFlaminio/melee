@@ -75,7 +75,19 @@ namespace melee::render {
     {
         ImGui_ImplSDL3_ProcessEvent(event);
         ImGuiIO& io = ImGui::GetIO();
-        return io.WantCaptureKeyboard || io.WantCaptureMouse;
+        switch (event->type) {
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+        case SDL_EVENT_TEXT_INPUT:
+            return io.WantCaptureKeyboard;
+        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+        case SDL_EVENT_MOUSE_WHEEL:
+            return io.WantCaptureMouse;
+        default:
+            return false;
+        }
     }
 
     bool draw_settings_ui(VideoSettings* settings, bool* open,
@@ -179,7 +191,8 @@ namespace melee::render {
                 if (ImGui::Checkbox("Show FPS", &settings->show_fps)) {
                     changed = true;
                 }
-                if (ImGui::Checkbox("Unlock Everything", &settings->unlock_all)) {
+                if (ImGui::Button("Unlock Everything")) {
+                    settings->unlock_requested = true;
                     changed = true;
                 }
                 if (ImGui::Checkbox("Enable Custom Textures", &settings->custom_textures)) {

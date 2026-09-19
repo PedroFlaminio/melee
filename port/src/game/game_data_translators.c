@@ -2851,11 +2851,14 @@ static void* fighter_parts_vis_lookup_set(MeleeHostHsdReader* reader, mh_u32 at)
             mh_u8 xC[0];
         }* yoshi2 = melee_host_hsd_reader_allocate(reader, extent, 4);
         if (yoshi2) {
-            yoshi2->x0 = melee_host_hsd_reader_u32(reader, target + 0x0);
+            if (extent >= 4) yoshi2->x0 = melee_host_hsd_reader_u32(reader, target + 0x0);
             if (extent >= 8) yoshi2->x4 = melee_host_hsd_reader_u32(reader, target + 0x4);
             if (extent >= 12) yoshi2->x8 = melee_host_hsd_reader_u32(reader, target + 0x8);
             if (extent > 12) {
-                copy_bytes(reader, target, yoshi2->xC, 12, extent);
+                /* copy_bytes applies its offset to both addresses.  Pass the
+                 * allocation base so byte 12 of the disc reaches byte 12 of
+                 * this record, rather than byte 24. */
+                copy_bytes(reader, target, yoshi2, 12, extent);
             }
         }
         set->x4 = (mh_u8*) yoshi2;
@@ -3857,12 +3860,13 @@ static void* samus_throw_beam_model(MeleeHostHsdReader* reader, mh_u32 at)
      *     HSD_AnimJoint* x8_anim_joint;
      *     HSD_MatAnimJoint* xC_matanim_joint;
      * }; */
-    struct {
-        void* x0;
-        void* x4;
-        void* x8;
-        void* xC;
-    }* beam = melee_host_hsd_reader_allocate(reader, 0x10, alignof(void*));
+    struct SamusThrowBeamModel {
+        void* joint;
+        void* anim_joints;
+        void* anim_joint;
+        void* matanim_joint;
+    }* beam = melee_host_hsd_reader_allocate(reader, sizeof(*beam),
+                                              alignof(struct SamusThrowBeamModel));
     bool present;
     mh_u32 target;
 
@@ -3871,7 +3875,7 @@ static void* samus_throw_beam_model(MeleeHostHsdReader* reader, mh_u32 at)
     }
 
     target = target_of(reader, at + 0x00, &present);
-    beam->x0 = present ? melee_host_hsd_reader_joint(reader, target) : NULL;
+    beam->joint = present ? melee_host_hsd_reader_joint(reader, target) : NULL;
 
     target = target_of(reader, at + 0x04, &present);
     if (present) {
@@ -3884,16 +3888,17 @@ static void* samus_throw_beam_model(MeleeHostHsdReader* reader, mh_u32 at)
                 arr[i] = p ? melee_host_hsd_reader_anim_joint(reader, t) : NULL;
             }
         }
-        beam->x4 = arr;
+        beam->anim_joints = arr;
     } else {
-        beam->x4 = NULL;
+        beam->anim_joints = NULL;
     }
 
     target = target_of(reader, at + 0x08, &present);
-    beam->x8 = present ? melee_host_hsd_reader_anim_joint(reader, target) : NULL;
+    beam->anim_joint = present ? melee_host_hsd_reader_anim_joint(reader, target) : NULL;
 
     target = target_of(reader, at + 0x0C, &present);
-    beam->xC = present ? melee_host_hsd_reader_mat_anim_joint(reader, target) : NULL;
+    beam->matanim_joint =
+        present ? melee_host_hsd_reader_mat_anim_joint(reader, target) : NULL;
 
     return melee_host_hsd_reader_failed(reader) ? NULL : beam;
 }

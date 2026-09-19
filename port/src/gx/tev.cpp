@@ -577,6 +577,7 @@ uniform int u_fog_type;
 uniform vec2 u_fog_range;
 uniform ivec4 u_fog_color;
 uniform int u_z_texture_op;
+uniform int u_z_texture_bias;
 out vec4 frag_color;
 
 /* The same curve as melee::gx::fog_blend, over the fragment's eye-space
@@ -761,8 +762,12 @@ void main()
     final_color.rgb = (final_color.rgb * (256 - fog) +
                        u_fog_color.rgb * fog + 128) >> 8;
     frag_color = vec4(final_color) / 255.0;
-    if (u_z_texture_op == 1) {
-        gl_FragDepth = float(last_texel.r) / 255.0;
+    /* A shader that writes gl_FragDepth must define it on every path. */
+    gl_FragDepth = gl_FragCoord.z;
+    if (u_z_texture_op == 2) { /* GX_ZT_REPLACE */
+        gl_FragDepth = clamp((float(last_texel.r) + float(u_z_texture_bias)) /
+                                 255.0,
+                             0.0, 1.0);
     }
 }
 )";

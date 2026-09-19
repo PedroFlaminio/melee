@@ -1400,6 +1400,20 @@ TEST_CASE("a stage's ALDYakuAll and yakumono_param translate")
     REQUIRE(params[0] == 0);
     REQUIRE(params[3] == 0);
     REQUIRE(melee_host_hsd_archive_release(bytes.data()) == MELEE_HOST_OK);
+
+    // A non-zero block cannot be identified from its size alone.  It must not
+    // be silently replaced with zeroes or interpreted as another stage.
+    ArchiveBuilder unknown(0x40);
+    unknown.f32(0x00, 1.5F);
+    unknown.public_symbol(0x00, "yakumono_param");
+    std::vector<std::byte> unknown_bytes = unknown.build();
+    HSD_Archive unknown_archive{};
+    REQUIRE(HSD_ArchiveParse(&unknown_archive, bytes_of(unknown_bytes),
+                             unknown_bytes.size()) == 0);
+    REQUIRE(HSD_ArchiveGetPublicAddress(&unknown_archive, "yakumono_param") ==
+            nullptr);
+    REQUIRE(melee_host_hsd_archive_release(unknown_bytes.data()) ==
+            MELEE_HOST_OK);
 }
 
 extern "C" int melee_host_test_check_fighter_common_data(void* translated,

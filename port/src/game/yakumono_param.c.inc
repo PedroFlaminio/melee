@@ -22,6 +22,36 @@ static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
         return NULL;
     }
 
+    /* HSD relocation values are archive offsets, not host addresses.  Do not
+     * expose them as pointers until their target has been materialized. */
+    if (size == 8 && melee_host_hsd_reader_has_pointer(reader, root + 0x0)) {
+        struct grBattle_YakumonoParam* out = melee_host_hsd_reader_allocate(
+            reader, sizeof(*out), alignof(struct grBattle_YakumonoParam));
+        if (out == NULL) return NULL;
+        if (!melee_host_hsd_reader_pointer(reader, root + 0x0, &target)) return NULL;
+        out->bg_curr_color_overlay =
+            melee_host_hsd_reader_command_stream(reader, target);
+        if (!melee_host_hsd_reader_pointer(reader, root + 0x4, &target)) return NULL;
+        out->bg_prev_color_overlay =
+            melee_host_hsd_reader_command_stream(reader, target);
+        return melee_host_hsd_reader_failed(reader) ? NULL : out;
+    }
+    for (at = 0; at < size; at += 4) {
+        if (melee_host_hsd_reader_has_pointer(reader, root + at)) {
+            melee_host_hsd_reader_fail(
+                reader, "yakumono_param contains an unsupported relocated object");
+            return NULL;
+        }
+    }
+    /* The archive API does not retain a stage identity here.  Several stage
+     * layouts have the same extent but incompatible fields, so choosing one
+     * from its size corrupts the game's view of the data.  Keep the generated
+     * candidates below as a reference until they are selected by an explicit
+     * stage schema, but reject every other non-zero block now. */
+    melee_host_hsd_reader_fail(
+        reader, "yakumono_param has no stage-specific verified layout");
+    return NULL;
+
     switch (size) {
         case 8:
         if (melee_host_hsd_reader_has_pointer(reader, root + 0x0)) {
@@ -190,7 +220,10 @@ static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
             return out;
         }
         case 52:
-        if (1) {
+            melee_host_hsd_reader_fail(
+                reader, "yakumono_param layout is ambiguous for 52-byte block");
+            return NULL;
+        if (0) {
             struct grOldpupupu_YakumonoParam* out = melee_host_hsd_reader_allocate(reader, sizeof(*out), alignof(struct grOldpupupu_YakumonoParam));
             out->x0 = (u16) melee_host_hsd_reader_u16(reader, root + 0x0);
             out->x2 = (u16) melee_host_hsd_reader_u16(reader, root + 0x2);
@@ -285,7 +318,10 @@ static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
             return out;
         }
         case 76:
-        if (1) {
+            melee_host_hsd_reader_fail(
+                reader, "yakumono_param layout is ambiguous for 76-byte block");
+            return NULL;
+        if (0) {
             struct grFourside_YakumonoParam* out = melee_host_hsd_reader_allocate(reader, sizeof(*out), alignof(struct grFourside_YakumonoParam));
             out->heli_wait = (s32) melee_host_hsd_reader_u32(reader, root + 0x0);
             out->heli_wait_add = (s32) melee_host_hsd_reader_u32(reader, root + 0x4);
@@ -375,7 +411,10 @@ static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
             return out;
         }
         case 84:
-        if (1) {
+            melee_host_hsd_reader_fail(
+                reader, "yakumono_param layout is ambiguous for 84-byte block");
+            return NULL;
+        if (0) {
             struct grIzumi_YakumonoParam* out = melee_host_hsd_reader_allocate(reader, sizeof(*out), alignof(struct grIzumi_YakumonoParam));
             out->x0 = (f32) melee_host_hsd_reader_f32(reader, root + 0x0);
             out->x4 = (s32) melee_host_hsd_reader_u32(reader, root + 0x4);
@@ -877,10 +916,9 @@ static void* stage_yakumono_param(MeleeHostHsdReader* reader, mh_u32 root)
             out->x140_scale = (f32) melee_host_hsd_reader_f32(reader, root + 0x140);
             return out;
         }
-        default: {
-            void* block = melee_host_hsd_reader_allocate(reader, size, alignof(mh_u32));
-            if (block) memset(block, 0, size);
-            return block;
-        }
+        default:
+            melee_host_hsd_reader_fail(reader,
+                "yakumono_param has no verified layout for this block size");
+            return NULL;
     }
 }
